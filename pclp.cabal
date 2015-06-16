@@ -8,15 +8,18 @@ description:
 data-dir: ""
  
 executable pclp
-    build-depends: QuickCheck -any, base -any
+    build-depends: QuickCheck -any, base -any, containers -any
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
+    other-modules: AST Parser
+    ghc-options: -XGADTs -XStandaloneDeriving
  
 test-suite test-pclp
-    build-depends: QuickCheck -any, base -any
+    build-depends: QuickCheck -any, base -any, containers -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
+    ghc-options: -XGADTs -XStandaloneDeriving

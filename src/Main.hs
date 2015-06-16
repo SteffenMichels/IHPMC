@@ -18,17 +18,21 @@ import Control.Monad (unless)
 import Data.List (stripPrefix)
 import System.Exit (exitFailure)
 import Test.QuickCheck.All (quickCheckAll)
-
--- Simple function to create a hello message.
-hello s = "Hello " ++ s
+import System.IO (readFile)
+import System.Environment (getArgs)
+import Parser
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
-prop_hello s = stripPrefix "Hello " (hello s) == Just s
+-- prop_hello s = stripPrefix "Hello " (hello s) == Just s
 
 -- Hello World
 exeMain = do
-    putStrLn (hello "World")
+    args <- return ["test.pclp"]--getArgs
+    let firstArg = args !! 0
+    src <- readFile firstArg
+    let ast = parse src
+    putStrLn $ show ast
 
 -- Entry point for unit tests.
 testMain = do
@@ -43,4 +47,3 @@ testMain = do
 #define MAIN_FUNCTION exeMain
 #endif
 main = MAIN_FUNCTION
-
