@@ -16,6 +16,7 @@ module AST
     ( AST(..)
     , PredicateLabel
     , RuleBody(..)
+    , RuleBodyElement(..)
     ) where
 import Data.Map (Map)
 import qualified Data.Map as Map

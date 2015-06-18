@@ -36,23 +36,38 @@ parsePclp src =
 
 parseTheory :: AST -> Parser AST
 parseTheory ast = spaces >>
-                    (   do -- rules
-                            (label, body) <- parseRule
-                            -- put together rules with same head
-                            let ast' = ast {rules = Map.insertWith (++) label [body] (rules ast)}
-                            parseTheory ast'
-                    <|> (eof >> return ast)
-                    )
+                (   ( do -- rules
+                        (label, body) <- parseRule
+                        -- put together rules with same head
+                        let ast' = ast {rules = Map.insertWith (++) label [body] (rules ast)}
+                        parseTheory ast'
+                      )
+                  <|> ( do
+                            eof
+                            return ast
+                      )
+                )
 
 parseRule :: Parser (PredicateLabel, RuleBody)
 parseRule = do
     label <- parsePredicateLabel
-    body <- return (RuleBody [])
-    return (label, body)
+    stringAndSpaces "<-"
+    body <- sepBy parseBodyElement (stringAndSpaces ",")
+    stringAndSpaces "."
+    return (label, RuleBody body)
 
 parsePredicateLabel :: Parser PredicateLabel
 parsePredicateLabel = do
     first <- lower
     rest  <- many letter
+    spaces
     return (first:rest)
 
+parseBodyElement :: Parser RuleBodyElement
+parseBodyElement = do
+    userPred <- parsePredicateLabel
+    spaces
+    return (UserPredicate userPred)
+
+stringAndSpaces :: String -> Parser ()
+stringAndSpaces str = string str >> spaces
