@@ -8,7 +8,8 @@ description:
 data-dir: ""
  
 executable pclp
-    build-depends: QuickCheck -any, base -any, containers -any
+    build-depends: QuickCheck -any, base -any, containers -any,
+                   parsec -any
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
@@ -16,7 +17,8 @@ executable pclp
     ghc-options: -XGADTs -XStandaloneDeriving
  
 test-suite test-pclp
-    build-depends: QuickCheck -any, base -any, containers -any
+    build-depends: QuickCheck -any, base -any, containers -any,
+                   parsec -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True

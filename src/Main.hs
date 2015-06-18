@@ -31,7 +31,7 @@ exeMain = do
     args <- return ["test.pclp"]--getArgs
     let firstArg = args !! 0
     src <- readFile firstArg
-    let ast = parse src
+    let ast = parsePclp src
     putStrLn $ show ast
 
 -- Entry point for unit tests.

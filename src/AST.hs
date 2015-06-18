@@ -13,14 +13,16 @@
 -----------------------------------------------------------------------------
 
 module AST
-    ( AST
+    ( AST(..)
+    , PredicateLabel
+    , RuleBody(..)
     ) where
 import Data.Map (Map)
 import qualified Data.Map as Map
 
 data AST = AST
     { rFuncDefs :: Map RFuncLabel RFuncDef
-    , rules     :: Map PredicateLabel RuleBody
+    , rules     :: Map PredicateLabel [RuleBody]
     , query     :: PredicateLabel
     } deriving (Show)
 
@@ -29,7 +31,7 @@ type RFuncLabel      = String
 
 data RFuncDef = Flip Rational deriving (Show)
 
-data RuleBody = RuleBody [RuleBodyElement] deriving (Show)
+newtype RuleBody = RuleBody [RuleBodyElement] deriving (Show)
 
 data RuleBodyElement = UserPredicate PredicateLabel
                      | BuildInPredicate BuildInPredicate
