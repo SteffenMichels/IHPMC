@@ -18,21 +18,16 @@ module Parser
 import AST
 import qualified Data.Map as Map
 import Text.ParserCombinators.Parsec
+import Control.Monad.Exception.Synchronous
 
-parsePclp :: String -> AST
+parsePclp :: String -> Exceptional String AST
 parsePclp src =
     let initialState = AST
             { rFuncDefs = Map.empty
             , rules     = Map.empty
             , query     = ""
             }
-    in case parse (parseTheory initialState) "PCLP theory" src of
-        Left err  -> AST
-            { rFuncDefs = Map.empty
-            , rules     = Map.empty
-            , query     = show err
-            }
-        Right val -> val
+    in mapException show (fromEither (parse (parseTheory initialState) "PCLP theory" src))
 
 parseTheory :: AST -> Parser AST
 parseTheory ast = spaces >>

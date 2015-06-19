@@ -21,6 +21,9 @@ import Test.QuickCheck.All (quickCheckAll)
 import System.IO (readFile)
 import System.Environment (getArgs)
 import Parser
+import Control.Monad.Exception.Synchronous
+import Control.Monad (liftM)
+import qualified System.IO.Error as IOError
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -28,11 +31,16 @@ import Parser
 
 -- Hello World
 exeMain = do
-    args <- return ["test.pclp"]--getArgs
-    let firstArg = args !! 0
-    src <- readFile firstArg
-    let ast = parsePclp src
-    putStrLn $ show ast
+    result <- runExceptionalT exeMain'
+    case result of
+        Exception e -> putStrLn ("Error: " ++ show e)
+        Success x   -> putStrLn $ show x
+    where
+        exeMain' = do
+            args <- return ["test.pclp"]--getArgs
+            let firstArg = args !! 0
+            src <- mapExceptionT show (fromEitherT (IOError.tryIOError (readFile firstArg)))
+            ExceptionalT $ return $ parsePclp src
 
 -- Entry point for unit tests.
 testMain = do

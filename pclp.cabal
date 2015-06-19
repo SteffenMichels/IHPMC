@@ -9,7 +9,7 @@ data-dir: ""
  
 executable pclp
     build-depends: QuickCheck -any, base -any, containers -any,
-                   parsec -any
+                   explicit-exception -any, parsec -any
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
@@ -18,7 +18,7 @@ executable pclp
  
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
-                   parsec -any
+                   explicit-exception -any, parsec -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True
