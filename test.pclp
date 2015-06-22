@@ -1,1 +1,3 @@
-pred   <-   hello  , yeah  , a .
+~a   ~  flip( 1.33 ) .
+
+pred   <-   hello  , yeah  , a , #true   = #false, ~a = #false  .

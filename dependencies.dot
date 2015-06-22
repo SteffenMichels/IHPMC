@@ -1,0 +1,5 @@
+digraph dependencies {
+    Main -> Parser;
+    Main -> Exception;
+    Parser -> AST;
+}

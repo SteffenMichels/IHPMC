@@ -15,17 +15,27 @@
 module AST
     ( AST(..)
     , PredicateLabel
+    , RFuncLabel
     , RuleBody(..)
     , RuleBodyElement(..)
+    , BuildInPredicate(..)
+    , RFuncDef(..)
+    , Expr(..)
     ) where
 import Data.Map (Map)
 import qualified Data.Map as Map
 
 data AST = AST
-    { rFuncDefs :: Map RFuncLabel RFuncDef
+    { rFuncDefs :: Map RFuncLabel [RFuncDef] -- list of func with same signature, first matches
     , rules     :: Map PredicateLabel [RuleBody]
     , query     :: PredicateLabel
-    } deriving (Show)
+    }
+
+instance Show AST where
+    show ast = rfuncDefsStr ++ rulesStr ++ queryStr where
+        rfuncDefsStr = "RANDOM FUNCTION DEFINITIONS\n" ++ foldl (\str (label,def) -> label ++ " ~ " ++ show def ++ "\n") "" (Map.toList $ rFuncDefs ast)
+        rulesStr = "RULES\n" ++ foldl (\str (label,body) -> label ++ " <- " ++ show body ++ "\n") "" (Map.toList $ rules ast)
+        queryStr = "QUERY\n" ++ query ast
 
 type PredicateLabel  = String
 type RFuncLabel      = String

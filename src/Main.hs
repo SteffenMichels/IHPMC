@@ -32,7 +32,7 @@ import Exception
 exeMain = do
     result <- runExceptionalT exeMain'
     case result of
-        Exception e -> putStrLn ("Error: " ++ show e)
+        Exception e -> putStrLn ("Error\n" ++ e)
         Success x   -> putStrLn $ show x
     where
         exeMain' = do
