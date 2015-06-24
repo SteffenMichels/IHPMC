@@ -26,13 +26,18 @@ parsePclp src =
     let initialState = AST
             { rFuncDefs = Map.empty
             , rules     = Map.empty
-            , query     = ""
+            , queries   = []
             }
     in mapException show (fromEither (parse (parseTheory initialState) "PCLP theory" src))
 
 parseTheory :: AST -> Parser AST
 parseTheory ast = spaces >>
-                (     ( do -- random function definition
+                (     try ( do -- query
+                        query <- parseQuery
+                        let ast' = ast {queries = query:queries ast}
+                        parseTheory ast'
+                      )
+                  <|> ( do -- random function definition
                         (signature, def) <- parseRFuncDef
                         -- put together defs with same signature
                         let ast' = ast {rFuncDefs = Map.insertWith (++) signature [def] (rFuncDefs ast)}
@@ -119,6 +124,14 @@ parseUserRFuncLabel = do
     rest  <- many letter
     spaces
     return (first:rest)
+
+-- queries
+parseQuery :: Parser PredicateLabel
+parseQuery = do
+    stringAndSpaces "query"
+    query <- parsePredicateLabel
+    stringAndSpaces "."
+    return query
 
 -- util
 

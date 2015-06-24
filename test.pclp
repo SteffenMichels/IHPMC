@@ -1,3 +1,6 @@
 ~a   ~  flip( 1.33 ) .
 
-pred   <-   hello  , yeah  , a , #true   = #false, ~a = #false  .
+q <- a, #true = ~a.
+q <- b, c.
+
+query q.

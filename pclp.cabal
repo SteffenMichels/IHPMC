@@ -12,7 +12,7 @@ executable pclp
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
-    other-modules: Exception AST Parser
+    other-modules: Grounder NNF Exception AST Parser
     ghc-options: -XGADTs -XStandaloneDeriving
  
 test-suite test-pclp
