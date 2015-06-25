@@ -17,6 +17,7 @@ module Parser
     ) where
 import AST
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Text.ParserCombinators.Parsec
 import Control.Monad.Exception.Synchronous
 import Numeric
@@ -26,7 +27,7 @@ parsePclp src =
     let initialState = AST
             { rFuncDefs = Map.empty
             , rules     = Map.empty
-            , queries   = []
+            , queries   = Set.empty
             }
     in mapException show (fromEither (parse (parseTheory initialState) "PCLP theory" src))
 
@@ -34,7 +35,7 @@ parseTheory :: AST -> Parser AST
 parseTheory ast = spaces >>
                 (     try ( do -- query
                         query <- parseQuery
-                        let ast' = ast {queries = query:queries ast}
+                        let ast' = ast {queries = Set.insert query $ queries ast}
                         parseTheory ast'
                       )
                   <|> ( do -- random function definition
@@ -46,7 +47,7 @@ parseTheory ast = spaces >>
                   <|> ( do -- rule
                         (label, body) <- parseRule
                         -- put together rules with same head
-                        let ast' = ast {rules = Map.insertWith (++) label [body] (rules ast)}
+                        let ast' = ast {rules = Map.insertWith Set.union label (Set.singleton body) (rules ast)}
                         parseTheory ast'
                       )
                   <|> ( do -- end of input
