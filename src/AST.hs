@@ -49,6 +49,7 @@ data RuleBodyElement = UserPredicate PredicateLabel
                      deriving (Show)
 
 data BuildInPredicate = BoolEq (Expr Bool) (Expr Bool)
+                      | ConstantPredicate Bool
 
 instance Show BuildInPredicate where
     show (BoolEq exprX exprY) = show exprX ++ " = " ++ show exprY

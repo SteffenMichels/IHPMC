@@ -21,6 +21,8 @@ module NNF
     , member
     , insert
     , insertFresh
+    , lookUp
+    , simplify
     , exportAsDot
     ) where
 import Data.Map (Map)
@@ -32,6 +34,7 @@ import Control.Monad.Exception.Synchronous
 import System.IO
 import Exception
 import Control.Monad (forM)
+import Data.Maybe (fromJust)
 
 data NNF = NNF (Map NodeLabel Node) Int
 
@@ -58,6 +61,36 @@ insert label node (NNF nodes freshCounter) = NNF (Map.insert label node nodes) f
 insertFresh :: Node -> NNF -> (NodeLabel, NNF)
 insertFresh node (NNF nodes freshCounter) =
     (label, NNF (Map.insert label node nodes) (freshCounter + 1)) where label = show freshCounter
+
+lookUp :: NodeLabel -> NNF -> Maybe Node
+lookUp label (NNF nodes _) = Map.lookup label nodes
+
+simplify :: AST.PredicateLabel -> NNF -> NNF
+simplify root nnf =
+    if root == topLabel
+    then nnf'
+    else insert root (fromJust (lookUp topLabel nnf')) nnf' -- copy topmost node content for root
+    where
+        (topLabel, nnf') = addNode root nnf
+
+        addNode :: AST.PredicateLabel -> NNF -> (AST.PredicateLabel, NNF)
+        addNode label nnf =
+            let node = fromJust (lookUp label nnf)
+            in case node of
+                (Operator nType children)
+                    | nChildren == 0 -> error "should not happen?"
+                    | nChildren == 1 -> let (childLabel, nnf') = addNode (Set.findMin children) nnf
+                                        in (childLabel, nnf')
+                    | otherwise      -> let (newChildren, nnf') = Set.fold
+                                                (\child (newChildren, nnf) -> let (newLabel, nnf'') = addNode child nnf
+                                                                           in (Set.insert newLabel newChildren, nnf'')
+                                                )
+                                                (Set.empty, nnf)
+                                                children
+                                        in (label, insert label (Operator nType newChildren) nnf')
+                    where
+                        nChildren = Set.size children
+                (BuildInPredicate _) -> (label, nnf)
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do

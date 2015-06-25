@@ -1,6 +1,12 @@
 ~a   ~  flip( 1.33 ) .
 
 q <- a, #true = ~a.
-q <- b, c.
+q <- #true = ~b, b.
 
-query q.
+a <- #true = ~aa, #true = ~aa.
+
+b <- a.
+
+qProxy <- q.
+
+query qProxy.
