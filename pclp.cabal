@@ -4,6 +4,7 @@ cabal-version: >=1.2
 build-type: Simple
 license: AllRightsReserved
 license-file: ""
+description:  
 data-dir: ""
  
 executable pclp
@@ -11,9 +12,9 @@ executable pclp
                    explicit-exception -any, parsec -any
     main-is: Main.hs
     buildable: True
+    extensions: StandaloneDeriving GADTs
     hs-source-dirs: src
-    other-modules: Grounder NNF Exception AST Parser
-    ghc-options: -XGADTs -XStandaloneDeriving
+    other-modules: NNF AST Parser Exception Grounder
  
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
@@ -22,5 +23,5 @@ test-suite test-pclp
     main-is: Main.hs
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
+    extensions: StandaloneDeriving GADTs
     hs-source-dirs: src
-    ghc-options: -XGADTs -XStandaloneDeriving

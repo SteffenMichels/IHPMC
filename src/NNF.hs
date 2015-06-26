@@ -35,6 +35,7 @@ import System.IO
 import Exception
 import Control.Monad (forM)
 import Data.Maybe (fromJust)
+import Text.Printf (printf)
 
 data NNF = NNF (Map NodeLabel Node) Int
 
@@ -102,7 +103,7 @@ exportAsDot path (NNF nodes _) = do
     where
         printNode :: Handle -> (NodeLabel, Node) -> ExceptionalT String IO ()
         printNode file (label,node) = do
-            doIO (hPutStrLn file ("    " ++ label ++ "[label=\"" ++ label ++ "\\n" ++ descr node ++ "\"];"))
+            doIO (hPutStrLn file (printf "    %s[label=\"%s\\n%s\"];" label label $ descr node))
             case node of
                 (Operator _ children) -> forM (Set.toList children) writeEdge >> return ()
                 (BuildInPredicate _)  -> return ()
@@ -110,5 +111,5 @@ exportAsDot path (NNF nodes _) = do
                 descr (Operator t _)          = case t of And -> "AND"; Or -> "OR"
                 descr (BuildInPredicate pred) = show pred
 
-                writeEdge childLabel = doIO (hPutStrLn file ("    " ++ label ++ " -> " ++ childLabel ++ ";"))
+                writeEdge childLabel = doIO (hPutStrLn file (printf "    %s -> %s;" label childLabel))
 

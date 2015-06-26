@@ -15,7 +15,8 @@
 module Grounder
     ( groundPclp
     ) where
-import AST
+import AST (AST)
+import qualified AST
 import NNF (NNF)
 import qualified NNF
 import Control.Monad.Exception.Synchronous
@@ -24,8 +25,8 @@ import qualified Data.Set as Set
 import Data.Maybe (fromJust)
 
 groundPclp :: AST -> NNF
-groundPclp AST {queries=queries, rules=rules} = Set.fold NNF.simplify (Set.fold groundRule NNF.emptyNNF queries) queries where
-    groundRule :: PredicateLabel -> NNF -> NNF
+groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.fold NNF.simplify (Set.fold groundRule NNF.emptyNNF queries) queries where
+    groundRule :: AST.PredicateLabel -> NNF -> NNF
     groundRule label nnf
         | NNF.member label nnf = nnf -- already added
         | nChildren == 0 = error "not implemented"
@@ -41,8 +42,8 @@ groundPclp AST {queries=queries, rules=rules} = Set.fold NNF.simplify (Set.fold 
             children = Map.findWithDefault (error "rule not found") label rules
             nChildren = Set.size children
 
-    groundBody :: RuleBody -> NNF -> (NNF.NodeLabel, NNF)
-    groundBody (RuleBody elements) nnf = case elements of
+    groundBody :: AST.RuleBody -> NNF -> (NNF.NodeLabel, NNF)
+    groundBody (AST.RuleBody elements) nnf = case elements of
         []              -> error "not implemented"
         [singleElement] -> groundElement singleElement nnf
         elements        -> let (nnfChildren, nnf') = foldl
@@ -54,6 +55,6 @@ groundPclp AST {queries=queries, rules=rules} = Set.fold NNF.simplify (Set.fold 
                                     elements
                            in NNF.insertFresh (NNF.Operator NNF.And nnfChildren) nnf'
 
-    groundElement :: RuleBodyElement -> NNF -> (NNF.NodeLabel, NNF)
-    groundElement (UserPredicate label)   nnf = (label, groundRule label nnf)
-    groundElement (BuildInPredicate pred) nnf = NNF.insertFresh (NNF.BuildInPredicate pred) nnf
+    groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeLabel, NNF)
+    groundElement (AST.UserPredicate label)   nnf = (label, groundRule label nnf)
+    groundElement (AST.BuildInPredicate pred) nnf = NNF.insertFresh (NNF.BuildInPredicate pred) nnf

@@ -25,6 +25,7 @@ import Grounder
 import Control.Monad.Exception.Synchronous
 import Exception
 import NNF
+import Text.Printf (printf)
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -34,7 +35,7 @@ import NNF
 exeMain = do
     result <- runExceptionalT exeMain'
     case result of
-        Exception e -> putStrLn ("\nError: " ++ e)
+        Exception e -> putStrLn (printf "\nError: %s" e)
         Success x   -> putStrLn $ show x
     where
         exeMain' = do

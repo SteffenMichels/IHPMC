@@ -21,6 +21,7 @@ import qualified Data.Set as Set
 import Text.ParserCombinators.Parsec
 import Control.Monad.Exception.Synchronous
 import Numeric
+import Text.Printf (printf)
 
 parsePclp :: String -> Exceptional String AST
 parsePclp src =
@@ -95,7 +96,7 @@ parseRFuncDef = do
             before <- many digit
             string "."
             after <- many1 digit
-            return (before ++ "." ++ after)
+            return (printf "%s.%s" before after)
         )
     spaces
     stringAndSpaces ")"
