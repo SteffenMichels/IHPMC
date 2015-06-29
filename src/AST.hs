@@ -21,6 +21,7 @@ module AST
     , BuildInPredicate(..)
     , RFuncDef(..)
     , Expr(..)
+    , deterministicValue
     ) where
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -52,11 +53,10 @@ data RuleBodyElement = UserPredicate PredicateLabel
                      deriving (Show, Eq, Ord)
 
 data BuildInPredicate = BoolEq (Expr Bool) (Expr Bool)
-                      | ConstantPredicate Bool
                       deriving (Eq, Ord)
 
 instance Show BuildInPredicate where
-    show (BoolEq exprX exprY) = printf "%s + %s" (show exprX) (show exprY)
+    show (BoolEq exprX exprY) = printf "%s = %s" (show exprX) (show exprY)
 
 data Expr a where
     BoolConstant :: Bool -> Expr Bool
@@ -69,3 +69,7 @@ instance Show (Expr a) where
     show (BoolConstant const) = printf "#%s" (show const)
     show (UserRFunc label)    = printf "~%s" label
 
+deterministicValue :: BuildInPredicate -> Maybe Bool
+deterministicValue (BoolEq (BoolConstant left) (BoolConstant right))           = Just (left == right)
+deterministicValue (BoolEq (UserRFunc left) (UserRFunc right)) | left == right = Just True
+deterministicValue _                                                           = Nothing

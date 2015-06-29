@@ -26,6 +26,9 @@ import Control.Monad.Exception.Synchronous
 import Exception
 import NNF
 import Text.Printf (printf)
+import GWMC
+import qualified AST
+import qualified Data.Set as Set
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -46,7 +49,8 @@ exeMain = do
             doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             exportAsDot "/tmp/nnf.dot" nnf
-            return "success"
+            bounds <- return $ gwmc (Set.findMax $ AST.queries ast) nnf
+            return $ take 5 bounds
 
 -- Entry point for unit tests.
 testMain = do

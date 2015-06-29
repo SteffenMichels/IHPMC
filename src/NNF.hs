@@ -17,7 +17,7 @@ module NNF
     , Node(..)
     , NodeType(..)
     , NodeLabel
-    , emptyNNF
+    , empty
     , member
     , insert
     , insertFresh
@@ -36,6 +36,7 @@ import Exception
 import Control.Monad (forM)
 import Data.Maybe (fromJust)
 import Text.Printf (printf)
+import qualified Data.Foldable as Foldable
 
 data NNF = NNF (Map NodeLabel Node) Int
 
@@ -46,11 +47,12 @@ type NodeLabel = String
 
 data Node = Operator NodeType (Set NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
+          | Deterministic Bool
 
-data NodeType = And | Or
+data NodeType = And | Or deriving (Eq)
 
-emptyNNF :: NNF
-emptyNNF = NNF Map.empty 0
+empty :: NNF
+empty = NNF Map.empty 0
 
 member :: NodeLabel -> NNF -> Bool
 member label (NNF nodes freshCounter) = Map.member label nodes
@@ -66,6 +68,11 @@ insertFresh node (NNF nodes freshCounter) =
 lookUp :: NodeLabel -> NNF -> Maybe Node
 lookUp label (NNF nodes _) = Map.lookup label nodes
 
+deterministicValue :: NodeLabel -> NNF -> Maybe Bool
+deterministicValue label nnf = case fromJust (lookUp label nnf) of
+    Deterministic val -> Just val
+    _                 -> Nothing
+
 simplify :: AST.PredicateLabel -> NNF -> NNF
 simplify root nnf =
     if root == topLabel
@@ -75,23 +82,34 @@ simplify root nnf =
         (topLabel, nnf') = addNode root nnf
 
         addNode :: AST.PredicateLabel -> NNF -> (AST.PredicateLabel, NNF)
-        addNode label nnf =
-            let node = fromJust (lookUp label nnf)
-            in case node of
-                (Operator nType children)
-                    | nChildren == 0 -> error "should not happen?"
-                    | nChildren == 1 -> let (childLabel, nnf') = addNode (Set.findMin children) nnf
-                                        in (childLabel, nnf')
-                    | otherwise      -> let (newChildren, nnf') = Set.fold
-                                                (\child (newChildren, nnf) -> let (newLabel, nnf'') = addNode child nnf
-                                                                           in (Set.insert newLabel newChildren, nnf'')
-                                                )
-                                                (Set.empty, nnf)
-                                                children
-                                        in (label, insert label (Operator nType newChildren) nnf')
+        addNode label nnf = case node of
+            (Operator nType children)
+                | nChildren == 0 -> error "should not happen?"
+                | nChildren == 1 -> let (childLabel, nnf') = addNode (Set.findMin children) nnf
+                                    in (childLabel, nnf')
+                | otherwise      -> addOperatorNode nType children
+                where
+                    nChildren = Set.size children
+            (BuildInPredicate pred) -> case AST.deterministicValue pred of
+                Just val -> (label, insert label (Deterministic val) nnf)
+                Nothing  -> (label, nnf)
+            where
+                node = fromJust (lookUp label nnf)
+
+                addOperatorNode nType children
+                    | Foldable.any (\c -> deterministicValue c nnf' == Just anyDeterministicValue) newChildren =
+                        (label, insert label (Deterministic anyDeterministicValue) nnf')
+                    | otherwise =
+                        (label, insert label (Operator nType newChildren) nnf')
                     where
-                        nChildren = Set.size children
-                (BuildInPredicate _) -> (label, nnf)
+                        anyDeterministicValue = if nType == And then False else True
+                        (newChildren, nnf') = Set.fold
+                            (\child (newChildren, nnf) -> let (newLabel, nnf'') = addNode child nnf
+                                                          in (Set.insert newLabel newChildren, nnf'')
+                            )
+                            (Set.empty, nnf)
+                            children
+
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do
@@ -106,10 +124,10 @@ exportAsDot path (NNF nodes _) = do
             doIO (hPutStrLn file (printf "    %s[label=\"%s\\n%s\"];" label label $ descr node))
             case node of
                 (Operator _ children) -> forM (Set.toList children) writeEdge >> return ()
-                (BuildInPredicate _)  -> return ()
+                _                     -> return ()
             where
                 descr (Operator t _)          = case t of And -> "AND"; Or -> "OR"
                 descr (BuildInPredicate pred) = show pred
+                descr (Deterministic val)     = if val then "TRUE" else "FALSE"
 
                 writeEdge childLabel = doIO (hPutStrLn file (printf "    %s -> %s;" label childLabel))
-

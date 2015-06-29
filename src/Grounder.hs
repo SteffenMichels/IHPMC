@@ -25,7 +25,7 @@ import qualified Data.Set as Set
 import Data.Maybe (fromJust)
 
 groundPclp :: AST -> NNF
-groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.fold NNF.simplify (Set.fold groundRule NNF.emptyNNF queries) queries where
+groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.fold NNF.simplify (Set.fold groundRule NNF.empty queries) queries where
     groundRule :: AST.PredicateLabel -> NNF -> NNF
     groundRule label nnf
         | NNF.member label nnf = nnf -- already added

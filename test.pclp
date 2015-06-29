@@ -1,11 +1,7 @@
-~a   ~  flip( 1.33 ) .
+~a   ~  flip( 0.33 ) .
 
-q <- a, #true = ~a.
-q <- #true = ~b, b.
-
-a <- #true = ~aa, #true = ~aa.
-
-b <- a.
+q <- #true = #true.
+q <- ~a = #true.
 
 qProxy <- q.
 
