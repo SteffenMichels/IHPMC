@@ -48,8 +48,9 @@ type NodeLabel = String
 data Node = Operator NodeType (Set NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
           | Deterministic Bool
+          deriving (Eq, Ord)
 
-data NodeType = And | Or deriving (Eq)
+data NodeType = And | Or deriving (Eq, Ord)
 
 empty :: NNF
 empty = NNF Map.empty 0
@@ -68,48 +69,56 @@ insertFresh node (NNF nodes freshCounter) =
 lookUp :: NodeLabel -> NNF -> Maybe Node
 lookUp label (NNF nodes _) = Map.lookup label nodes
 
-deterministicValue :: NodeLabel -> NNF -> Maybe Bool
-deterministicValue label nnf = case fromJust (lookUp label nnf) of
-    Deterministic val -> Just val
-    _                 -> Nothing
+--deterministicValue :: NodeLabel -> NNF -> Maybe Bool
+--deterministicValue label nnf = case fromJust (lookUp label nnf) of
+--    Deterministic val -> Just val
+--    _                 -> Nothing
 
 simplify :: AST.PredicateLabel -> NNF -> NNF
 simplify root nnf =
     if root == topLabel
     then nnf'
-    else insert root (fromJust (lookUp topLabel nnf')) nnf' -- copy topmost node content for root
+    else insert root topNode nnf' -- copy topmost node content for root
     where
-        (topLabel, nnf') = addNode root nnf
+        (topLabel, topNode, nnf') = addNode root nnf
 
-        addNode :: AST.PredicateLabel -> NNF -> (AST.PredicateLabel, NNF)
-        addNode label nnf = case node of
-            (Operator nType children)
-                | nChildren == 0 -> error "should not happen?"
-                | nChildren == 1 -> let (childLabel, nnf') = addNode (Set.findMin children) nnf
-                                    in (childLabel, nnf')
-                | otherwise      -> addOperatorNode nType children
-                where
-                    nChildren = Set.size children
-            (BuildInPredicate pred) -> case AST.deterministicValue pred of
-                Just val -> (label, insert label (Deterministic val) nnf)
-                Nothing  -> (label, nnf)
+        addNode :: AST.PredicateLabel -> NNF -> (AST.PredicateLabel, Node, NNF)
+        addNode label nnf = (topLabel, topNode, insert label topNode nnf')
             where
-                node = fromJust (lookUp label nnf)
-
-                addOperatorNode nType children
-                    | Foldable.any (\c -> deterministicValue c nnf' == Just anyDeterministicValue) newChildren =
-                        (label, insert label (Deterministic anyDeterministicValue) nnf')
-                    | otherwise =
-                        (label, insert label (Operator nType newChildren) nnf')
+                (topLabel, topNode, nnf') = case node of
+                    (Operator nType children) -> addOperatorNode nType children
+                    (BuildInPredicate pred) -> case AST.deterministicValue pred of
+                        Just val -> (label, node', nnf) where node' = Deterministic val
+                        Nothing  -> (label, node, nnf)
                     where
-                        anyDeterministicValue = if nType == And then False else True
-                        (newChildren, nnf') = Set.fold
-                            (\child (newChildren, nnf) -> let (newLabel, nnf'') = addNode child nnf
-                                                          in (Set.insert newLabel newChildren, nnf'')
-                            )
-                            (Set.empty, nnf)
-                            children
+                        node = fromJust (lookUp label nnf)
 
+                        addOperatorNode nType children
+                            | nChildren == 0 = (label, Deterministic filterValue, nnf')
+                            | nChildren == 1 = let singleChildLabel = Set.findMax childLabels
+                                                   singeChildNode   = Set.findMax childNodes
+                                               in (singleChildLabel, singeChildNode, nnf')
+                            | Foldable.any (\n -> n == Deterministic singleDeterminismValue) childNodes =
+                                let node = Deterministic singleDeterminismValue in (label, node, nnf')
+                            | otherwise =
+                                let node = Operator nType childLabels in (label, node, nnf')
+                            where
+                                (childLabels, childNodes, nnf') = Set.fold
+                                    (\child (childLabels, childNodes, nnf) ->
+                                        let (newLabel, newNode, nnf') = addNode child nnf
+                                        in if newNode == Deterministic filterValue then
+                                                (childLabels, childNodes, nnf')
+                                           else
+                                                (Set.insert newLabel childLabels, Set.insert newNode childNodes, nnf')
+                                    )
+                                    (Set.empty, Set.empty, nnf)
+                                    children
+
+                                nChildren = Set.size childLabels
+                                -- truth value that causes determinism if at least a single child has it
+                                singleDeterminismValue = if nType == And then False else True
+                                -- truth value that can be filtered out
+                                filterValue = if nType == And then True else False
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do
