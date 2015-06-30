@@ -22,6 +22,7 @@ module AST
     , RFuncDef(..)
     , Expr(..)
     , deterministicValue
+    , randomFunctions
     ) where
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -73,3 +74,9 @@ deterministicValue :: BuildInPredicate -> Maybe Bool
 deterministicValue (BoolEq (BoolConstant left) (BoolConstant right))           = Just (left == right)
 deterministicValue (BoolEq (UserRFunc left) (UserRFunc right)) | left == right = Just True
 deterministicValue _                                                           = Nothing
+
+randomFunctions :: BuildInPredicate -> Set RFuncLabel
+randomFunctions (BoolEq left right) = Set.union (randomFunctions' left) (randomFunctions' right)
+    where
+        randomFunctions' (BoolConstant _)  = Set.empty
+        randomFunctions' (UserRFunc label) = Set.singleton(label)

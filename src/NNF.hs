@@ -23,6 +23,7 @@ module NNF
     , insertFresh
     , lookUp
     , simplify
+    , randomFunctions
     , exportAsDot
     ) where
 import Data.Map (Map)
@@ -69,11 +70,6 @@ insertFresh node (NNF nodes freshCounter) =
 lookUp :: NodeLabel -> NNF -> Maybe Node
 lookUp label (NNF nodes _) = Map.lookup label nodes
 
---deterministicValue :: NodeLabel -> NNF -> Maybe Bool
---deterministicValue label nnf = case fromJust (lookUp label nnf) of
---    Deterministic val -> Just val
---    _                 -> Nothing
-
 simplify :: AST.PredicateLabel -> NNF -> NNF
 simplify root nnf =
     if root == topLabel
@@ -119,6 +115,15 @@ simplify root nnf =
                                 singleDeterminismValue = if nType == And then False else True
                                 -- truth value that can be filtered out
                                 filterValue = if nType == And then True else False
+
+randomFunctions :: NodeLabel -> NNF -> Set AST.RFuncLabel
+randomFunctions label nnf = case node of
+    Operator _ children ->
+        Set.fold (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
+    BuildInPredicate pred -> AST.randomFunctions pred
+    Deterministic _       -> Set.empty
+    where
+        node = fromJust (lookUp label nnf)
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do

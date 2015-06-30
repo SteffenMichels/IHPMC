@@ -20,6 +20,7 @@ import qualified NNF
 import PST (PST)
 import qualified PST
 import BasicTypes
+import qualified Data.Set as Set
 
 gwmc :: NNF.NodeLabel -> NNF -> [ProbabilityBounds]
 gwmc query nnf = gwmc' nnf $ PST.empty query
@@ -36,8 +37,8 @@ iterate nnf (PST.Choice rFuncLabel p left right) = case GWMC.iterate nnf left of
         Just (nnf', right') -> Just (nnf', PST.Choice rFuncLabel p left right')
         Nothing -> Nothing
 iterate nnf (PST.Finished _) = Nothing
-iterate nnf (PST.Unfinished nnfLabel) = Just (nnf'', PST.Choice rFuncLabel 0.5 left right) where
-    nnf'' = undefined
-    rFuncLabel = undefined
-    left = undefined
-    right = undefined
+iterate nnf (PST.Unfinished nnfLabel) = Just (nnf', PST.Choice rFuncLabel 0.5 left right) where
+    rFuncLabel = Set.findMin $ NNF.randomFunctions nnfLabel nnf
+    nnf' = error "nnf'"
+    left = error "left"
+    right = error "right"
