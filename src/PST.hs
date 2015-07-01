@@ -20,11 +20,12 @@ module PST
 import BasicTypes
 import qualified NNF
 import qualified AST
+import BasicTypes
 
 -- Probabilistic Sematic Tree
 data PST = Finished Bool
          | Unfinished NNF.NodeLabel
-         | Choice AST.RFuncLabel Probability PST PST
+         | Choice RFuncLabel Probability PST PST
 
 empty :: NNF.NodeLabel -> PST
 empty query = Unfinished query

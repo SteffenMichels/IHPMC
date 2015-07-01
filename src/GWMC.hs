@@ -21,9 +21,10 @@ import PST (PST)
 import qualified PST
 import BasicTypes
 import qualified Data.Set as Set
+import qualified AST
 
-gwmc :: NNF.NodeLabel -> NNF -> [ProbabilityBounds]
-gwmc query nnf = gwmc' nnf $ PST.empty query
+gwmc :: PredicateLabel -> NNF -> [ProbabilityBounds]
+gwmc query nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
     where
         gwmc' :: NNF -> PST -> [ProbabilityBounds]
         gwmc' nnf pst = case GWMC.iterate nnf pst of

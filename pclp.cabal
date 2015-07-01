@@ -4,21 +4,22 @@ cabal-version: >=1.2
 build-type: Simple
 license: AllRightsReserved
 license-file: ""
+description:  
 data-dir: ""
  
 executable pclp
     build-depends: QuickCheck -any, base -any, containers -any,
-                   explicit-exception -any, parsec -any
+                   data-hash -any, explicit-exception -any, parsec -any
     main-is: Main.hs
     buildable: True
     extensions: StandaloneDeriving GADTs
     hs-source-dirs: src
-    other-modules: BasicTypes GWMC PST NNF AST Parser Exception
-                   Grounder
+    other-modules: Parser PST NNF GWMC AST BasicTypes Grounder
+                   Exception
  
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
-                   explicit-exception -any, parsec -any
+                   data-hash -any, explicit-exception -any, parsec -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True

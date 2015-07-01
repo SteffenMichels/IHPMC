@@ -25,12 +25,12 @@ module NNF
     , simplify
     , randomFunctions
     , exportAsDot
+    , uncondNodeLabel
     ) where
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import qualified AST
 import Control.Monad.Exception.Synchronous
 import System.IO
 import Exception
@@ -38,13 +38,23 @@ import Control.Monad (forM)
 import Data.Maybe (fromJust)
 import Text.Printf (printf)
 import qualified Data.Foldable as Foldable
+import BasicTypes
+import qualified AST
+import qualified Data.Hash as Hash
+import qualified Data.List as List
 
 data NNF = NNF (Map NodeLabel Node) Int
 
 instance Show NNF where
     show _ = "NNF String"
 
-type NodeLabel = String
+data NodeLabel = NodeLabel String (Set (RFuncLabel, Bool)) deriving (Eq, Ord)
+
+instance Show NodeLabel where
+    show (NodeLabel label conds) = printf "%s|%s" label (List.intercalate "," (fmap show $ Set.toAscList conds))
+
+instance Hash.Hashable NodeLabel where
+    hash (NodeLabel label conds) = Hash.combine (Hash.hash label) (Hash.hashFoldable $ Set.toAscList conds)
 
 data Node = Operator NodeType (Set NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
@@ -52,6 +62,9 @@ data Node = Operator NodeType (Set NodeLabel)
           deriving (Eq, Ord)
 
 data NodeType = And | Or deriving (Eq, Ord)
+
+uncondNodeLabel :: PredicateLabel -> NodeLabel
+uncondNodeLabel label = NodeLabel label Set.empty
 
 empty :: NNF
 empty = NNF Map.empty 0
@@ -65,12 +78,13 @@ insert label node (NNF nodes freshCounter) = NNF (Map.insert label node nodes) f
 -- possible optimisation: check whether equal node is already in NNF
 insertFresh :: Node -> NNF -> (NodeLabel, NNF)
 insertFresh node (NNF nodes freshCounter) =
-    (label, NNF (Map.insert label node nodes) (freshCounter + 1)) where label = show freshCounter
+    (label, NNF (Map.insert label node nodes) (freshCounter + 1)) where
+        label = uncondNodeLabel (show freshCounter)
 
 lookUp :: NodeLabel -> NNF -> Maybe Node
 lookUp label (NNF nodes _) = Map.lookup label nodes
 
-simplify :: AST.PredicateLabel -> NNF -> NNF
+simplify :: NodeLabel -> NNF -> NNF
 simplify root nnf =
     if root == topLabel
     then nnf'
@@ -78,7 +92,7 @@ simplify root nnf =
     where
         (topLabel, topNode, nnf') = addNode root nnf
 
-        addNode :: AST.PredicateLabel -> NNF -> (AST.PredicateLabel, Node, NNF)
+        addNode :: NodeLabel -> NNF -> (NodeLabel, Node, NNF)
         addNode label nnf = (topLabel, topNode, insert label topNode nnf')
             where
                 (topLabel, topNode, nnf') = case node of
@@ -116,7 +130,7 @@ simplify root nnf =
                                 -- truth value that can be filtered out
                                 filterValue = if nType == And then True else False
 
-randomFunctions :: NodeLabel -> NNF -> Set AST.RFuncLabel
+randomFunctions :: NodeLabel -> NNF -> Set RFuncLabel
 randomFunctions label nnf = case node of
     Operator _ children ->
         Set.fold (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
@@ -135,7 +149,7 @@ exportAsDot path (NNF nodes _) = do
     where
         printNode :: Handle -> (NodeLabel, Node) -> ExceptionalT String IO ()
         printNode file (label,node) = do
-            doIO (hPutStrLn file (printf "    %s[label=\"%s\\n%s\"];" label label $ descr node))
+            doIO (hPutStrLn file (printf "    %i[label=\"%s\\n%s\"];" labelHash (show label) (descr node)))
             case node of
                 (Operator _ children) -> forM (Set.toList children) writeEdge >> return ()
                 _                     -> return ()
@@ -144,4 +158,5 @@ exportAsDot path (NNF nodes _) = do
                 descr (BuildInPredicate pred) = show pred
                 descr (Deterministic val)     = if val then "TRUE" else "FALSE"
 
-                writeEdge childLabel = doIO (hPutStrLn file (printf "    %s -> %s;" label childLabel))
+                writeEdge childLabel = doIO (hPutStrLn file (printf "    %i -> %i;" labelHash $ Hash.asWord64 $ Hash.hash childLabel))
+                labelHash = Hash.asWord64 $ Hash.hash label

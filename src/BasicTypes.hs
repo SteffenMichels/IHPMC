@@ -15,7 +15,12 @@
 module BasicTypes
     ( Probability
     , ProbabilityBounds
+    , PredicateLabel
+    , RFuncLabel
     ) where
 
 type Probability       = Rational
 type ProbabilityBounds = (Probability, Probability)
+
+type PredicateLabel  = String
+type RFuncLabel      = String

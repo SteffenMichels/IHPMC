@@ -15,20 +15,22 @@
 module Parser
     ( parsePclp
     ) where
-import AST
+import AST (AST)
+import qualified AST
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Text.ParserCombinators.Parsec
 import Control.Monad.Exception.Synchronous
 import Numeric
 import Text.Printf (printf)
+import BasicTypes
 
 parsePclp :: String -> Exceptional String AST
 parsePclp src =
-    let initialState = AST
-            { rFuncDefs = Map.empty
-            , rules     = Map.empty
-            , queries   = Set.empty
+    let initialState = AST.AST
+            { AST.rFuncDefs = Map.empty
+            , AST.rules     = Map.empty
+            , AST.queries   = Set.empty
             }
     in mapException show (fromEither (parse (parseTheory initialState) "PCLP theory" src))
 
@@ -36,19 +38,19 @@ parseTheory :: AST -> Parser AST
 parseTheory ast = spaces >>
                 (     try ( do -- query
                         query <- parseQuery
-                        let ast' = ast {queries = Set.insert query $ queries ast}
+                        let ast' = ast {AST.queries = Set.insert query $ AST.queries ast}
                         parseTheory ast'
                       )
                   <|> ( do -- random function definition
                         (signature, def) <- parseRFuncDef
                         -- put together defs with same signature
-                        let ast' = ast {rFuncDefs = Map.insertWith (++) signature [def] (rFuncDefs ast)}
+                        let ast' = ast {AST.rFuncDefs = Map.insertWith (++) signature [def] (AST.rFuncDefs ast)}
                         parseTheory ast'
                       )
                   <|> ( do -- rule
                         (label, body) <- parseRule
                         -- put together rules with same head
-                        let ast' = ast {rules = Map.insertWith Set.union label (Set.singleton body) (rules ast)}
+                        let ast' = ast {AST.rules = Map.insertWith Set.union label (Set.singleton body) (AST.rules ast)}
                         parseTheory ast'
                       )
                   <|> ( do -- end of input
@@ -58,19 +60,19 @@ parseTheory ast = spaces >>
                 )
 
 -- rules
-parseRule :: Parser (PredicateLabel, RuleBody)
+parseRule :: Parser (PredicateLabel, AST.RuleBody)
 parseRule = do
     label <- parsePredicateLabel
     stringAndSpaces "<-"
     body <- sepBy parseBodyElement (stringAndSpaces ",")
     stringAndSpaces "."
-    return (label, RuleBody body)
+    return (label, AST.RuleBody body)
 
-parseBodyElement :: Parser RuleBodyElement
+parseBodyElement :: Parser AST.RuleBodyElement
 parseBodyElement = do
-        fmap UserPredicate parsePredicateLabel
+        fmap AST.UserPredicate parsePredicateLabel
     <|>
-        fmap BuildInPredicate parseBuildInPredicate
+        fmap AST.BuildInPredicate parseBuildInPredicate
 
 parsePredicateLabel :: Parser PredicateLabel
 parsePredicateLabel = do
@@ -79,15 +81,15 @@ parsePredicateLabel = do
     spaces
     return (first:rest)
 
-parseBuildInPredicate :: Parser BuildInPredicate
+parseBuildInPredicate :: Parser AST.BuildInPredicate
 parseBuildInPredicate = do
     exprX <- parseBoolExpr
     stringAndSpaces "="
     exprY <- parseBoolExpr
-    return (BoolEq exprX exprY)
+    return (AST.BoolEq exprX exprY)
 
 -- rfunc defs
-parseRFuncDef :: Parser (RFuncLabel, RFuncDef)
+parseRFuncDef :: Parser (RFuncLabel, AST.RFuncDef)
 parseRFuncDef = do
     label <- parseUserRFuncLabel
     stringAndSpaces "~"
@@ -101,14 +103,14 @@ parseRFuncDef = do
     spaces
     stringAndSpaces ")"
     stringAndSpaces "."
-    return (label, Flip prob)
+    return (label, AST.Flip prob)
 
 -- expressions
-parseBoolExpr :: Parser (Expr Bool)
+parseBoolExpr :: Parser (AST.Expr Bool)
 parseBoolExpr = do
-        fmap BoolConstant parseBoolConstant
+        fmap AST.BoolConstant parseBoolConstant
     <|>
-        fmap UserRFunc parseUserRFuncLabel
+        fmap AST.UserRFunc parseUserRFuncLabel
 
 parseBoolConstant :: Parser Bool
 parseBoolConstant = do

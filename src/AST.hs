@@ -14,8 +14,6 @@
 
 module AST
     ( AST(..)
-    , PredicateLabel
-    , RFuncLabel
     , RuleBody(..)
     , RuleBodyElement(..)
     , BuildInPredicate(..)
@@ -29,6 +27,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Text.Printf (printf)
+import BasicTypes
 
 data AST = AST
     { rFuncDefs :: Map RFuncLabel [RFuncDef] -- list of func with same signature, first matches
@@ -41,9 +40,6 @@ instance Show AST where
         rfuncDefsStr = printf "RANDOM FUNCTION DEFINITIONS\n%s" (foldl (\str (label,def) -> printf "%s ~ %s\n" label $ show def) "" (Map.toList $ rFuncDefs ast))
         rulesStr     = printf "RULES\n%s" (foldl (\str (label,body) -> printf "%s <- %s\n" label $ show body) "" (Map.toList $ rules ast))
         queryStr     = printf "QUERY\n%s" (show $ queries ast)
-
-type PredicateLabel  = String
-type RFuncLabel      = String
 
 data RFuncDef = Flip Rational deriving (Show)
 
