@@ -38,8 +38,13 @@ iterate nnf (PST.Choice rFuncLabel p left right) = case GWMC.iterate nnf left of
         Just (nnf', right') -> Just (nnf', PST.Choice rFuncLabel p left right')
         Nothing -> Nothing
 iterate nnf (PST.Finished _) = Nothing
-iterate nnf (PST.Unfinished nnfLabel) = Just (nnf', PST.Choice rFuncLabel 0.5 left right) where
+iterate nnf (PST.Unfinished nnfLabel) = Just (nnf'', PST.Choice rFuncLabel 0.5 left right) where
     rFuncLabel = Set.findMin $ NNF.randomFunctions nnfLabel nnf
-    nnf' = error "nnf'"
-    left = error "left"
-    right = error "right"
+    (leftNNFLabel,  nnf')  = NNF.condition nnfLabel rFuncLabel False nnf
+    (rightNNFLabel, nnf'') = NNF.condition nnfLabel rFuncLabel True nnf'
+    left  = toPSTNode leftNNFLabel
+    right = toPSTNode rightNNFLabel
+
+    toPSTNode nnfLabel = case NNF.deterministicValue nnfLabel of
+        Just val -> PST.Finished val
+        Nothing  -> PST.Unfinished nnfLabel

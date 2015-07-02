@@ -26,6 +26,8 @@ module NNF
     , randomFunctions
     , exportAsDot
     , uncondNodeLabel
+    , condition
+    , deterministicValue
     ) where
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -138,6 +140,12 @@ randomFunctions label nnf = case node of
     Deterministic _       -> Set.empty
     where
         node = fromJust (lookUp label nnf)
+
+deterministicValue :: NodeLabel -> Maybe Bool
+deterministicValue = undefined
+
+condition :: NodeLabel -> RFuncLabel -> Bool -> NNF -> (NodeLabel, NNF)
+condition = undefined
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do
