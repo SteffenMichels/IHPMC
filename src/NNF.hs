@@ -57,7 +57,7 @@ instance Show NodeLabel where
         showCond (label, val) = printf "%s=%s" label $ show val
 
 instance Hash.Hashable NodeLabel where
-    hash (NodeLabel label conds) = Hash.combine (Hash.hash label) (Hash.hashFoldable $ Set.toAscList conds)
+    hash (NodeLabel label conds) = Hash.combine (Hash.combine (Hash.hash label) (Hash.hashFoldable $ Set.toAscList conds)) (Hash.hash label)
 
 data Node = Operator NodeType (Set NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
@@ -112,9 +112,8 @@ simplify root nnf =
 
                         addOperatorNode nType children
                             | nChildren == 0 = (label, Deterministic filterValue, nnf')
-                            | nChildren == 1 = let singleChildLabel = Set.findMax childLabels
-                                                   singeChildNode   = Set.findMax childNodes
-                                               in (singleChildLabel, singeChildNode, nnf')
+                            | nChildren == 1 = let singeChildNode   = Set.findMax childNodes
+                                               in (label, singeChildNode, nnf')
                             | Foldable.any (\n -> n == Deterministic singleDeterminismValue) childNodes =
                                 let node = Deterministic singleDeterminismValue in (label, node, nnf')
                             | otherwise =

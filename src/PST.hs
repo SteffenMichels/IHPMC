@@ -26,6 +26,7 @@ import BasicTypes
 data PST = Finished Bool
          | Unfinished NNF.NodeLabel
          | Choice RFuncLabel Probability PST PST
+         deriving (Show)
 
 empty :: NNF.NodeLabel -> PST
 empty query = Unfinished query

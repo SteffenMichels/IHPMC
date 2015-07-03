@@ -22,6 +22,7 @@ import qualified PST
 import BasicTypes
 import qualified Data.Set as Set
 import qualified AST
+import Debug.Trace
 
 gwmc :: PredicateLabel -> NNF -> ([ProbabilityBounds], NNF)
 gwmc query nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
@@ -29,7 +30,7 @@ gwmc query nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
         gwmc' :: NNF -> PST -> ([ProbabilityBounds], NNF)
         gwmc' nnf pst = case GWMC.iterate nnf pst of
             Nothing           -> ([], nnf)
-            Just (nnf', pst') -> let (bounds, nnf'') = gwmc' nnf' pst' in (PST.bounds pst' : bounds, nnf'')
+            Just (nnf', pst') -> let (bounds, nnf'') = gwmc' nnf' pst' in trace (show pst') (PST.bounds pst' : bounds, nnf'')
 
 iterate :: NNF -> PST -> Maybe (NNF, PST)
 iterate nnf (PST.Choice rFuncLabel p left right) = case GWMC.iterate nnf left of

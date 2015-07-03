@@ -77,7 +77,7 @@ parseBodyElement = do
 parsePredicateLabel :: Parser PredicateLabel
 parsePredicateLabel = do
     first <- lower
-    rest  <- many letter
+    rest  <- many alphaNum
     spaces
     return (first:rest)
 
@@ -125,7 +125,7 @@ parseUserRFuncLabel :: Parser RFuncLabel
 parseUserRFuncLabel = do
     string "~"
     first <- lower
-    rest  <- many letter
+    rest  <- many alphaNum
     spaces
     return (first:rest)
 

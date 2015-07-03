@@ -29,6 +29,7 @@ import Text.Printf (printf)
 import GWMC
 import qualified AST
 import qualified Data.Set as Set
+import Benchmarks
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -42,21 +43,21 @@ exeMain = do
         Success x   -> putStrLn $ show x
     where
         exeMain' = do
-            args <- return ["test.pclp"]--doIO $ getArgs
+            args <- return ["/tmp/tmp.pclp"]--doIO $ getArgs
             let firstArg = args !! 0
             src <- doIO (readFile firstArg)
             ast <- returnExceptional (parsePclp src)
-            doIO (putStrLn $ show ast)
+            --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             exportAsDot "/tmp/nnf.dot" nnf
-            (bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) nnf
-            exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            return $ take 5 bounds
+            --(bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) nnf
+            --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
+            --return $ take 1 bounds
 
 -- Entry point for unit tests.
-testMain = do
-    allPass <- $quickCheckAll -- Run QuickCheck on all prop_ functions
-    unless allPass exitFailure
+testMain = undefined--do
+--    allPass <- $quickCheckAll -- Run QuickCheck on all prop_ functions
+--    unless allPass exitFailure
 
 -- This is a clunky, but portable, way to use the same Main module file
 -- for both an application and for unit tests.

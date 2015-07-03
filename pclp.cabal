@@ -14,8 +14,9 @@ executable pclp
     buildable: True
     extensions: StandaloneDeriving GADTs
     hs-source-dirs: src
-    other-modules: Parser PST NNF GWMC AST BasicTypes Grounder
-                   Exception
+    other-modules: NNF AST Parser Exception BasicTypes Grounder GWMC
+                   Benchmarks PST
+    ghc-options: -prof -fprof-auto -rtsopts
  
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
