@@ -53,7 +53,8 @@ instance Show NNF where
 data NodeLabel = NodeLabel String (Set (RFuncLabel, Bool)) deriving (Eq, Ord)
 
 instance Show NodeLabel where
-    show (NodeLabel label conds) = printf "%s|%s" label (List.intercalate "," (fmap show $ Set.toAscList conds))
+    show (NodeLabel label conds) = printf "%s|%s" label (List.intercalate "," (fmap showCond $ Set.toAscList conds)) where
+        showCond (label, val) = printf "%s=%s" label $ show val
 
 instance Hash.Hashable NodeLabel where
     hash (NodeLabel label conds) = Hash.combine (Hash.hash label) (Hash.hashFoldable $ Set.toAscList conds)
@@ -67,6 +68,9 @@ data NodeType = And | Or deriving (Eq, Ord)
 
 uncondNodeLabel :: PredicateLabel -> NodeLabel
 uncondNodeLabel label = NodeLabel label Set.empty
+
+condNodeLabel :: RFuncLabel -> Bool -> NodeLabel -> NodeLabel
+condNodeLabel rFuncLabel rFuncVal (NodeLabel l conds) = NodeLabel l $ Set.insert (rFuncLabel, rFuncVal) conds
 
 empty :: NNF
 empty = NNF Map.empty 0
@@ -102,6 +106,7 @@ simplify root nnf =
                     (BuildInPredicate pred) -> case AST.deterministicValue pred of
                         Just val -> (label, node', nnf) where node' = Deterministic val
                         Nothing  -> (label, node, nnf)
+                    (Deterministic _) -> (label, node, nnf)
                     where
                         node = fromJust (lookUp label nnf)
 
@@ -141,11 +146,43 @@ randomFunctions label nnf = case node of
     where
         node = fromJust (lookUp label nnf)
 
-deterministicValue :: NodeLabel -> Maybe Bool
-deterministicValue = undefined
+deterministicValue :: NodeLabel -> NNF -> Maybe Bool
+deterministicValue label (NNF nodes _) = case fromJust $ Map.lookup label nodes of
+    Deterministic val -> Just val
+    _                 -> Nothing
 
 condition :: NodeLabel -> RFuncLabel -> Bool -> NNF -> (NodeLabel, NNF)
-condition = undefined
+condition topLabel rFuncLabel rFuncVal nnf = (topLabel', simplify topLabel' $ nnf')
+    where
+        (topLabel', nnf') = condition' topLabel rFuncLabel rFuncVal nnf
+            where
+                condition' label rFuncLabel rFuncVal nnf
+                    | not $ Set.member rFuncLabel $ randomFunctions label nnf = (label, nnf)
+                    | member condLabel nnf                                    = (condLabel, nnf)
+                    | otherwise = case node of
+                        Operator nType children ->
+                            let (condChildren, nnf') = Set.fold
+                                    (\child (children, nnf) ->
+                                        let (condChild, nnf') = condition child rFuncLabel rFuncVal nnf
+                                        in (Set.insert condChild children, nnf')
+                                    )
+                                    (Set.empty, nnf)
+                                    children
+                            in (condLabel, insert condLabel (Operator nType condChildren) nnf')
+                        BuildInPredicate pred ->
+                            (condLabel, insert condLabel (BuildInPredicate $ conditionPred rFuncLabel rFuncVal pred) nnf)
+                        Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
+                    where
+                        condLabel = condNodeLabel rFuncLabel rFuncVal label
+                        node      = fromJust $ lookUp label nnf
+
+                conditionPred :: RFuncLabel -> Bool -> AST.BuildInPredicate -> AST.BuildInPredicate
+                conditionPred rFuncLabel rFuncVal (AST.BoolEq exprL exprR) = AST.BoolEq (conditionExpr exprL) (conditionExpr exprR)
+                    where
+                        conditionExpr expr@(AST.BoolConstant _) = expr
+                        conditionExpr expr@(AST.UserRFunc exprRFuncLabel)
+                            | exprRFuncLabel == rFuncLabel = AST.BoolConstant rFuncVal
+                            | otherwise                    = expr
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do
