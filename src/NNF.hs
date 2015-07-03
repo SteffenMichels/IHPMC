@@ -45,7 +45,8 @@ import qualified AST
 import qualified Data.Hash as Hash
 import qualified Data.List as List
 
-data NNF = NNF (Map NodeLabel Node) Int
+-- NNF nodes "counter for fresh nodes" "dirty nodes"
+data NNF = NNF (Map NodeLabel Node) Int (Set NodeLabel)
 
 instance Show NNF where
     show _ = "NNF String"
@@ -73,22 +74,25 @@ condNodeLabel :: RFuncLabel -> Bool -> NodeLabel -> NodeLabel
 condNodeLabel rFuncLabel rFuncVal (NodeLabel l conds) = NodeLabel l $ Set.insert (rFuncLabel, rFuncVal) conds
 
 empty :: NNF
-empty = NNF Map.empty 0
+empty = NNF Map.empty 0 Set.empty
 
 member :: NodeLabel -> NNF -> Bool
-member label (NNF nodes freshCounter) = Map.member label nodes
+member label (NNF nodes _ _) = Map.member label nodes
 
 insert :: NodeLabel -> Node -> NNF -> NNF
-insert label node (NNF nodes freshCounter) = NNF (Map.insert label node nodes) freshCounter
+insert label node (NNF nodes freshCounter dirty) = NNF (Map.insert label node nodes) freshCounter (Set.insert label dirty)
+
+insertClean :: NodeLabel -> Node -> NNF -> NNF
+insertClean label node (NNF nodes freshCounter dirty) = NNF (Map.insert label node nodes) freshCounter (Set.delete label dirty)
 
 -- possible optimisation: check whether equal node is already in NNF
 insertFresh :: Node -> NNF -> (NodeLabel, NNF)
-insertFresh node (NNF nodes freshCounter) =
-    (label, NNF (Map.insert label node nodes) (freshCounter + 1)) where
+insertFresh node (NNF nodes freshCounter dirty) =
+    (label, NNF (Map.insert label node nodes) (freshCounter + 1) (Set.insert label dirty)) where
         label = uncondNodeLabel (show freshCounter)
 
 lookUp :: NodeLabel -> NNF -> Maybe Node
-lookUp label (NNF nodes _) = Map.lookup label nodes
+lookUp label (NNF nodes _ _) = Map.lookup label nodes
 
 simplify :: NodeLabel -> NNF -> NNF
 simplify root nnf =
@@ -99,8 +103,11 @@ simplify root nnf =
         (topLabel, topNode, nnf') = addNode root nnf
 
         addNode :: NodeLabel -> NNF -> (NodeLabel, Node, NNF)
-        addNode label nnf = (topLabel, topNode, insert label topNode nnf')
+        addNode label nnf@(NNF _ _ dirty)
+            | Set.member label dirty = (topLabel, topNode, insertClean label topNode nnf')
+            | otherwise              = (label, node, nnf)
             where
+                node = fromJust (lookUp label nnf)
                 (topLabel, topNode, nnf') = case node of
                     (Operator nType children) -> addOperatorNode nType children
                     (BuildInPredicate pred) -> case AST.deterministicValue pred of
@@ -108,8 +115,6 @@ simplify root nnf =
                         Nothing  -> (label, node, nnf)
                     (Deterministic _) -> (label, node, nnf)
                     where
-                        node = fromJust (lookUp label nnf)
-
                         addOperatorNode nType children
                             | nChildren == 0 = (label, Deterministic filterValue, nnf')
                             | nChildren == 1 = let singeChildNode   = Set.findMax childNodes
@@ -146,7 +151,7 @@ randomFunctions label nnf = case node of
         node = fromJust (lookUp label nnf)
 
 deterministicValue :: NodeLabel -> NNF -> Maybe Bool
-deterministicValue label (NNF nodes _) = case fromJust $ Map.lookup label nodes of
+deterministicValue label (NNF nodes _ _) = case fromJust $ Map.lookup label nodes of
     Deterministic val -> Just val
     _                 -> Nothing
 
@@ -184,7 +189,7 @@ condition topLabel rFuncLabel rFuncVal nnf = (topLabel', simplify topLabel' $ nn
                             | otherwise                    = expr
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
-exportAsDot path (NNF nodes _) = do
+exportAsDot path (NNF nodes _ _) = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph NNF {")
     forM (Map.assocs nodes) (printNode file)

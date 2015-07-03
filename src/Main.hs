@@ -49,10 +49,10 @@ exeMain = do
             ast <- returnExceptional (parsePclp src)
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
-            exportAsDot "/tmp/nnf.dot" nnf
-            --(bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) nnf
+            --exportAsDot "/tmp/nnf.dot" nnf
+            (bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) nnf
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            --return $ take 1 bounds
+            return $ take 1 bounds
 
 -- Entry point for unit tests.
 testMain = undefined--do
