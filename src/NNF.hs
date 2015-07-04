@@ -45,7 +45,7 @@ import qualified Data.Hash as Hash
 import qualified Data.List as List
 
 -- NNF nodes "counter for fresh nodes" "dirty nodes"
-data NNF = NNF (Map NodeLabel Node) Int
+data NNF = NNF (Map NodeLabel (Node, Set RFuncLabel)) Int
 
 instance Show NNF where
     show _ = "NNF String"
@@ -79,48 +79,50 @@ member :: NodeLabel -> NNF -> Bool
 member label (NNF nodes _) = Map.member label nodes
 
 insert :: NodeLabel -> Node -> NNF -> NNF
-insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplify node nnf) nodes) freshCounter
+insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplifiedNode, rFuncs) nodes) freshCounter
+    where
+        simplifiedNode = simplify node nnf
+        rFuncs = case simplifiedNode of
+            Deterministic _ -> Set.empty
+            BuildInPredicate pred -> AST.randomFunctions pred
+            Operator _ children ->
+                Set.fold (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
+
+        simplify :: Node -> NNF -> Node
+        simplify node@(Deterministic _) _ = node
+        simplify node@(BuildInPredicate pred) _ = case AST.deterministicValue pred of
+            Just val -> Deterministic val
+            Nothing  -> node
+        simplify (Operator operator originalChildren) nnf
+            | nChildren == 0 = Deterministic filterValue
+            | nChildren == 1 = let singleChildNode   = Set.findMax children
+                               in fromJust $ lookUp singleChildNode nnf
+            | Foldable.any (\c -> fromJust (lookUp c nnf) == Deterministic singleDeterminismValue) children =
+                Deterministic singleDeterminismValue
+            | otherwise = Operator operator children
+            where
+                children = Set.filter (\c -> fromJust (lookUp c nnf) /= Deterministic filterValue) originalChildren
+                nChildren = Set.size children
+                -- truth value that causes determinism if at least a single child has it
+                singleDeterminismValue = if operator == And then False else True
+                -- truth value that can be filtered out
+                filterValue = if operator == And then True else False
 
 -- possible optimisation: check whether equal node is already in NNF
 insertFresh :: Node -> NNF -> (NodeLabel, NNF)
-insertFresh node nnf@(NNF nodes freshCounter) =
-    (label, NNF (Map.insert label (simplify node nnf) nodes) (freshCounter + 1)) where
+insertFresh node nnf@(NNF nodes freshCounter) = (label, NNF nodes' (freshCounter+1))
+    where
+        (NNF nodes' _) = insert label node nnf
         label = uncondNodeLabel (show freshCounter)
 
 lookUp :: NodeLabel -> NNF -> Maybe Node
-lookUp label (NNF nodes _) = Map.lookup label nodes
-
-simplify :: Node -> NNF -> Node
-simplify node@(Deterministic _) _ = node
-simplify node@(BuildInPredicate pred) _ = case AST.deterministicValue pred of
-    Just val -> Deterministic val
-    Nothing  -> node
-simplify (Operator operator originalChildren) nnf
-    | nChildren == 0 = Deterministic filterValue
-    | nChildren == 1 = let singleChildNode   = Set.findMax children
-                       in fromJust $ lookUp singleChildNode nnf
-    | Foldable.any (\c -> fromJust (lookUp c nnf) == Deterministic singleDeterminismValue) children =
-        Deterministic singleDeterminismValue
-    | otherwise = Operator operator children
-    where
-        children = Set.filter (\c -> fromJust (lookUp c nnf) /= Deterministic filterValue) originalChildren
-        nChildren = Set.size children
-        -- truth value that causes determinism if at least a single child has it
-        singleDeterminismValue = if operator == And then False else True
-        -- truth value that can be filtered out
-        filterValue = if operator == And then True else False
+lookUp label (NNF nodes _) = fmap fst $ Map.lookup label nodes
 
 randomFunctions :: NodeLabel -> NNF -> Set RFuncLabel
-randomFunctions label nnf = case node of
-    Operator _ children ->
-        Set.fold (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
-    BuildInPredicate pred -> AST.randomFunctions pred
-    Deterministic _       -> Set.empty
-    where
-        node = fromJust (lookUp label nnf)
+randomFunctions label (NNF nodes _) = snd $ fromJust $ Map.lookup label nodes
 
 deterministicValue :: NodeLabel -> NNF -> Maybe Bool
-deterministicValue label (NNF nodes _) = case fromJust $ Map.lookup label nodes of
+deterministicValue label (NNF nodes _) = case fst $ fromJust $ Map.lookup label nodes of
     Deterministic val -> Just val
     _                 -> Nothing
 
@@ -165,8 +167,8 @@ exportAsDot path (NNF nodes _) = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Handle -> (NodeLabel, Node) -> ExceptionalT String IO ()
-        printNode file (label,node) = do
+        printNode :: Handle -> (NodeLabel, (Node, Set RFuncLabel)) -> ExceptionalT String IO ()
+        printNode file (label, (node, _)) = do
             doIO (hPutStrLn file (printf "    %i[label=\"%s\\n%s\"];" labelHash (show label) (descr node)))
             case node of
                 (Operator _ children) -> forM (Set.toList children) writeEdge >> return ()

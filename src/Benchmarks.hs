@@ -20,7 +20,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Text.Printf (printf)
 
-exe = writeBenchmark $ growingAnd 25
+exe = writeBenchmark $ growingAnd 10
 
 growingAnd :: Int -> AST
 growingAnd n = AST.AST { AST.rFuncDefs = Map.empty
