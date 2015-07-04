@@ -26,8 +26,7 @@ import Data.Maybe (fromJust)
 import BasicTypes
 
 groundPclp :: AST -> NNF
-groundPclp AST.AST {AST.queries=queries, AST.rules=rules} =
-    Set.fold (\q -> NNF.simplify $ NNF.uncondNodeLabel q) (Set.fold groundRule NNF.empty queries) queries
+groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.fold groundRule NNF.empty queries
     where
         groundRule :: PredicateLabel -> NNF -> NNF
         groundRule label nnf
