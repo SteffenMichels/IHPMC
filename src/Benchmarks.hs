@@ -19,9 +19,34 @@ import System.IO
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Text.Printf (printf)
+import Data.List (intercalate)
 
-exe = writeBenchmark $ growingAnd 10
+exe = do
+    writeBenchmark show "/tmp/tmp.pclp" $ growingAnd 10
+    writeBenchmark toProblogSource "/tmp/tmp.pl" $ growingAnd 10
 
+writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()
+writeBenchmark printFunc path ast = do
+    file <- openFile path WriteMode
+    hPutStr file $ printFunc ast
+    hClose file
+
+-- Problog
+toProblogSource :: AST -> String
+toProblogSource  ast = rfuncDefsStr ++ rulesStr ++ queryStr where
+    rfuncDefsStr = foldl (\str (label,def) -> printf "%s ~ %s.\n" label $ show def) "" (Map.toList $ AST.rFuncDefs ast)
+    rulesStr     = concat $ concat [[printf "%s :- %s.\n" label $ toProblogSourceBody body | body <- Set.toList bodies] | (label,bodies) <- Map.toList $ AST.rules ast]
+    queryStr     = concat [printf "query(%s).\n" query | query <- Set.toList $ AST.queries ast]
+
+toProblogSourceBody :: AST.RuleBody -> String
+toProblogSourceBody (AST.RuleBody elements) = intercalate ", " (fmap toProblogSourceBodyElement elements)
+
+toProblogSourceBodyElement :: AST.RuleBodyElement -> String
+toProblogSourceBodyElement (AST.UserPredicate label)   = label
+toProblogSourceBodyElement (AST.BuildInPredicate (AST.BoolEq (AST.UserRFunc label) (AST.BoolConstant True))) = label
+toProblogSourceBodyElement _ = error "not supported to Problog printing"
+
+-- Benchmarks
 growingAnd :: Int -> AST
 growingAnd n = AST.AST { AST.rFuncDefs = Map.empty
                        , AST.rules     = rules
@@ -36,9 +61,3 @@ growingAnd n = AST.AST { AST.rFuncDefs = Map.empty
             where
                 equality = AST.BuildInPredicate $ AST.BoolEq (AST.UserRFunc (printf "x%i" i)) (AST.BoolConstant True)
         bodyEl i = AST.UserPredicate (printf "a%i" i)
-
-writeBenchmark :: AST -> IO ()
-writeBenchmark ast = do
-    file <- openFile "/tmp/tmp.pclp" WriteMode
-    hPutStr file $ show ast
-    hClose file
