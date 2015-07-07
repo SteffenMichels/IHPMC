@@ -22,7 +22,7 @@ import Text.Printf (printf)
 import Data.List (intercalate)
 
 exe = do
-    writeBenchmark show "/tmp/tmp.pclp" $ growingAnd 10
+    writeBenchmark show "/tmp/tmp.pclp" $ growingAnd 100
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ growingAnd 10
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()

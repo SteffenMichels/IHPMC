@@ -28,8 +28,8 @@ module NNF
     , condition
     , deterministicValue
     ) where
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.Exception.Synchronous
@@ -41,23 +41,27 @@ import Text.Printf (printf)
 import qualified Data.Foldable as Foldable
 import BasicTypes
 import qualified AST
-import qualified Data.Hash as Hash
+import GHC.Generics (Generic)
+import Data.Hashable (Hashable)
+import qualified Data.Hashable as Hashable
 import qualified Data.List as List
 
--- NNF nodes "counter for fresh nodes" "dirty nodes"
-data NNF = NNF (Map NodeLabel (Node, Set RFuncLabel)) Int
+-- NNF nodes "counter for fresh nodes"
+data NNF = NNF (HashMap NodeLabel (Node, Set RFuncLabel)) Int
 
 instance Show NNF where
     show _ = "NNF String"
 
-data NodeLabel = NodeLabel String (Set (RFuncLabel, Bool)) deriving (Eq, Ord)
+data NodeLabel = NodeLabel String (Set (RFuncLabel, Bool)) deriving (Eq, Ord, Generic)
 
 instance Show NodeLabel where
     show (NodeLabel label conds) = printf "%s|%s" label (List.intercalate "," (fmap showCond $ Set.toAscList conds)) where
         showCond (label, val) = printf "%s=%s" label $ show val
 
-instance Hash.Hashable NodeLabel where
-    hash (NodeLabel label conds) = Hash.combine (Hash.combine (Hash.hash label) (Hash.hashFoldable $ Set.toAscList conds)) (Hash.hash label)
+instance Hashable NodeLabel
+instance Hashable a => Hashable (Set a) where
+    hash set = Hashable.hashWithSalt 0 set
+    hashWithSalt salt set = Set.fold (\el hash -> Hashable.hashWithSalt hash el) salt set
 
 data Node = Operator NodeType (Set NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
@@ -163,7 +167,7 @@ exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph NNF {")
-    forM (Map.assocs nodes) (printNode file)
+    forM (Map.toList nodes) (printNode file)
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
@@ -178,5 +182,5 @@ exportAsDot path (NNF nodes _) = do
                 descr (BuildInPredicate pred) = show pred
                 descr (Deterministic val)     = if val then "TRUE" else "FALSE"
 
-                writeEdge childLabel = doIO (hPutStrLn file (printf "    %i -> %i;" labelHash $ Hash.asWord64 $ Hash.hash childLabel))
-                labelHash = Hash.asWord64 $ Hash.hash label
+                writeEdge childLabel = doIO (hPutStrLn file (printf "    %i -> %i;" labelHash $ Hashable.hash childLabel))
+                labelHash = Hashable.hash label
