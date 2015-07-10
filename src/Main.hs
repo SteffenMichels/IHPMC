@@ -52,7 +52,7 @@ exeMain = do
             --exportAsDot "/tmp/nnf.dot" nnf
             (bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) (AST.rFuncDefs ast) nnf
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            return $ take 200 bounds
+            return $ take 100000 bounds
 
 -- Entry point for unit tests.
 testMain = undefined--do

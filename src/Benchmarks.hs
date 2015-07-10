@@ -16,6 +16,7 @@ module Benchmarks where
 import AST (AST)
 import qualified AST as AST
 import System.IO
+import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Text.Printf (printf)
@@ -23,10 +24,11 @@ import Data.List (intercalate)
 import Numeric (fromRat)
 
 exe = do
-    writeBenchmark show "/tmp/tmp.pclp" $ growingAnd n
-    writeBenchmark toProblogSource "/tmp/tmp.pl" $ growingAnd n
+    writeBenchmark show "/tmp/tmp.pclp" $ bench n
+    writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 200
+            n = 5
+            bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()
 writeBenchmark printFunc path ast = do
@@ -37,7 +39,7 @@ writeBenchmark printFunc path ast = do
 -- Problog
 toProblogSource :: AST -> String
 toProblogSource  ast = rfuncDefsStr ++ rulesStr ++ queryStr where
-    rfuncDefsStr =  concat [printf "%f :: %s.\n" (fromRat p::Float) label | (label, [AST.Flip p]) <- Map.toList $ AST.rFuncDefs ast]
+    rfuncDefsStr = concat [printf "%f :: %s.\n" (fromRat p::Float) label | (label, [AST.Flip p]) <- Map.toList $ AST.rFuncDefs ast]
     rulesStr     = concat $ concat [[printf "%s :- %s.\n" label $ toProblogSourceBody body | body <- Set.toList bodies] | (label,bodies) <- Map.toList $ AST.rules ast]
     queryStr     = concat [printf "query(%s).\n" query | query <- Set.toList $ AST.queries ast]
 
@@ -67,3 +69,44 @@ growingAnd n = AST.AST { AST.rFuncDefs = rFuncDefs
             where
                 equality = AST.BuildInPredicate $ AST.BoolEq (AST.UserRFunc (printf "x%i" i)) (AST.BoolConstant True)
         bodyEl i = AST.UserPredicate (printf "a%i" i)
+
+paths :: Int -> AST
+paths n = AST.AST { AST.rFuncDefs = rFuncDefs
+                  , AST.rules     = rules
+                  , AST.queries   = Set.singleton "reachable"
+                  }
+    where
+        rFuncDefs = foldr rFuncDef Map.empty [(x,y) | x <- [0..n-1], y <- [0..n-1]]
+        rFuncDef (x, y) defs = defs'' where
+            defs'  = if x < n-1 then def (x+1) y defs else defs
+            defs'' = if y < n-1 then def x (y+1) defs' else defs'
+            def dx dy defs = Map.insert (printConnection ((x, y), (dx, dy))) [AST.Flip 0.5] defs
+
+        rules = Map.singleton "reachable" bodies
+        bodies = Set.fold body Set.empty $ paths undefined (0,0) Set.empty Set.empty
+        body path bodies = Set.insert
+            (AST.RuleBody [bodyEl connection | connection <- Set.toList path])
+            bodies
+        bodyEl con = AST.BuildInPredicate $ AST.BoolEq (AST.UserRFunc $ printConnection con) (AST.BoolConstant True)
+
+        printConnection ((x0, y0), (x1, y1))
+            | x0 < x1 || y0 < y1 = print x0 y0 x1 y1
+            | otherwise          = print x1 y1 x0 y0
+            where
+                print = printf "x%ix%ito%ix%i"
+
+        paths :: (Int, Int) -> (Int, Int) -> Set (Int,Int) -> Set ((Int, Int), (Int, Int)) -> Set (Set ((Int, Int), (Int, Int)))
+        paths last cur@(x,y) visited path
+            | x == n-1 && y == n-1               = Set.singleton extendedPath
+            | x < 0 || y < 0 || x >= n || y >= n = Set.empty
+            | Set.member cur visited             = Set.empty
+            | otherwise = foldr
+                (\newCur result -> Set.union result $ paths cur newCur extendedVisited extendedPath)
+                Set.empty
+                [(x-1,y),(x,y-1),(x+1,y),(x,y+1)]
+            where
+                extendedPath
+                    | cur == (0,0) = path
+                    | otherwise    = Set.insert (last, cur) path
+                extendedVisited = Set.insert cur visited
+
