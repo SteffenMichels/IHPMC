@@ -17,7 +17,7 @@ executable pclp
     hs-source-dirs: src
     other-modules: NNF AST Parser Exception BasicTypes Grounder GWMC
                    Benchmarks PST
-    ghc-options: -prof -fprof-auto -rtsopts -XDeriveGeneric
+    ghc-options: -rtsopts -XDeriveGeneric
  
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,

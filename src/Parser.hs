@@ -24,6 +24,7 @@ import Control.Monad.Exception.Synchronous
 import Numeric
 import Text.Printf (printf)
 import BasicTypes
+import Data.Ratio ((%))
 
 parsePclp :: String -> Exceptional String AST
 parsePclp src =
@@ -94,16 +95,24 @@ parseRFuncDef = do
     label <- parseUserRFuncLabel
     stringAndSpaces "~"
     stringAndSpaces "flip("
-    prob <- fmap (fst . head . readFloat) ( do
-            before <- many digit
-            string "."
-            after <- many1 digit
-            return (printf "%s.%s" before after)
-        )
+    prob <- parseProb
     spaces
     stringAndSpaces ")"
     stringAndSpaces "."
     return (label, AST.Flip prob)
+
+parseProb :: Parser Probability
+parseProb = try parseDecimal <|> parseFraction where
+    parseDecimal = do
+        before <- many digit
+        string "."
+        after <- many1 digit
+        return $ (fst . head . readFloat) (printf "%s.%s" before after)
+    parseFraction = do
+        before <- many digit
+        string "/"
+        after <- many1 digit
+        return $ (read before) % (read after)
 
 -- expressions
 parseBoolExpr :: Parser (AST.Expr Bool)

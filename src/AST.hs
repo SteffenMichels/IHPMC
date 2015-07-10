@@ -30,6 +30,7 @@ import Text.Printf (printf)
 import BasicTypes
 import Data.List (intercalate)
 import Data.Char (toLower)
+import BasicTypes
 
 data AST = AST
     { rFuncDefs :: Map RFuncLabel [RFuncDef] -- list of func with same signature, first matches
@@ -39,11 +40,18 @@ data AST = AST
 
 instance Show AST where
     show ast = rfuncDefsStr ++ rulesStr ++ queryStr where
-        rfuncDefsStr = foldl (\str (label,def) -> printf "%s ~ %s.\n" label $ show def) "" (Map.toList $ rFuncDefs ast)
-        rulesStr     = concat $ concat [[printf "%s <- %s.\n" label $ show body | body <- Set.toList bodies] | (label,bodies) <- Map.toList $ rules ast]
+        rfuncDefsStr = concat $ concat [
+                            [printf "~%s ~ %s.\n" label $ show def | def <- defs]
+                       | (label, defs) <- Map.toList $ rFuncDefs ast]
+        rulesStr     = concat $ concat [
+                            [printf "%s <- %s.\n" label $ show body | body <- Set.toList bodies]
+                       | (label,bodies) <- Map.toList $ rules ast]
         queryStr     = concat [printf "query %s.\n" query | query <- Set.toList $ queries ast]
 
-data RFuncDef = Flip Rational deriving (Show)
+data RFuncDef = Flip Rational
+
+instance Show RFuncDef where
+    show (Flip p) = printf "flip(%s)" $ printProb p
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Ord)
 

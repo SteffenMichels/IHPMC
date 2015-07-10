@@ -28,8 +28,8 @@ module NNF
     , condition
     , deterministicValue
     ) where
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.Exception.Synchronous

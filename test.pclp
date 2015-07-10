@@ -1,4 +1,5 @@
 ~a   ~  flip( 0.33 ) .
+~b   ~  flip( 0.5 ) .
 
 q <- ~a = #true, ~b = #true.
 
