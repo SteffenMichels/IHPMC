@@ -30,6 +30,8 @@ import GWMC
 import qualified AST
 import qualified Data.Set as Set
 import Benchmarks
+import Control.Monad (forM)
+import Numeric (fromRat)
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -52,7 +54,8 @@ exeMain = do
             --exportAsDot "/tmp/nnf.dot" nnf
             (bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) (AST.rFuncDefs ast) nnf
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            return $ take 100000 bounds
+            doIO $ forM (take 100 bounds) (\(l,u) -> putStrLn $ printf "[%f, %f]" (fromRat l::Float) (fromRat u::Float))
+            return "success"
 
 -- Entry point for unit tests.
 testMain = undefined--do
