@@ -54,8 +54,9 @@ exeMain = do
             --exportAsDot "/tmp/nnf.dot" nnf
             (bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) (AST.rFuncDefs ast) nnf
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            doIO $ forM (take 100 bounds) (\(l,u) -> putStrLn $ printf "[%f, %f]" (fromRat l::Float) (fromRat u::Float))
-            return "success"
+            doIO $ forM (take 100000 bounds) (\(l,u) -> putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
+            return ()
+            --return (length bounds, head $ reverse bounds)
 
 -- Entry point for unit tests.
 testMain = undefined--do
