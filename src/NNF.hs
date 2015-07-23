@@ -32,7 +32,6 @@ import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Control.Monad.Exception.Synchronous
 import System.IO
 import Exception
 import Control.Monad (forM)
@@ -68,7 +67,7 @@ data Node = Operator NodeType (Set NodeLabel)
           | Deterministic Bool
           deriving (Eq, Ord)
 
-data NodeType = And | Or deriving (Eq, Ord)
+data NodeType = And | Or deriving (Eq, Ord, Show)
 
 uncondNodeLabel :: PredicateLabel -> NodeLabel
 uncondNodeLabel label = NodeLabel label Set.empty
@@ -173,7 +172,7 @@ exportAsDot path (NNF nodes _) = do
     where
         printNode :: Handle -> (NodeLabel, (Node, Set RFuncLabel)) -> ExceptionalT String IO ()
         printNode file (label, (node, _)) = do
-            doIO (hPutStrLn file (printf "    %i[label=\"%s\\n%s\"];" labelHash (show label) (descr node)))
+            doIO (hPutStrLn file (printf "%i[label=\"%s\\n%s\"];" labelHash (show label) (descr node)))
             case node of
                 (Operator _ children) -> forM (Set.toList children) writeEdge >> return ()
                 _                     -> return ()
@@ -182,5 +181,5 @@ exportAsDot path (NNF nodes _) = do
                 descr (BuildInPredicate pred) = show pred
                 descr (Deterministic val)     = if val then "TRUE" else "FALSE"
 
-                writeEdge childLabel = doIO (hPutStrLn file (printf "    %i -> %i;" labelHash $ Hashable.hash childLabel))
+                writeEdge childLabel = doIO (hPutStrLn file (printf "%i->%i;" labelHash $ Hashable.hash childLabel))
                 labelHash = Hashable.hash label

@@ -19,7 +19,6 @@ import AST (AST)
 import qualified AST
 import NNF (NNF)
 import qualified NNF
-import Control.Monad.Exception.Synchronous
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe (fromJust)

@@ -15,6 +15,11 @@
 module Exception
     ( doIO
     , returnExceptional
+    , ExceptionalT
+    , Exceptional
+    , mapException
+    , fromEither
+    , runExceptionalT
     ) where
 import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous

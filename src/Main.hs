@@ -22,9 +22,9 @@ import System.IO (readFile)
 import System.Environment (getArgs)
 import Parser
 import Grounder
-import Control.Monad.Exception.Synchronous
 import Exception
 import NNF
+import qualified PST
 import Text.Printf (printf)
 import GWMC
 import qualified AST
@@ -32,6 +32,7 @@ import qualified Data.Set as Set
 import Benchmarks
 import Control.Monad (forM)
 import Numeric (fromRat)
+import Control.Monad.Exception.Synchronous -- TODO: remove, should be included by Exception
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -52,10 +53,11 @@ exeMain = do
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
-            (bounds, nnfAfter) <- return $ gwmc (Set.findMax $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            doIO $ forM (take 100000 bounds) (\(l,u) -> putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
-            return ()
+            (psts, nnfAfter) <- return $ gwmcPSTs (Set.findMax $ AST.queries ast) (AST.rFuncDefs ast) nnf
+            doIO $ forM (take 100000 psts) (\pst -> let (l,u) = PST.bounds pst in putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
+            exportAsDot "/tmp/nnfAfter.dot" nnfAfter
+            PST.exportAsDot "/tmp/pst.dot" $ last psts
+            return (length psts)
             --return (length bounds, head $ reverse bounds)
 
 -- Entry point for unit tests.

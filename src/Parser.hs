@@ -20,7 +20,7 @@ import qualified AST
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Text.ParserCombinators.Parsec
-import Control.Monad.Exception.Synchronous
+import Exception
 import Numeric
 import Text.Printf (printf)
 import BasicTypes
