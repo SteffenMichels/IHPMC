@@ -28,10 +28,11 @@ module NNF
     , condition
     , deterministicValue
     ) where
+import BasicTypes
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as Set
 import System.IO
 import Exception
 import Control.Monad (forM)
@@ -46,28 +47,25 @@ import qualified Data.Hashable as Hashable
 import qualified Data.List as List
 
 -- NNF nodes "counter for fresh nodes"
-data NNF = NNF (HashMap NodeLabel (Node, Set RFuncLabel)) Int
+data NNF = NNF (HashMap NodeLabel (Node, HashSet RFuncLabel)) Int
 
 instance Show NNF where
     show _ = "NNF String"
 
-data NodeLabel = NodeLabel String (Set (RFuncLabel, Bool)) deriving (Eq, Ord, Generic)
+data NodeLabel = NodeLabel String (HashSet (RFuncLabel, Bool)) deriving (Eq, Generic)
 
 instance Show NodeLabel where
-    show (NodeLabel label conds) = printf "%s|%s" label (List.intercalate "," (fmap showCond $ Set.toAscList conds)) where
+    show (NodeLabel label conds) = printf "%s|%s" label (List.intercalate "," (fmap showCond $ Set.toList conds)) where
         showCond (label, val) = printf "%s=%s" label $ show val
-
 instance Hashable NodeLabel
-instance Hashable a => Hashable (Set a) where
-    hash set = Hashable.hashWithSalt 0 set
-    hashWithSalt salt set = Set.fold (\el hash -> Hashable.hashWithSalt hash el) salt set
 
-data Node = Operator NodeType (Set NodeLabel)
+data Node = Operator NodeType (HashSet NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
           | Deterministic Bool
-          deriving (Eq, Ord)
+          deriving (Eq)
 
-data NodeType = And | Or deriving (Eq, Ord, Show)
+data NodeType = And | Or deriving (Eq, Show, Generic)
+instance Hashable NodeType
 
 uncondNodeLabel :: PredicateLabel -> NodeLabel
 uncondNodeLabel label = NodeLabel label Set.empty
@@ -89,7 +87,7 @@ insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplifi
             Deterministic _ -> Set.empty
             BuildInPredicate pred -> AST.randomFunctions pred
             Operator _ children ->
-                Set.fold (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
+                Set.foldr (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
 
         simplify :: Node -> NNF -> Node
         simplify node@(Deterministic _) _ = node
@@ -98,7 +96,7 @@ insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplifi
             Nothing  -> node
         simplify (Operator operator originalChildren) nnf
             | nChildren == 0 = Deterministic filterValue
-            | nChildren == 1 = let singleChildNode   = Set.findMax children
+            | nChildren == 1 = let singleChildNode   = getFirst children
                                in fromJust $ lookUp singleChildNode nnf
             | Foldable.any (\c -> fromJust (lookUp c nnf) == Deterministic singleDeterminismValue) children =
                 Deterministic singleDeterminismValue
@@ -121,7 +119,7 @@ insertFresh node nnf@(NNF nodes freshCounter) = (label, NNF nodes' (freshCounter
 lookUp :: NodeLabel -> NNF -> Maybe Node
 lookUp label (NNF nodes _) = fmap fst $ Map.lookup label nodes
 
-randomFunctions :: NodeLabel -> NNF -> Set RFuncLabel
+randomFunctions :: NodeLabel -> NNF -> HashSet RFuncLabel
 randomFunctions label (NNF nodes _) = snd $ fromJust $ Map.lookup label nodes
 
 deterministicValue :: NodeLabel -> NNF -> Maybe Bool
@@ -139,7 +137,7 @@ condition topLabel rFuncLabel rFuncVal nnf = (topLabel', nnf')
                     | member condLabel nnf                                    = (condLabel, nnf)
                     | otherwise = case node of
                         Operator operator children ->
-                            let (condChildren, nnf') = Set.fold
+                            let (condChildren, nnf') = Set.foldr
                                     (\child (children, nnf) ->
                                         let (condChild, nnf') = condition child rFuncLabel rFuncVal nnf
                                         in (Set.insert condChild children, nnf')
@@ -170,7 +168,7 @@ exportAsDot path (NNF nodes _) = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Handle -> (NodeLabel, (Node, Set RFuncLabel)) -> ExceptionalT String IO ()
+        printNode :: Handle -> (NodeLabel, (Node, HashSet RFuncLabel)) -> ExceptionalT String IO ()
         printNode file (label, (node, _)) = do
             doIO (hPutStrLn file (printf "%i[label=\"%s\\n%s\"];" labelHash (show label) (descr node)))
             case node of

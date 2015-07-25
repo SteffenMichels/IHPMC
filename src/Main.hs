@@ -14,6 +14,7 @@
 -----------------------------------------------------------------------------
 
 module Main where
+import BasicTypes
 import Control.Monad (unless)
 import Data.List (stripPrefix)
 import System.Exit (exitFailure)
@@ -28,7 +29,7 @@ import qualified PST
 import Text.Printf (printf)
 import GWMC
 import qualified AST
-import qualified Data.Set as Set
+import qualified Data.HashSet as Set
 import Benchmarks
 import Control.Monad (forM)
 import Numeric (fromRat)
@@ -53,7 +54,7 @@ exeMain = do
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
-            (psts, nnfAfter) <- return $ gwmcPSTs (Set.findMax $ AST.queries ast) (AST.rFuncDefs ast) nnf
+            (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
             doIO $ forM (take 100000 psts) (\pst -> let (l,u) = PST.bounds pst in putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
             exportAsDot "/tmp/nnfAfter.dot" nnfAfter
             PST.exportAsDot "/tmp/pst.dot" $ last psts

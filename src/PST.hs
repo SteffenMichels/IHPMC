@@ -23,20 +23,23 @@ import BasicTypes
 import qualified NNF
 import qualified AST
 import BasicTypes
-import Data.Set (Set)
-import qualified Data.Set as Set
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as Set
 import Exception
 import System.IO
 import Text.Printf (printf)
 import Control.Monad (foldM)
 import Numeric (fromRat)
+import GHC.Generics (Generic)
+import Data.Hashable (Hashable)
 
 -- Probabilistic Sematic Tree
 data PST = Finished Bool
          | Unfinished NNF.NodeLabel
          | Choice RFuncLabel Probability PST PST
-         | Decomposition NNF.NodeType (Set PST)
-         deriving (Show, Eq, Ord)
+         | Decomposition NNF.NodeType (HashSet PST)
+         deriving (Show, Eq, Generic)
+instance Hashable PST
 
 empty :: NNF.NodeLabel -> PST
 empty query = Unfinished query
@@ -47,10 +50,10 @@ bounds (Unfinished _)              = (0.0, 1.0)
 bounds (Choice _ p left right)     = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
     (leftLower,  leftUpper)  = bounds left
     (rightLower, rightUpper) = bounds right
-bounds (Decomposition NNF.And dec) = Set.fold (\pst (l,u) -> let (l',u') = bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
+bounds (Decomposition NNF.And dec) = Set.foldr (\pst (l,u) -> let (l',u') = bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
 bounds (Decomposition NNF.Or dec)  = (1-nl, 1-nu)
     where
-        (nl, nu) = Set.fold (\pst (l,u) -> let (l',u') = bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
+        (nl, nu) = Set.foldr (\pst (l,u) -> let (l',u') = bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
 maxError :: PST -> Probability
 maxError pst = let (l,u) = bounds pst in u-l

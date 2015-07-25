@@ -21,8 +21,8 @@ import qualified NNF
 import PST (PST)
 import qualified PST
 import BasicTypes
-import Data.Set (Set)
-import qualified Data.Set as Set
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified AST
@@ -30,6 +30,7 @@ import Data.Maybe (fromJust)
 import Text.Printf (printf)
 import GHC.Exts (sortWith)
 import Debug.Trace (trace)
+import qualified Data.List as List
 
 gwmc :: PredicateLabel -> Map RFuncLabel [AST.RFuncDef] -> NNF -> ([ProbabilityBounds], NNF)
 gwmc query rfuncDefs nnf = (fmap PST.bounds psts, nnf') where
@@ -78,9 +79,9 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
                 orderHeuristic :: NNF.NodeLabel -> RFuncLabel -> Double
                 orderHeuristic nnfLabel rfLabel = case node of
                     NNF.Operator NNF.Or children ->
-                        (Set.fold (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
+                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
                     NNF.Operator NNF.And children ->
-                        (Set.fold (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
+                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
                     _ -> if Set.member rfLabel rFuncs then
                             1
                          else
@@ -92,9 +93,9 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
                 orderHeuristicCounter :: NNF.NodeLabel -> RFuncLabel -> Double
                 orderHeuristicCounter nnfLabel rfLabel = case node of
                     NNF.Operator NNF.Or children ->
-                        (Set.fold (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
+                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
                     NNF.Operator NNF.And children ->
-                        (Set.fold (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
+                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
                     _ -> if Set.member rfLabel rFuncs then
                             1
                          else
@@ -104,38 +105,38 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
                         rFuncs = NNF.randomFunctions nnfLabel nnf
             Just (op, decomposition) -> Just (nnf', PST.Decomposition op psts)
                 where
-                    (psts, nnf') = Set.fold
+                    (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
                             let (fresh, nnf') = if Set.size dec > 1 then
                                                     NNF.insertFresh (NNF.Operator op dec) nnf
                                                 else
-                                                    (Set.findMin dec, nnf)
+                                                    (getFirst dec, nnf)
                             in  (Set.insert (PST.Unfinished fresh) psts, nnf'))
                         (Set.empty, nnf)
                         decomposition
 
-        showDec dec nnf = Set.fold (\d str -> str ++ show d ++ " " ++ (show $ Set.fold (\x rfs -> Set.union rfs $ NNF.randomFunctions x nnf) Set.empty d) ++ "\n") "\n" dec
+        showDec dec nnf = Set.foldr (\d str -> str ++ show d ++ " " ++ (show $ Set.foldr (\x rfs -> Set.union rfs $ NNF.randomFunctions x nnf) Set.empty d) ++ "\n") "\n" dec
 
-        decompose :: NNF.NodeLabel -> NNF -> Maybe (NNF.NodeType, (Set (Set NNF.NodeLabel)))
+        decompose :: NNF.NodeLabel -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeLabel)))
         decompose nnfLabel nnf = case fromJust $ NNF.lookUp nnfLabel nnf of
             NNF.Operator op children -> let dec = decomposeChildren Set.empty children
                                         in  if Set.size dec == 1 then Nothing else Just (op, dec)
             _ -> Nothing
             where
-                decomposeChildren :: (Set (Set NNF.NodeLabel)) -> (Set NNF.NodeLabel) -> (Set (Set NNF.NodeLabel))
+                decomposeChildren :: (HashSet (HashSet NNF.NodeLabel)) -> (HashSet NNF.NodeLabel) -> (HashSet (HashSet NNF.NodeLabel))
                 decomposeChildren dec children
                     | Set.null children = dec
                     | otherwise =
-                        let first               = Set.findMin children
+                        let first               = getFirst children
                             (new, _, children') = findFixpoint (Set.singleton first) (NNF.randomFunctions first nnf) (Set.delete first children)
                         in  decomposeChildren (Set.insert new dec) children'
 
-                findFixpoint :: (Set NNF.NodeLabel) -> (Set RFuncLabel) -> (Set NNF.NodeLabel) -> (Set NNF.NodeLabel, Set RFuncLabel, Set NNF.NodeLabel)
+                findFixpoint :: (HashSet NNF.NodeLabel) -> (HashSet RFuncLabel) -> (HashSet NNF.NodeLabel) -> (HashSet NNF.NodeLabel, HashSet RFuncLabel, HashSet NNF.NodeLabel)
                 findFixpoint cur curRFs children
-                    | Set.null children || Set.null withSharedRFs = (cur, curRFs, children)
+                    | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
                     | otherwise                                   = findFixpoint cur' curRFs' children'
                     where
-                        (withSharedRFs, withoutSharedRFs) = Set.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.randomFunctions c nnf) children
-                        cur'      = Set.union cur withSharedRFs
-                        curRFs'   = Set.fold (\c curRFs -> Set.union curRFs $ NNF.randomFunctions c nnf) curRFs withSharedRFs
-                        children' = withoutSharedRFs
+                        (withSharedRFs, withoutSharedRFs) = List.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.randomFunctions c nnf) $ Set.toList children
+                        cur'      = Set.union cur $ Set.fromList withSharedRFs
+                        curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.randomFunctions c nnf) curRFs $ Set.fromList withSharedRFs
+                        children' = Set.fromList withoutSharedRFs

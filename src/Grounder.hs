@@ -20,18 +20,18 @@ import qualified AST
 import NNF (NNF)
 import qualified NNF
 import qualified Data.Map as Map
-import qualified Data.Set as Set
+import qualified Data.HashSet as Set
 import Data.Maybe (fromJust)
 import BasicTypes
 
 groundPclp :: AST -> NNF
-groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.fold groundRule NNF.empty queries
+groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule NNF.empty queries
     where
         groundRule :: PredicateLabel -> NNF -> NNF
         groundRule label nnf
             | NNF.member nnfLabel nnf = nnf -- already added
             | nChildren == 0 = error "not implemented"
-            | otherwise      = let (nnfChildren,nnf') = Set.fold
+            | otherwise      = let (nnfChildren,nnf') = Set.foldr
                                     (\child (nnfChildren,nnf) ->
                                         let (newChild,nnf'') = groundBody child nnf
                                         in (Set.insert newChild nnfChildren, nnf'')

@@ -16,12 +16,13 @@ module Benchmarks where
 import AST (AST)
 import qualified AST as AST
 import System.IO
-import Data.Set (Set)
-import qualified Data.Set as Set
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as Set
 import qualified Data.Map as Map
 import Text.Printf (printf)
 import Data.List (intercalate)
 import Numeric (fromRat)
+import BasicTypes
 
 exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
@@ -83,7 +84,7 @@ paths n = AST.AST { AST.rFuncDefs = rFuncDefs
             def dx dy defs = Map.insert (printConnection ((x, y), (dx, dy))) [AST.Flip 0.5] defs
 
         rules = Map.singleton "reachable" bodies
-        bodies = Set.fold body Set.empty $ paths undefined (0,0) Set.empty Set.empty
+        bodies = Set.foldr body Set.empty $ paths undefined (0,0) Set.empty Set.empty
         body path bodies = Set.insert
             (AST.RuleBody [bodyEl connection | connection <- Set.toList path])
             bodies
@@ -95,7 +96,7 @@ paths n = AST.AST { AST.rFuncDefs = rFuncDefs
             where
                 print = printf "x%ix%ito%ix%i"
 
-        paths :: (Int, Int) -> (Int, Int) -> Set (Int,Int) -> Set ((Int, Int), (Int, Int)) -> Set (Set ((Int, Int), (Int, Int)))
+        paths :: (Int, Int) -> (Int, Int) -> HashSet (Int,Int) -> HashSet ((Int, Int), (Int, Int)) -> HashSet (HashSet ((Int, Int), (Int, Int)))
         paths last cur@(x,y) visited path
             | x == n-1 && y == n-1               = Set.singleton extendedPath
             | x < 0 || y < 0 || x >= n || y >= n = Set.empty

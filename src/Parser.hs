@@ -18,7 +18,7 @@ module Parser
 import AST (AST)
 import qualified AST
 import qualified Data.Map as Map
-import qualified Data.Set as Set
+import qualified Data.HashSet as Set
 import Text.ParserCombinators.Parsec
 import Exception
 import Numeric
@@ -83,11 +83,21 @@ parsePredicateLabel = do
     return (first:rest)
 
 parseBuildInPredicate :: Parser AST.BuildInPredicate
-parseBuildInPredicate = do
+parseBuildInPredicate = try parseBoolPredicate <|> parseRealPredicate
+
+parseBoolPredicate :: Parser AST.BuildInPredicate
+parseBoolPredicate = do
     exprX <- parseBoolExpr
     stringAndSpaces "="
     exprY <- parseBoolExpr
     return (AST.BoolEq exprX exprY)
+
+parseRealPredicate :: Parser AST.BuildInPredicate
+parseRealPredicate = do
+    exprX <- parseRealExpr
+    op    <- parseRealIneqOp
+    exprY <- parseRealExpr
+    return (AST.RealIneq op exprX exprY)
 
 -- rfunc defs
 parseRFuncDef :: Parser (RFuncLabel, AST.RFuncDef)
@@ -95,14 +105,14 @@ parseRFuncDef = do
     label <- parseUserRFuncLabel
     stringAndSpaces "~"
     stringAndSpaces "flip("
-    prob <- parseProb
+    prob <- parseRat
     spaces
     stringAndSpaces ")"
     stringAndSpaces "."
     return (label, AST.Flip prob)
 
-parseProb :: Parser Probability
-parseProb = try parseDecimal <|> parseFraction where
+parseRat :: Parser Rational
+parseRat = try parseDecimal <|> parseFraction where
     parseDecimal = do
         before <- many digit
         string "."
@@ -116,19 +126,27 @@ parseProb = try parseDecimal <|> parseFraction where
 
 -- expressions
 parseBoolExpr :: Parser (AST.Expr Bool)
-parseBoolExpr = do
-        fmap AST.BoolConstant parseBoolConstant
-    <|>
-        fmap AST.UserRFunc parseUserRFuncLabel
+parseBoolExpr =   fmap AST.BoolConstant parseBoolConstant
+              <|> fmap AST.UserRFunc parseUserRFuncLabel
 
 parseBoolConstant :: Parser Bool
-parseBoolConstant = do
+parseBoolConstant =
         string "#"
     >>
-        (    (stringAndSpaces "true" >> return True)
+        (   (stringAndSpaces "true"  >> return True)
         <|>
             (stringAndSpaces "false" >> return False)
         )
+
+parseRealExpr :: Parser (AST.Expr AST.RealN)
+parseRealExpr =   fmap AST.RealConstant parseRat
+              <|> fmap AST.UserRFunc parseUserRFuncLabel
+
+parseRealIneqOp :: Parser AST.IneqOp
+parseRealIneqOp =   (try $ stringAndSpaces "<"  >> return AST.Lt)
+                <|> (try $ stringAndSpaces "<=" >> return AST.LtEq)
+                <|> (try $ stringAndSpaces ">"  >> return AST.Gt)
+                <|> (try $ stringAndSpaces ">=" >> return AST.GtEq)
 
 parseUserRFuncLabel :: Parser RFuncLabel
 parseUserRFuncLabel = do
