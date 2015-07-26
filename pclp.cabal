@@ -10,7 +10,7 @@ data-dir: ""
 executable pclp
     build-depends: QuickCheck -any, base -any, containers -any,
                    explicit-exception -any, hashable -any, parsec -any,
-                   unordered-containers -any
+                   statistics -any, unordered-containers -any
     main-is: Main.hs
     buildable: True
     extensions: StandaloneDeriving GADTs
@@ -22,7 +22,7 @@ executable pclp
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
                    explicit-exception -any, hashable -any, parsec -any,
-                   unordered-containers -any
+                   statistics -any, unordered-containers -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True

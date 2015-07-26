@@ -75,12 +75,16 @@ exportAsDot path pst = do
             Choice label prob left right -> let nodeLabel = label ++ (show $ PST.bounds pst) in do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
-                counter' <- printNode (Just $ show counter) (Just $ printf "%s=true" label) left (counter+1) file
-                printNode (Just $ show counter) (Just $ printf "%s=false" label) right counter' file
+                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (fromRat prob::Float) label) left (counter+1) file
+                printNode (Just $ show counter) (Just $ printf "%f: %s=false" (fromRat (1-prob)::Float) label) right counter' file
             Decomposition op psts -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\"];" counter (show op) (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
                 foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) (Set.toList psts)
+            Unfinished label -> do
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter $ show label)
+                print mbParent (show counter) mbEdgeLabel
+                return (counter+1)
             where
                 print mbParent current mbEdgeLabel = case mbParent of
                     Nothing -> return ()

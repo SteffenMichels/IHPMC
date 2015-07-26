@@ -36,6 +36,7 @@ import BasicTypes
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
+import Numeric (fromRat)
 
 data AST = AST
     { rFuncDefs :: Map RFuncLabel [RFuncDef] -- list of func with same signature, first matches
@@ -54,9 +55,11 @@ instance Show AST where
         queryStr     = concat [printf "query %s.\n" query | query <- Set.toList $ queries ast]
 
 data RFuncDef = Flip Rational
+              | RealDist (Rational -> Probability)
 
 instance Show RFuncDef where
-    show (Flip p) = printf "flip(%s)" $ printProb p
+    show (Flip p)     = printf "flip(%s)" $ printProb p
+    show (RealDist _) = printf "realDist"
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 
@@ -78,10 +81,16 @@ data BuildInPredicate = BoolEq (Expr Bool) (Expr Bool)
                       deriving (Eq, Generic)
 
 instance Show BuildInPredicate where
-    show (BoolEq exprX exprY) = printf "%s = %s" (show exprX) (show exprY)
+    show (BoolEq exprX exprY)   = printf "%s = %s" (show exprX) (show exprY)
+    show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Ord, Generic)
+instance Show IneqOp where
+    show Lt   = "<"
+    show LtEq = "<="
+    show Gt   = ">"
+    show GtEq = ">="
 instance Hashable IneqOp
 data RealN = RealN deriving (Eq, Ord)
 
@@ -93,6 +102,7 @@ data Expr a where
 deriving instance Eq (Expr a)
 instance Show (Expr a) where
     show (BoolConstant const) = printf "#%s" $ fmap toLower $ show const
+    show (RealConstant const) = printf "%f" (fromRat const::Float)
     show (UserRFunc label)    = printf "~%s" label
 instance Hashable (Expr a) where
     hash expr = Hashable.hashWithSalt 0 expr
@@ -106,7 +116,9 @@ deterministicValue (BoolEq (UserRFunc left) (UserRFunc right)) | left == right =
 deterministicValue _                                                           = Nothing
 
 randomFunctions :: BuildInPredicate -> HashSet RFuncLabel
-randomFunctions (BoolEq left right) = Set.union (randomFunctions' left) (randomFunctions' right)
-    where
-        randomFunctions' (BoolConstant _)  = Set.empty
-        randomFunctions' (UserRFunc label) = Set.singleton(label)
+randomFunctions (BoolEq left right)     = Set.union (randomFunctions' left) (randomFunctions' right)
+randomFunctions (RealIneq _ left right) = Set.union (randomFunctions' left) (randomFunctions' right)
+
+randomFunctions' (UserRFunc label) = Set.singleton(label)
+randomFunctions' (BoolConstant _)  = Set.empty
+randomFunctions' (RealConstant _)  = Set.empty

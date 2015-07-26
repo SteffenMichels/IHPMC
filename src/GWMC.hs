@@ -61,48 +61,52 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
                     Nothing             -> iterateDecomp rest
         iterate nnf (PST.Finished _) = Nothing
         iterate nnf (PST.Unfinished nnfLabel) = case decompose nnfLabel nnf of
-            Nothing -> Just (nnf'', PST.Choice rFuncLabel falseP left right) where
-                xxx = sortWith (\x -> orderHeuristic nnfLabel x + orderHeuristicCounter nnfLabel x) $ Set.toList $ NNF.randomFunctions nnfLabel nnf
-                xxxy = trace (foldl (\str rf -> str ++ "\n" ++ (show $ orderHeuristic nnfLabel rf) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
-                rFuncLabel = head $ reverse xxx
-                (leftNNFLabel,  nnf')  = NNF.condition nnfLabel rFuncLabel True nnf
-                (rightNNFLabel, nnf'') = NNF.condition nnfLabel rFuncLabel False nnf'
-                left  = toPSTNode leftNNFLabel
-                right = toPSTNode rightNNFLabel
-                falseP = case Map.lookup rFuncLabel rfuncDefs of
-                    Just (AST.Flip p:_) -> 1-p
+            Nothing -> case Map.lookup rFuncLabel rfuncDefs of
+                    Just (AST.Flip p:_) -> Just (nnf'', PST.Choice rFuncLabel p left right)
+                        where
+                            (leftNNFLabel,  nnf')  = NNF.condition nnfLabel rFuncLabel True nnf
+                            (rightNNFLabel, nnf'') = NNF.condition nnfLabel rFuncLabel False nnf'
+                            left  = toPSTNode leftNNFLabel nnf''
+                            right = toPSTNode rightNNFLabel nnf''
+                    Just (AST.RealDist cdf:_) -> Just (nnf, PST.Choice rFuncLabel (cdf 0.0) (PST.Unfinished nnfLabel) (PST.Unfinished nnfLabel))
+                    _  -> error ("undefined rfunc " ++ rFuncLabel)
 
-                toPSTNode nnfLabel = case NNF.deterministicValue nnfLabel nnf'' of
-                    Just val -> PST.Finished val
-                    Nothing  -> PST.Unfinished nnfLabel
-
-                orderHeuristic :: NNF.NodeLabel -> RFuncLabel -> Double
-                orderHeuristic nnfLabel rfLabel = case node of
-                    NNF.Operator NNF.Or children ->
-                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
-                    NNF.Operator NNF.And children ->
-                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
-                    _ -> if Set.member rfLabel rFuncs then
-                            1
-                         else
-                            0
                     where
-                        node = fromJust $ NNF.lookUp nnfLabel nnf
-                        rFuncs = NNF.randomFunctions nnfLabel nnf
+                        xxx = sortWith (\x -> orderHeuristic nnfLabel x + orderHeuristicCounter nnfLabel x) $ Set.toList $ NNF.randomFunctions nnfLabel nnf
+                        xxxy = trace (foldl (\str rf -> str ++ "\n" ++ (show $ orderHeuristic nnfLabel rf) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
+                        rFuncLabel = head $ reverse xxx
 
-                orderHeuristicCounter :: NNF.NodeLabel -> RFuncLabel -> Double
-                orderHeuristicCounter nnfLabel rfLabel = case node of
-                    NNF.Operator NNF.Or children ->
-                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
-                    NNF.Operator NNF.And children ->
-                        (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
-                    _ -> if Set.member rfLabel rFuncs then
-                            1
-                         else
-                            0
-                    where
-                        node = fromJust $ NNF.lookUp nnfLabel nnf
-                        rFuncs = NNF.randomFunctions nnfLabel nnf
+                        toPSTNode nnfLabel nnf = case NNF.deterministicValue nnfLabel nnf of
+                            Just val -> PST.Finished val
+                            Nothing  -> PST.Unfinished nnfLabel
+
+                        orderHeuristic :: NNF.NodeLabel -> RFuncLabel -> Double
+                        orderHeuristic nnfLabel rfLabel = case node of
+                            NNF.Operator NNF.Or children ->
+                                (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
+                            NNF.Operator NNF.And children ->
+                                (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
+                            _ -> if Set.member rfLabel rFuncs then
+                                    1
+                                 else
+                                    0
+                            where
+                                node = fromJust $ NNF.lookUp nnfLabel nnf
+                                rFuncs = NNF.randomFunctions nnfLabel nnf
+
+                        orderHeuristicCounter :: NNF.NodeLabel -> RFuncLabel -> Double
+                        orderHeuristicCounter nnfLabel rfLabel = case node of
+                            NNF.Operator NNF.Or children ->
+                                (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children) / fromIntegral (Set.size rFuncs)
+                            NNF.Operator NNF.And children ->
+                                (Set.foldr (\c score -> orderHeuristic c rfLabel + score) 0.0 children)
+                            _ -> if Set.member rfLabel rFuncs then
+                                    1
+                                 else
+                                    0
+                            where
+                                node = fromJust $ NNF.lookUp nnfLabel nnf
+                                rFuncs = NNF.randomFunctions nnfLabel nnf
             Just (op, decomposition) -> Just (nnf', PST.Decomposition op psts)
                 where
                     (psts, nnf') = Set.foldr

@@ -25,6 +25,8 @@ import Numeric
 import Text.Printf (printf)
 import BasicTypes
 import Data.Ratio ((%))
+import qualified Statistics.Distribution as Dist
+import qualified Statistics.Distribution.Normal as Norm
 
 parsePclp :: String -> Exceptional String AST
 parsePclp src =
@@ -104,25 +106,26 @@ parseRFuncDef :: Parser (RFuncLabel, AST.RFuncDef)
 parseRFuncDef = do
     label <- parseUserRFuncLabel
     stringAndSpaces "~"
+    def <- try parseFlip <|> parseNorm
+    return (label, def)
+
+parseFlip :: Parser AST.RFuncDef
+parseFlip = do
     stringAndSpaces "flip("
     prob <- parseRat
-    spaces
     stringAndSpaces ")"
     stringAndSpaces "."
-    return (label, AST.Flip prob)
+    return $ AST.Flip prob
 
-parseRat :: Parser Rational
-parseRat = try parseDecimal <|> parseFraction where
-    parseDecimal = do
-        before <- many digit
-        string "."
-        after <- many1 digit
-        return $ (fst . head . readFloat) (printf "%s.%s" before after)
-    parseFraction = do
-        before <- many digit
-        string "/"
-        after <- many1 digit
-        return $ (read before) % (read after)
+parseNorm :: Parser AST.RFuncDef
+parseNorm = do
+    stringAndSpaces "norm("
+    m <- parseRat
+    stringAndSpaces ","
+    d <- parseRat
+    stringAndSpaces ")"
+    stringAndSpaces "."
+    return $ AST.RealDist (\x -> toRational $ Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) $ fromRat x)
 
 -- expressions
 parseBoolExpr :: Parser (AST.Expr Bool)
@@ -164,7 +167,25 @@ parseQuery = do
     stringAndSpaces "."
     return query
 
--- util
+-- common
+
+parseRat :: Parser Rational
+parseRat = do
+    neg <- (try $ string "-" >> return True) <|> return False
+    rat <- try parseDecimal <|> parseFraction
+    spaces
+    return $ if neg then -rat else rat
+    where
+        parseDecimal = do
+            before <- many digit
+            string "."
+            after <- many1 digit
+            return $ (fst . head . readFloat) (printf "%s.%s" before after)
+        parseFraction = do
+            before <- many digit
+            string "/"
+            after <- many1 digit
+            return $ (read before) % (read after)
 
 stringAndSpaces :: String -> Parser ()
 stringAndSpaces str = string str >> spaces
