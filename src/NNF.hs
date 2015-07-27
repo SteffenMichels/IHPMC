@@ -25,7 +25,8 @@ module NNF
     , randomFunctions
     , exportAsDot
     , uncondNodeLabel
-    , condition
+    , conditionBool
+    , conditionReal
     , deterministicValue
     ) where
 import BasicTypes
@@ -45,33 +46,43 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import qualified Data.List as List
+import Interval (Interval)
+import qualified Interval
 
 -- NNF nodes "counter for fresh nodes"
 data NNF = NNF (HashMap NodeLabel (Node, HashSet RFuncLabel)) Int
 
 instance Show NNF where
-    show _ = "NNF String"
+    show (NNF nodes _) = show nodes
 
-data NodeLabel = NodeLabel String (HashSet (RFuncLabel, Bool)) deriving (Eq, Generic)
+data NodeLabel = NodeLabel String (HashSet (RFuncLabel, Bool)) (HashSet (RFuncLabel, Interval)) deriving (Eq, Generic)
 
 instance Show NodeLabel where
-    show (NodeLabel label conds) = printf "%s|%s" label (List.intercalate "," (fmap showCond $ Set.toList conds)) where
-        showCond (label, val) = printf "%s=%s" label $ show val
+    show (NodeLabel label bConds rConds) = printf
+        "%s|%s"
+        label
+        (List.intercalate "," ((fmap showCondBool $ Set.toList bConds) ++ (fmap showCondReal $ Set.toList rConds)))
+        where
+            showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
+            showCondReal (rf, interv) = printf "%s in %s" rf $ show interv
 instance Hashable NodeLabel
 
 data Node = Operator NodeType (HashSet NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
           | Deterministic Bool
-          deriving (Eq)
+          deriving (Eq, Show)
 
 data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
 
 uncondNodeLabel :: PredicateLabel -> NodeLabel
-uncondNodeLabel label = NodeLabel label Set.empty
+uncondNodeLabel label = NodeLabel label Set.empty Set.empty
 
-condNodeLabel :: RFuncLabel -> Bool -> NodeLabel -> NodeLabel
-condNodeLabel rFuncLabel rFuncVal (NodeLabel l conds) = NodeLabel l $ Set.insert (rFuncLabel, rFuncVal) conds
+condNodeLabelBool :: RFuncLabel -> Bool -> NodeLabel -> NodeLabel
+condNodeLabelBool rFuncLabel rFuncVal (NodeLabel l bConds rConds) = NodeLabel l (Set.insert (rFuncLabel, rFuncVal) bConds) rConds
+
+condNodeLabelReal :: RFuncLabel -> Interval -> NodeLabel -> NodeLabel
+condNodeLabelReal rFuncLabel interv (NodeLabel l bConds rConds) = NodeLabel l bConds (Set.insert (rFuncLabel, interv) rConds)
 
 empty :: NNF
 empty = NNF Map.empty 0
@@ -127,38 +138,64 @@ deterministicValue label (NNF nodes _) = case fst $ fromJust $ Map.lookup label 
     Deterministic val -> Just val
     _                 -> Nothing
 
-condition :: NodeLabel -> RFuncLabel -> Bool -> NNF -> (NodeLabel, NNF)
-condition topLabel rFuncLabel rFuncVal nnf = (topLabel', nnf')
+conditionBool :: NodeLabel -> RFuncLabel -> Bool -> NNF -> (NodeLabel, NNF)
+conditionBool nodeLabel rf val nnf
+    | not $ Set.member rf $ randomFunctions nodeLabel nnf = (nodeLabel, nnf)
+    | member condLabel nnf                                = (condLabel, nnf)
+    | otherwise = case node of
+        Operator operator children ->
+            let (condChildren, nnf') = Set.foldr
+                    (\child (children, nnf) ->
+                        let (condChild, nnf') = conditionBool child rf val nnf
+                        in (Set.insert condChild children, nnf')
+                    )
+                    (Set.empty, nnf)
+                    children
+            in (condLabel, insert condLabel (Operator operator condChildren) nnf')
+        BuildInPredicate pred ->
+            (condLabel, insert condLabel (BuildInPredicate $ conditionPred pred) nnf)
+        Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
-        (topLabel', nnf') = condition' topLabel rFuncLabel rFuncVal nnf
-            where
-                condition' label rFuncLabel rFuncVal nnf
-                    | not $ Set.member rFuncLabel $ randomFunctions label nnf = (label, nnf)
-                    | member condLabel nnf                                    = (condLabel, nnf)
-                    | otherwise = case node of
-                        Operator operator children ->
-                            let (condChildren, nnf') = Set.foldr
-                                    (\child (children, nnf) ->
-                                        let (condChild, nnf') = condition child rFuncLabel rFuncVal nnf
-                                        in (Set.insert condChild children, nnf')
-                                    )
-                                    (Set.empty, nnf)
-                                    children
-                            in (condLabel, insert condLabel (Operator operator condChildren) nnf')
-                        BuildInPredicate pred ->
-                            (condLabel, insert condLabel (BuildInPredicate $ conditionPred rFuncLabel rFuncVal pred) nnf)
-                        Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
-                    where
-                        condLabel = condNodeLabel rFuncLabel rFuncVal label
-                        node      = fromJust $ lookUp label nnf
+        condLabel = condNodeLabelBool rf val nodeLabel
+        node      = fromJust $ lookUp nodeLabel nnf
 
-                conditionPred :: RFuncLabel -> Bool -> AST.BuildInPredicate -> AST.BuildInPredicate
-                conditionPred rFuncLabel rFuncVal (AST.BoolEq exprL exprR) = AST.BoolEq (conditionExpr exprL) (conditionExpr exprR)
-                    where
-                        conditionExpr expr@(AST.BoolConstant _) = expr
-                        conditionExpr expr@(AST.UserRFunc exprRFuncLabel)
-                            | exprRFuncLabel == rFuncLabel = AST.BoolConstant rFuncVal
-                            | otherwise                    = expr
+        conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
+        conditionPred (AST.BoolEq exprL exprR) = AST.BoolEq (conditionExpr exprL) (conditionExpr exprR)
+            where
+                conditionExpr expr@(AST.UserRFunc exprRFuncLabel)
+                    | exprRFuncLabel == rf = AST.BoolConstant val
+                    | otherwise            = expr
+                conditionExpr expr = expr
+        conditionPred pred = pred
+
+conditionReal :: NodeLabel -> RFuncLabel -> Interval -> NNF -> (NodeLabel, NNF)
+conditionReal nodeLabel rf interv nnf
+    | not $ Set.member rf $ randomFunctions nodeLabel nnf = (nodeLabel, nnf)
+    | member condLabel nnf                                = (condLabel, nnf)
+    | otherwise = case node of
+        Operator operator children ->
+            let (condChildren, nnf') = Set.foldr
+                    (\child (children, nnf) ->
+                        let (condChild, nnf') = conditionReal child rf interv nnf
+                        in (Set.insert condChild children, nnf')
+                    )
+                    (Set.empty, nnf)
+                    children
+            in (condLabel, insert condLabel (Operator operator condChildren) nnf')
+        BuildInPredicate pred ->
+            (condLabel, insert condLabel (BuildInPredicate $ conditionPred pred) nnf)
+        Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
+    where
+        condLabel = condNodeLabelReal rf interv nodeLabel
+        node      = fromJust $ lookUp nodeLabel nnf
+
+        conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
+        conditionPred pred@(AST.RealIn predRf predInterv)
+            | predRf == rf && Interval.subsetEq interv predInterv  = AST.Constant True
+            | predRf == rf && Interval.disjoint interv predInterv  = AST.Constant False
+            | otherwise = pred
+        conditionPred (AST.RealIneq _ _ _) = error "conditionPred (AST.RealIneq ...) not implemented"
+        conditionPred pred = pred
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do

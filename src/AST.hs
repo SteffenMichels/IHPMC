@@ -24,6 +24,7 @@ module AST
     , deterministicValue
     , randomFunctions
     ) where
+import BasicTypes
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.HashSet (HashSet)
@@ -32,11 +33,11 @@ import Text.Printf (printf)
 import BasicTypes
 import Data.List (intercalate)
 import Data.Char (toLower)
-import BasicTypes
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
 import Numeric (fromRat)
+import Interval(Interval)
 
 data AST = AST
     { rFuncDefs :: Map RFuncLabel [RFuncDef] -- list of func with same signature, first matches
@@ -78,11 +79,14 @@ instance Hashable RuleBodyElement
 
 data BuildInPredicate = BoolEq (Expr Bool) (Expr Bool)
                       | RealIneq IneqOp (Expr RealN) (Expr RealN)
+                      | RealIn RFuncLabel Interval
+                      | Constant Bool
                       deriving (Eq, Generic)
 
 instance Show BuildInPredicate where
-    show (BoolEq exprX exprY)   = printf "%s = %s" (show exprX) (show exprY)
+    show (BoolEq exprX exprY)      = printf "%s = %s"  (show exprX) (show exprY)
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
+    show (RealIn rf interv)        = printf "%s in %s" rf (show interv)
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Ord, Generic)
@@ -113,11 +117,14 @@ instance Hashable (Expr a) where
 deterministicValue :: BuildInPredicate -> Maybe Bool
 deterministicValue (BoolEq (BoolConstant left) (BoolConstant right))           = Just (left == right)
 deterministicValue (BoolEq (UserRFunc left) (UserRFunc right)) | left == right = Just True
+deterministicValue (Constant val)                                              = Just val
 deterministicValue _                                                           = Nothing
 
 randomFunctions :: BuildInPredicate -> HashSet RFuncLabel
 randomFunctions (BoolEq left right)     = Set.union (randomFunctions' left) (randomFunctions' right)
 randomFunctions (RealIneq _ left right) = Set.union (randomFunctions' left) (randomFunctions' right)
+randomFunctions (RealIn rf _)           = Set.singleton rf
+randomFunctions (Constant _)            = Set.empty
 
 randomFunctions' (UserRFunc label) = Set.singleton(label)
 randomFunctions' (BoolConstant _)  = Set.empty

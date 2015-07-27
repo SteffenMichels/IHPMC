@@ -36,7 +36,8 @@ import Data.Hashable (Hashable)
 -- Probabilistic Sematic Tree
 data PST = Finished Bool
          | Unfinished NNF.NodeLabel
-         | Choice RFuncLabel Probability PST PST
+         | ChoiceBool RFuncLabel Probability PST PST
+         | ChoiceReal RFuncLabel Probability Rational PST PST
          | Decomposition NNF.NodeType (HashSet PST)
          deriving (Show, Eq, Generic)
 instance Hashable PST
@@ -47,7 +48,10 @@ empty query = Unfinished query
 bounds :: PST -> ProbabilityBounds
 bounds (Finished b)                = if b then (1.0, 1.0) else (0.0, 0.0)
 bounds (Unfinished _)              = (0.0, 1.0)
-bounds (Choice _ p left right)     = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
+bounds (ChoiceBool _ p left right) = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
+    (leftLower,  leftUpper)  = bounds left
+    (rightLower, rightUpper) = bounds right
+bounds (ChoiceReal _ p _ left right) = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
     (leftLower,  leftUpper)  = bounds left
     (rightLower, rightUpper) = bounds right
 bounds (Decomposition NNF.And dec) = Set.foldr (\pst (l,u) -> let (l',u') = bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
@@ -72,11 +76,16 @@ exportAsDot path pst = do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\"];" counter (show val) (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
-            Choice label prob left right -> let nodeLabel = label ++ (show $ PST.bounds pst) in do
+            ChoiceBool label prob left right -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
                 counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (fromRat prob::Float) label) left (counter+1) file
                 printNode (Just $ show counter) (Just $ printf "%f: %s=false" (fromRat (1-prob)::Float) label) right counter' file
+            ChoiceReal label prob splitPoint left right -> do
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter (printBounds pst))
+                print mbParent (show counter) mbEdgeLabel
+                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (fromRat prob::Float) label (fromRat splitPoint::Float)) left (counter+1) file
+                printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (fromRat (1-prob)::Float) label (fromRat splitPoint::Float)) right counter' file
             Decomposition op psts -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\"];" counter (show op) (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel

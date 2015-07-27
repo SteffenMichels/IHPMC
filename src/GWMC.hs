@@ -31,6 +31,7 @@ import Text.Printf (printf)
 import GHC.Exts (sortWith)
 import Debug.Trace (trace)
 import qualified Data.List as List
+import Interval (IntervalLimit(..))
 
 gwmc :: PredicateLabel -> Map RFuncLabel [AST.RFuncDef] -> NNF -> ([ProbabilityBounds], NNF)
 gwmc query rfuncDefs nnf = (fmap PST.bounds psts, nnf') where
@@ -45,13 +46,30 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
             Just (nnf', pst') -> let (psts, nnf'') = gwmc' nnf' pst' in (pst' : psts, nnf'')
 
         iterate :: NNF -> PST -> Maybe (NNF, PST)
-        iterate nnf (PST.Choice rFuncLabel p left right) = case iterate nnf first of
-            Just (nnf', first') -> Just (nnf', PST.Choice rFuncLabel p first' second)
-            Nothing -> case iterate nnf second of
-                Just (nnf', second') -> Just (nnf', PST.Choice rFuncLabel p first second')
-                Nothing -> Nothing
+        iterate nnf (PST.ChoiceBool rFuncLabel p left right) = fmap newPSTNode mbRes
             where
-                (first, second) = if PST.maxError left > PST.maxError right then (left, right) else (right, left)
+                newPSTNode (nnf, first, second)
+                    | leftFirst = (nnf, PST.ChoiceBool rFuncLabel p first second)
+                    | otherwise = (nnf, PST.ChoiceBool rFuncLabel p second first)
+                mbRes = case iterate nnf first of
+                    Just (nnf', first') -> Just (nnf', first', second)
+                    Nothing -> case iterate nnf second of
+                        Just (nnf', second') -> Just (nnf', first, second')
+                        Nothing -> Nothing
+                (first, second) = if leftFirst then (left, right) else (right, left)
+                leftFirst = PST.maxError left > PST.maxError right
+        iterate nnf (PST.ChoiceReal rFuncLabel p splitPoint left right) = fmap newPSTNode mbRes
+            where
+                newPSTNode (nnf, first, second)
+                    | leftFirst = (nnf, PST.ChoiceReal rFuncLabel p splitPoint first second)
+                    | otherwise = (nnf, PST.ChoiceReal rFuncLabel p splitPoint second first)
+                mbRes = case iterate nnf first of
+                    Just (nnf', first') -> Just (nnf', first', second)
+                    Nothing -> case iterate nnf second of
+                        Just (nnf', second') -> Just (nnf', first, second')
+                        Nothing -> Nothing
+                (first, second) = if leftFirst then (left, right) else (right, left)
+                leftFirst = PST.maxError left > PST.maxError right
         iterate nnf (PST.Decomposition op dec) = iterateDecomp (Set.toList dec)
             where
                 iterateDecomp :: [PST] -> Maybe (NNF, PST)
@@ -62,13 +80,19 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
         iterate nnf (PST.Finished _) = Nothing
         iterate nnf (PST.Unfinished nnfLabel) = case decompose nnfLabel nnf of
             Nothing -> case Map.lookup rFuncLabel rfuncDefs of
-                    Just (AST.Flip p:_) -> Just (nnf'', PST.Choice rFuncLabel p left right)
+                    Just (AST.Flip p:_) -> Just (nnf'', PST.ChoiceBool rFuncLabel p left right)
                         where
-                            (leftNNFLabel,  nnf')  = NNF.condition nnfLabel rFuncLabel True nnf
-                            (rightNNFLabel, nnf'') = NNF.condition nnfLabel rFuncLabel False nnf'
+                            (leftNNFLabel,  nnf')  = NNF.conditionBool nnfLabel rFuncLabel True nnf
+                            (rightNNFLabel, nnf'') = NNF.conditionBool nnfLabel rFuncLabel False nnf'
                             left  = toPSTNode leftNNFLabel nnf''
                             right = toPSTNode rightNNFLabel nnf''
-                    Just (AST.RealDist cdf:_) -> Just (nnf, PST.Choice rFuncLabel (cdf 0.0) (PST.Unfinished nnfLabel) (PST.Unfinished nnfLabel))
+                    Just (AST.RealDist cdf:_) -> Just (nnf'', PST.ChoiceReal rFuncLabel (cdf splitPoint) splitPoint left right)
+                        where
+                            (leftNNFLabel,  nnf')  = NNF.conditionReal nnfLabel rFuncLabel (Inf, Open splitPoint) nnf
+                            (rightNNFLabel, nnf'') = NNF.conditionReal nnfLabel rFuncLabel (Open splitPoint, Inf) nnf'
+                            left  = toPSTNode leftNNFLabel nnf''
+                            right = toPSTNode rightNNFLabel nnf''
+                            splitPoint = 0.0
                     _  -> error ("undefined rfunc " ++ rFuncLabel)
 
                     where
