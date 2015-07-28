@@ -70,7 +70,7 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
                         Nothing -> Nothing
                 (first, second) = if leftFirst then (left, right) else (right, left)
                 leftFirst = PST.maxError left > PST.maxError right
-        iterate nnf (PST.Decomposition op dec, _) = iterateDecomp (Set.toList dec)
+        iterate nnf (PST.Decomposition op dec, _) = iterateDecomp (sortWith (\c -> -PST.maxError c) $ Set.toList dec)
             where
                 iterateDecomp :: [PST] -> Maybe (NNF, PST)
                 iterateDecomp [] = Nothing
@@ -96,9 +96,9 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
                     _  -> error ("undefined rfunc " ++ rFuncLabel)
 
                     where
-                        xxx = sortWith (\x -> let (p,n) = NNF.heuristicScores x nnfLabel nnf in p+n) $ Set.toList $ NNF.randomFunctions nnfLabel nnf
-                        --xxxy = trace (foldl (\str rf -> str ++ "\n" ++ (show $ orderHeuristic nnfLabel rf) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
-                        rFuncLabel = head $ reverse xxx
+                        xxx = sortWith (\rf -> let (p,n) = NNF.heuristicScores rf nnfLabel nnf in -p+n) $ Set.toList $ NNF.randomFunctions nnfLabel nnf
+                        --xxxy = trace (foldl (\str rf -> str ++ "\n" ++ (let (p,n) = NNF.heuristicScores rf nnfLabel nnf in show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
+                        rFuncLabel = head xxx
 
                         toPSTNode nnfLabel nnf = case NNF.deterministicValue nnfLabel nnf of
                             Just True  -> (PST.Finished True,       (1.0,1.0))

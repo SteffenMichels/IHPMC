@@ -55,7 +55,7 @@ exeMain = do
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
             (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            doIO $ forM (take 100000 psts) (\pst -> let (l,u) = PST.bounds pst in putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
+            doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst in putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
             --PST.exportAsDot "/tmp/pst.dot" $ last (take 10 psts)
             return (length psts)

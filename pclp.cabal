@@ -4,6 +4,7 @@ cabal-version: >=1.2
 build-type: Simple
 license: AllRightsReserved
 license-file: ""
+description:  
 data-dir: ""
  
 executable pclp
@@ -14,8 +15,8 @@ executable pclp
     buildable: True
     extensions: StandaloneDeriving GADTs
     hs-source-dirs: src
-    other-modules: Interval Parser PST NNF GWMC AST BasicTypes
-                   Benchmarks Grounder Exception
+    other-modules: NNF AST Parser Exception BasicTypes Grounder
+                   Interval GWMC Benchmarks PST
     ghc-options: -rtsopts -XDeriveGeneric
  
 test-suite test-pclp
