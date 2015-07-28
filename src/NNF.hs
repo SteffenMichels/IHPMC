@@ -28,6 +28,7 @@ module NNF
     , conditionBool
     , conditionReal
     , deterministicValue
+    , heuristicScores
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -49,8 +50,8 @@ import qualified Data.List as List
 import Interval (Interval)
 import qualified Interval
 
--- NNF nodes "counter for fresh nodes"
-data NNF = NNF (HashMap NodeLabel (Node, HashSet RFuncLabel)) Int
+-- NNF nodes(node itself, rfuncs, heuristicScores) "counter for fresh nodes"
+data NNF = NNF (HashMap NodeLabel (Node, HashSet RFuncLabel, HashMap RFuncLabel (Double, Double))) Int
 
 instance Show NNF where
     show (NNF nodes _) = show nodes
@@ -91,14 +92,30 @@ member :: NodeLabel -> NNF -> Bool
 member label (NNF nodes _) = Map.member label nodes
 
 insert :: NodeLabel -> Node -> NNF -> NNF
-insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplifiedNode, rFuncs) nodes) freshCounter
+insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplifiedNode, rFuncs, scores) nodes) freshCounter
     where
         simplifiedNode = simplify node nnf
         rFuncs = case simplifiedNode of
-            Deterministic _ -> Set.empty
+            Deterministic _       -> Set.empty
             BuildInPredicate pred -> AST.randomFunctions pred
             Operator _ children ->
                 Set.foldr (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
+
+        scores = case simplifiedNode of
+            Deterministic _       -> Map.empty
+            BuildInPredicate pred -> Map.fromList [(rf, (1.0,1.0)) | rf <- Set.toList rFuncs]
+            Operator op children  -> Map.fromList [(rf, scores rf) | rf <- Set.toList rFuncs] where
+                scores rf = case op of
+                    NNF.And -> (posScore/nRFuncs, negScore)
+                    NNF.Or  -> (posScore, negScore/nRFuncs)
+                    where
+                    (posScore, negScore) = Set.foldr (\c (posScore, negScore) ->
+                                                        let (cPosScore, cNegScore) = heuristicScores rf c nnf
+                                                        in  (posScore+cPosScore, negScore+cNegScore)
+                                                     )
+                                                     (0.0, 0.0)
+                                                     children
+        nRFuncs = fromIntegral (Set.size rFuncs)
 
         simplify :: Node -> NNF -> Node
         simplify node@(Deterministic _) _ = node
@@ -128,13 +145,16 @@ insertFresh node nnf@(NNF nodes freshCounter) = (label, NNF nodes' (freshCounter
         label = uncondNodeLabel (show freshCounter)
 
 lookUp :: NodeLabel -> NNF -> Maybe Node
-lookUp label (NNF nodes _) = fmap fst $ Map.lookup label nodes
+lookUp label (NNF nodes _) = fmap (\(x,_,_) -> x) $ Map.lookup label nodes
 
 randomFunctions :: NodeLabel -> NNF -> HashSet RFuncLabel
-randomFunctions label (NNF nodes _) = snd $ fromJust $ Map.lookup label nodes
+randomFunctions label (NNF nodes _) = (\(_,x,_) -> x) $ fromJust $ Map.lookup label nodes
+
+heuristicScores :: RFuncLabel -> NodeLabel -> NNF -> (Double, Double)
+heuristicScores rf label (NNF nodes _) = Map.lookupDefault (0.0,0.0) rf $ (\(_,_,x) -> x) $ fromJust $ Map.lookup label nodes
 
 deterministicValue :: NodeLabel -> NNF -> Maybe Bool
-deterministicValue label (NNF nodes _) = case fst $ fromJust $ Map.lookup label nodes of
+deterministicValue label (NNF nodes _) = case (\(x,_,_) -> x) $ fromJust $ Map.lookup label nodes of
     Deterministic val -> Just val
     _                 -> Nothing
 
@@ -205,8 +225,8 @@ exportAsDot path (NNF nodes _) = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Handle -> (NodeLabel, (Node, HashSet RFuncLabel)) -> ExceptionalT String IO ()
-        printNode file (label, (node, _)) = do
+        printNode :: Handle -> (NodeLabel, (Node, HashSet RFuncLabel, HashMap RFuncLabel (Double, Double))) -> ExceptionalT String IO ()
+        printNode file (label, (node, _, _)) = do
             doIO (hPutStrLn file (printf "%i[label=\"%s\\n%s\"];" labelHash (show label) (descr node)))
             case node of
                 (Operator _ children) -> forM (Set.toList children) writeEdge >> return ()

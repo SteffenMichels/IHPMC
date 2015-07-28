@@ -58,7 +58,7 @@ exeMain = do
             doIO $ forM (take 100000 psts) (\pst -> let (l,u) = PST.bounds pst in putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
             --PST.exportAsDot "/tmp/pst.dot" $ last (take 10 psts)
-            --return (length psts)
+            return (length psts)
             --return (length bounds, head $ reverse bounds)
 
 
