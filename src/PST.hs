@@ -13,7 +13,8 @@
 -----------------------------------------------------------------------------
 
 module PST
-    ( PST(..)
+    ( PST
+    , PSTNode(..)
     , empty
     , bounds
     , maxError
@@ -34,30 +35,20 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 
 -- Probabilistic Sematic Tree
-data PST = Finished Bool
-         | Unfinished NNF.NodeLabel
-         | ChoiceBool RFuncLabel Probability PST PST
-         | ChoiceReal RFuncLabel Probability Rational PST PST
-         | Decomposition NNF.NodeType (HashSet PST)
-         deriving (Show, Eq, Generic)
-instance Hashable PST
+type PST = (PSTNode, ProbabilityBounds)
+data PSTNode = Finished Bool
+             | Unfinished NNF.NodeLabel
+             | ChoiceBool RFuncLabel Probability PST PST
+             | ChoiceReal RFuncLabel Probability Rational PST PST
+             | Decomposition NNF.NodeType (HashSet PST)
+             deriving (Show, Eq, Generic)
+instance Hashable PSTNode
 
 empty :: NNF.NodeLabel -> PST
-empty query = Unfinished query
+empty query = (Unfinished query, (0.0,1.0))
 
 bounds :: PST -> ProbabilityBounds
-bounds (Finished b)                = if b then (1.0, 1.0) else (0.0, 0.0)
-bounds (Unfinished _)              = (0.0, 1.0)
-bounds (ChoiceBool _ p left right) = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
-    (leftLower,  leftUpper)  = bounds left
-    (rightLower, rightUpper) = bounds right
-bounds (ChoiceReal _ p _ left right) = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
-    (leftLower,  leftUpper)  = bounds left
-    (rightLower, rightUpper) = bounds right
-bounds (Decomposition NNF.And dec) = Set.foldr (\pst (l,u) -> let (l',u') = bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
-bounds (Decomposition NNF.Or dec)  = (1-nl, 1-nu)
-    where
-        (nl, nu) = Set.foldr (\pst (l,u) -> let (l',u') = bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
+bounds (_, b) = b
 
 maxError :: PST -> Probability
 maxError pst = let (l,u) = bounds pst in u-l
@@ -71,7 +62,7 @@ exportAsDot path pst = do
     doIO (hClose file)
     where
         printNode :: (Maybe String) -> (Maybe String)-> PST -> Int -> Handle -> ExceptionalT String IO Int
-        printNode mbParent mbEdgeLabel pst counter file = case pst of
+        printNode mbParent mbEdgeLabel (pstn,bounds) counter file = case pstn of
             Finished val -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\"];" counter (show val) (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
