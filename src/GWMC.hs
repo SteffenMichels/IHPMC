@@ -25,6 +25,7 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.HashMap.Lazy as HashMap
 import qualified AST
 import Data.Maybe (fromJust)
 import Text.Printf (printf)
@@ -96,9 +97,9 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.empty $ NNF.uncondNodeLabel query
                     _  -> error ("undefined rfunc " ++ rFuncLabel)
 
                     where
-                        xxx = sortWith (\rf -> let (p,n) = NNF.heuristicScores rf nnfLabel nnf in -p+n) $ Set.toList $ NNF.randomFunctions nnfLabel nnf
+                        xxx = sortWith (\(rf, (p,n)) -> -p+n) $ HashMap.toList $ NNF.allScores nnfLabel nnf
                         --xxxy = trace (foldl (\str rf -> str ++ "\n" ++ (let (p,n) = NNF.heuristicScores rf nnfLabel nnf in show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
-                        rFuncLabel = head xxx
+                        rFuncLabel = fst $ head xxx
 
                         toPSTNode nnfLabel nnf = case NNF.deterministicValue nnfLabel nnf of
                             Just True  -> (PST.Finished True,       (1.0,1.0))

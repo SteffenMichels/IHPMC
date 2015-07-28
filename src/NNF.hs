@@ -23,12 +23,12 @@ module NNF
     , insertFresh
     , lookUp
     , randomFunctions
+    , allScores
     , exportAsDot
     , uncondNodeLabel
     , conditionBool
     , conditionReal
     , deterministicValue
-    , heuristicScores
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -109,12 +109,13 @@ insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplifi
                     NNF.And -> (posScore/nRFuncs, negScore)
                     NNF.Or  -> (posScore, negScore/nRFuncs)
                     where
-                    (posScore, negScore) = Set.foldr (\c (posScore, negScore) ->
-                                                        let (cPosScore, cNegScore) = heuristicScores rf c nnf
-                                                        in  (posScore+cPosScore, negScore+cNegScore)
-                                                     )
-                                                     (0.0, 0.0)
-                                                     children
+                    (posScore, negScore) = foldr (\childScores (posScore, negScore) ->
+                                                    let (cPosScore, cNegScore) = Map.lookupDefault (0.0,0.0) rf childScores
+                                                    in  (posScore+cPosScore, negScore+cNegScore)
+                                                 )
+                                                 (0.0, 0.0)
+                                                 childrenScores
+                childrenScores = [allScores c nnf | c <- Set.toList children]
         nRFuncs = fromIntegral (Set.size rFuncs)
 
         simplify :: Node -> NNF -> Node
@@ -148,13 +149,13 @@ lookUp :: NodeLabel -> NNF -> Maybe Node
 lookUp label (NNF nodes _) = fmap (\(x,_,_) -> x) $ Map.lookup label nodes
 
 randomFunctions :: NodeLabel -> NNF -> HashSet RFuncLabel
-randomFunctions label (NNF nodes _) = (\(_,x,_) -> x) $ fromJust $ Map.lookup label nodes
+randomFunctions label (NNF nodes _) = (\(_,x,_) -> x) . fromJust $ Map.lookup label nodes
 
-heuristicScores :: RFuncLabel -> NodeLabel -> NNF -> (Double, Double)
-heuristicScores rf label (NNF nodes _) = Map.lookupDefault (0.0,0.0) rf $ (\(_,_,x) -> x) $ fromJust $ Map.lookup label nodes
+allScores :: NodeLabel -> NNF -> HashMap RFuncLabel (Double, Double)
+allScores label (NNF nodes _) = (\(_,_,x) -> x) . fromJust $ Map.lookup label nodes
 
 deterministicValue :: NodeLabel -> NNF -> Maybe Bool
-deterministicValue label (NNF nodes _) = case (\(x,_,_) -> x) $ fromJust $ Map.lookup label nodes of
+deterministicValue label (NNF nodes _) = case (\(x,_,_) -> x) . fromJust $ Map.lookup label nodes of
     Deterministic val -> Just val
     _                 -> Nothing
 
