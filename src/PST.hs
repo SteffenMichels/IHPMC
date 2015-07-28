@@ -42,7 +42,7 @@ instance Hashable PST
 data PSTNode = Leaf NNF.NodeLabel
              | ChoiceBool RFuncLabel Probability PST PST
              | ChoiceReal RFuncLabel Probability Rational PST PST
-             | Decomposition NNF.NodeType (HashSet PST)
+             | Decomposition NNF.NodeType [PST]
              deriving (Show, Eq, Generic)
 instance Hashable PSTNode
 
@@ -83,7 +83,7 @@ exportAsDot path pst = do
             Unfinished (Decomposition op psts) _ -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\"];" counter (show op) (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
-                foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) (Set.toList psts)
+                foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
             Unfinished (Leaf label) _ -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter $ show label)
                 print mbParent (show counter) mbEdgeLabel

@@ -79,12 +79,13 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
         iterateNode nnf (PST.Decomposition op dec) =
             (nnf', PST.Decomposition op dec', combineProbsDecomp op dec')
             where
-                selectedChild = head . sortWith (\c -> -PST.maxError c) $ Set.toList dec
+                sortedChildren = sortWith (\c -> -PST.maxError c) dec
+                selectedChild = head sortedChildren
                 selectedChildNode = case selectedChild of
                     PST.Unfinished pstNode _ -> pstNode
                     _                        -> error "finished node should not be selected for iteration"
                 (nnf', selectedChild') = iterate nnf selectedChildNode
-                dec' = Set.insert selectedChild' (Set.delete selectedChild dec)
+                dec' = selectedChild':tail sortedChildren
         iterateNode nnf (PST.Leaf nnfLabel) = case decompose nnfLabel nnf of
             Nothing -> case Map.lookup rFuncLabel rfuncDefs of
                     Just (AST.Flip p:_) -> (nnf'', PST.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right)
@@ -110,7 +111,7 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                             Just True  -> PST.Finished 1.0
                             Just False -> PST.Finished 0.0
                             Nothing    -> PST.Unfinished (PST.Leaf nnfLabel) (0.0,1.0)
-            Just (op, decomposition) -> (nnf', PST.Decomposition op psts, combineProbsDecomp op psts)
+            Just (op, decomposition) -> (nnf', PST.Decomposition op psts, (0.0,1.0))
                 where
                     (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
@@ -118,16 +119,17 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                                                     NNF.insertFresh (NNF.Operator op dec) nnf
                                                 else
                                                     (getFirst dec, nnf)
-                            in  (Set.insert (PST.Unfinished (PST.Leaf fresh) (0.0,1.0)) psts, nnf'))
-                        (Set.empty, nnf)
+                            in  (PST.Unfinished (PST.Leaf fresh) (0.0,1.0):psts, nnf')
+                        )
+                        ([], nnf)
                         decomposition
 
         combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
             (leftLower,  leftUpper)  = PST.bounds left
             (rightLower, rightUpper) = PST.bounds right
-        combineProbsDecomp NNF.And dec = Set.foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
+        combineProbsDecomp NNF.And dec = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
         combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
-            (nl, nu) = Set.foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
+            (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
         showDec dec nnf = Set.foldr (\d str -> str ++ show d ++ " " ++ (show $ Set.foldr (\x rfs -> Set.union rfs $ NNF.randomFunctions x nnf) Set.empty d) ++ "\n") "\n" dec
 
