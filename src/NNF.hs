@@ -59,8 +59,10 @@ instance Show NNF where
 -- last element is stored hash to avoid recomputation
 data NodeLabel = NodeLabel String (HashSet (RFuncLabel, Bool)) (HashSet (RFuncLabel, Interval)) Int
 
+-- comparing list representations of condition sets is faster than comparing sets directly
 instance Eq NodeLabel where
-    (NodeLabel lX bCondsX rCondsX _) == (NodeLabel lY bCondsY rCondsY _) = lX == lY && bCondsX == bCondsY && rCondsX == rCondsY
+    (NodeLabel lX bCondsX rCondsX _) == (NodeLabel lY bCondsY rCondsY _) =
+        lX == lY && Set.toList bCondsX == Set.toList bCondsY && Set.toList rCondsX == Set.toList rCondsY
 
 instance Show NodeLabel where
     show (NodeLabel label bConds rConds _) = printf
