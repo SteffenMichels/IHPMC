@@ -51,22 +51,32 @@ import Interval (Interval)
 import qualified Interval
 
 -- NNF nodes(node itself, rfuncs, heuristicScores) "counter for fresh nodes"
-data NNF = NNF (HashMap NodeLabel (Node, HashSet RFuncLabel, HashMap RFuncLabel (Double, Double))) Int
+data NNF = NNF (HashMap NodeLabel NNFEntry) Int
 
 instance Show NNF where
     show (NNF nodes _) = show nodes
 
-data NodeLabel = NodeLabel String (HashSet (RFuncLabel, Bool)) (HashSet (RFuncLabel, Interval)) deriving (Eq, Generic)
+-- last element is stored hash to avoid recomputation
+data NodeLabel = NodeLabel String (HashSet (RFuncLabel, Bool)) (HashSet (RFuncLabel, Interval)) Int
+
+instance Eq NodeLabel where
+    (NodeLabel lX bCondsX rCondsX _) == (NodeLabel lY bCondsY rCondsY _) = lX == lY && bCondsX == bCondsY && rCondsX == rCondsY
 
 instance Show NodeLabel where
-    show (NodeLabel label bConds rConds) = printf
+    show (NodeLabel label bConds rConds _) = printf
         "%s|%s"
         label
         (List.intercalate "," ((fmap showCondBool $ Set.toList bConds) ++ (fmap showCondReal $ Set.toList rConds)))
         where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
             showCondReal (rf, interv) = printf "%s in %s" rf $ show interv
-instance Hashable NodeLabel
+
+instance Hashable NodeLabel where
+    hash (NodeLabel _ _ _ hash)              = hash
+    hashWithSalt salt (NodeLabel _ _ _ hash) = Hashable.hashWithSalt salt hash
+
+-- the NNFEntry contain an NNF node, plus additional, redundant, cached information to avoid recomputations
+data NNFEntry = NNFEntry Node (HashSet RFuncLabel) (HashMap RFuncLabel (Double, Double)) deriving (Show)
 
 data Node = Operator NodeType (HashSet NodeLabel)
           | BuildInPredicate AST.BuildInPredicate
@@ -77,13 +87,17 @@ data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
 
 uncondNodeLabel :: PredicateLabel -> NodeLabel
-uncondNodeLabel label = NodeLabel label Set.empty Set.empty
+uncondNodeLabel label = NodeLabel label Set.empty Set.empty $ Hashable.hash label where
 
 condNodeLabelBool :: RFuncLabel -> Bool -> NodeLabel -> NodeLabel
-condNodeLabelBool rFuncLabel rFuncVal (NodeLabel l bConds rConds) = NodeLabel l (Set.insert (rFuncLabel, rFuncVal) bConds) rConds
+condNodeLabelBool rFuncLabel rFuncVal (NodeLabel l bConds rConds hash) = NodeLabel l bConds' rConds hash' where
+    bConds' = Set.insert (rFuncLabel, rFuncVal) bConds
+    hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash rFuncVal) rFuncLabel
 
 condNodeLabelReal :: RFuncLabel -> Interval -> NodeLabel -> NodeLabel
-condNodeLabelReal rFuncLabel interv (NodeLabel l bConds rConds) = NodeLabel l bConds (Set.insert (rFuncLabel, interv) rConds)
+condNodeLabelReal rFuncLabel interv (NodeLabel l bConds rConds hash) = NodeLabel l bConds rConds' hash' where
+    rConds' = Set.insert (rFuncLabel, interv) rConds
+    hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash interv) rFuncLabel
 
 empty :: NNF
 empty = NNF Map.empty 0
@@ -92,7 +106,7 @@ member :: NodeLabel -> NNF -> Bool
 member label (NNF nodes _) = Map.member label nodes
 
 insert :: NodeLabel -> Node -> NNF -> NNF
-insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (simplifiedNode, rFuncs, scores) nodes) freshCounter
+insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (NNFEntry simplifiedNode rFuncs scores) nodes) freshCounter
     where
         simplifiedNode = simplify node nnf
         rFuncs = case simplifiedNode of
@@ -146,16 +160,16 @@ insertFresh node nnf@(NNF nodes freshCounter) = (label, NNF nodes' (freshCounter
         label = uncondNodeLabel (show freshCounter)
 
 lookUp :: NodeLabel -> NNF -> Maybe Node
-lookUp label (NNF nodes _) = fmap (\(x,_,_) -> x) $ Map.lookup label nodes
+lookUp label (NNF nodes _) = fmap (\(NNFEntry node _ _) -> node) $ Map.lookup label nodes
 
 randomFunctions :: NodeLabel -> NNF -> HashSet RFuncLabel
-randomFunctions label (NNF nodes _) = (\(_,x,_) -> x) . fromJust $ Map.lookup label nodes
+randomFunctions label (NNF nodes _) = (\(NNFEntry _ rfs _) -> rfs) . fromJust $ Map.lookup label nodes
 
 allScores :: NodeLabel -> NNF -> HashMap RFuncLabel (Double, Double)
-allScores label (NNF nodes _) = (\(_,_,x) -> x) . fromJust $ Map.lookup label nodes
+allScores label (NNF nodes _) = (\(NNFEntry _ _ scores) -> scores) . fromJust $ Map.lookup label nodes
 
 deterministicValue :: NodeLabel -> NNF -> Maybe Bool
-deterministicValue label (NNF nodes _) = case (\(x,_,_) -> x) . fromJust $ Map.lookup label nodes of
+deterministicValue label (NNF nodes _) = case (\(NNFEntry node _ _) -> node) . fromJust $ Map.lookup label nodes of
     Deterministic val -> Just val
     _                 -> Nothing
 
@@ -226,8 +240,8 @@ exportAsDot path (NNF nodes _) = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Handle -> (NodeLabel, (Node, HashSet RFuncLabel, HashMap RFuncLabel (Double, Double))) -> ExceptionalT String IO ()
-        printNode file (label, (node, _, _)) = do
+        printNode :: Handle -> (NodeLabel, NNFEntry) -> ExceptionalT String IO ()
+        printNode file (label, NNFEntry node _ _) = do
             doIO (hPutStrLn file (printf "%i[label=\"%s\\n%s\"];" labelHash (show label) (descr node)))
             case node of
                 (Operator _ children) -> forM (Set.toList children) writeEdge >> return ()
