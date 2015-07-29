@@ -19,7 +19,8 @@ import AST (AST)
 import qualified AST
 import NNF (NNF)
 import qualified NNF
-import qualified Data.Map as Map
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as Map
 import qualified Data.HashSet as Set
 import Data.Maybe (fromJust)
 import BasicTypes
@@ -40,7 +41,7 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
                                     children
                                in NNF.insert nnfLabel (NNF.Operator NNF.Or nnfChildren) nnf'
             where
-                children = Map.findWithDefault (error "rule not found") label rules
+                children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
                 nnfLabel = NNF.uncondNodeLabel label
 

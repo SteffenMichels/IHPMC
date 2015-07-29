@@ -18,7 +18,8 @@ import qualified AST as AST
 import System.IO
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import qualified Data.Map as Map
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as Map
 import Text.Printf (printf)
 import Data.List (intercalate)
 import Numeric (fromRat)
@@ -28,7 +29,7 @@ exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 2
+            n = 4
             bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()

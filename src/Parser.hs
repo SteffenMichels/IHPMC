@@ -17,7 +17,7 @@ module Parser
     ) where
 import AST (AST)
 import qualified AST
-import qualified Data.Map as Map
+import qualified Data.HashMap.Lazy as Map
 import qualified Data.HashSet as Set
 import Text.ParserCombinators.Parsec
 import Exception

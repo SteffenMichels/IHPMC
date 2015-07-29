@@ -25,8 +25,8 @@ module AST
     , randomFunctions
     ) where
 import BasicTypes
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Text.Printf (printf)
@@ -40,8 +40,8 @@ import Numeric (fromRat)
 import Interval(Interval)
 
 data AST = AST
-    { rFuncDefs :: Map RFuncLabel [RFuncDef] -- list of func with same signature, first matches
-    , rules     :: Map PredicateLabel (HashSet RuleBody)
+    { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches
+    , rules     :: HashMap PredicateLabel (HashSet RuleBody)
     , queries   :: HashSet PredicateLabel
     }
 
@@ -89,7 +89,7 @@ instance Show BuildInPredicate where
     show (RealIn rf interv)        = printf "%s in %s" rf (show interv)
 instance Hashable BuildInPredicate
 
-data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Ord, Generic)
+data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
 instance Show IneqOp where
     show Lt   = "<"
     show LtEq = "<="

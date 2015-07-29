@@ -23,8 +23,8 @@ import qualified PST
 import BasicTypes
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as Map
 import qualified Data.HashMap.Lazy as HashMap
 import qualified AST
 import Data.Maybe (fromJust)
@@ -32,51 +32,52 @@ import Text.Printf (printf)
 import GHC.Exts (sortWith)
 import Debug.Trace (trace)
 import qualified Data.List as List
-import Interval (IntervalLimit(..))
+import Interval (Interval, IntervalLimit(..))
 
-gwmc :: PredicateLabel -> Map RFuncLabel [AST.RFuncDef] -> NNF -> ([ProbabilityBounds], NNF)
+gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> ([ProbabilityBounds], NNF)
 gwmc query rfuncDefs nnf = (fmap PST.bounds psts, nnf') where
     (psts, nnf') = gwmcPSTs query rfuncDefs nnf
 
-gwmcPSTs :: PredicateLabel -> Map RFuncLabel [AST.RFuncDef] -> NNF -> ([PST], NNF)
+gwmcPSTs :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> ([PST], NNF)
 gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel query
     where
         gwmc' :: NNF -> PSTNode -> ([PST], NNF)
-        gwmc' nnf pstNode = case iterate nnf pstNode of
+        gwmc' nnf pstNode = case iterate nnf pstNode Map.empty of
             (nnf', pst@(PST.Finished _))            -> ([pst], nnf')
-            (nnf', pst@(PST.Unfinished pstNode' _)) -> let (psts, nnf'') = gwmc' nnf' pstNode' in (pst : psts, nnf'')
+            (nnf', pst@(PST.Unfinished pstNode' _)) -> let (psts, nnf'') = gwmc' nnf' pstNode'
+                                                       in  (pst : psts, nnf'')
 
-        iterate :: NNF -> PSTNode -> (NNF, PST)
-        iterate nnf pstNode
+        iterate :: NNF -> PSTNode -> HashMap RFuncLabel (Interval, Probability) -> (NNF, PST)
+        iterate nnf pstNode previousChoicesReal
             | l == u    = (nnf', PST.Finished l)
             | otherwise = (nnf', PST.Unfinished pstNode' bounds)
             where
-                (nnf', pstNode', bounds@(l,u)) = iterateNode nnf pstNode
+                (nnf', pstNode', bounds@(l,u)) = iterateNode nnf pstNode previousChoicesReal
 
-        iterateNode :: NNF -> PSTNode -> (NNF, PSTNode, ProbabilityBounds)
-        iterateNode nnf (PST.ChoiceBool rFuncLabel p left right) =
+        iterateNode :: NNF -> PSTNode -> HashMap RFuncLabel (Interval, Probability) -> (NNF, PSTNode, ProbabilityBounds)
+        iterateNode nnf (PST.ChoiceBool rFuncLabel p left right) previousChoicesReal =
             (nnf', PST.ChoiceBool rFuncLabel p left' right', combineProbsChoice p left' right')
             where
                 (nnf', left', right') = case (left,right) of
                         (PST.Unfinished pstNode _, _) | PST.maxError left > PST.maxError right ->
-                            let (nnf'', left'') = iterate nnf pstNode
+                            let (nnf'', left'') = iterate nnf pstNode previousChoicesReal
                             in  (nnf'', left'', right)
                         (_, PST.Unfinished pstNode _) ->
-                            let (nnf'', right'') = iterate nnf pstNode
+                            let (nnf'', right'') = iterate nnf pstNode previousChoicesReal
                             in  (nnf'', left, right'')
                         _ -> error "finished node should not be selected for iteration"
-        iterateNode nnf (PST.ChoiceReal rFuncLabel p splitPoint left right) =
+        iterateNode nnf (PST.ChoiceReal rFuncLabel p splitPoint left right) previousChoicesReal =
             (nnf', PST.ChoiceReal rFuncLabel p splitPoint left' right', combineProbsChoice p left' right')
             where
                 (nnf', left', right') = case (left,right) of
                         (PST.Unfinished pstNode _, _) | PST.maxError left > PST.maxError right ->
-                            let (nnf'', left'') = iterate nnf pstNode
+                            let (nnf'', left'') = iterate nnf pstNode previousChoicesReal
                             in  (nnf'', left'', right)
                         (_, PST.Unfinished pstNode _) ->
-                            let (nnf'', right'') = iterate nnf pstNode
+                            let (nnf'', right'') = iterate nnf pstNode previousChoicesReal
                             in  (nnf'', left, right'')
                         _ -> error "finished node should not be selected for iteration"
-        iterateNode nnf (PST.Decomposition op dec) =
+        iterateNode nnf (PST.Decomposition op dec) previousChoicesReal =
             (nnf', PST.Decomposition op dec', combineProbsDecomp op dec')
             where
                 sortedChildren = sortWith (\c -> -PST.maxError c) dec
@@ -84,9 +85,9 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                 selectedChildNode = case selectedChild of
                     PST.Unfinished pstNode _ -> pstNode
                     _                        -> error "finished node should not be selected for iteration"
-                (nnf', selectedChild') = iterate nnf selectedChildNode
+                (nnf', selectedChild') = iterate nnf selectedChildNode previousChoicesReal
                 dec' = selectedChild':tail sortedChildren
-        iterateNode nnf (PST.Leaf nnfLabel) = case decompose nnfLabel nnf of
+        iterateNode nnf (PST.Leaf nnfLabel) _ = case decompose nnfLabel nnf of
             Nothing -> case Map.lookup rFuncLabel rfuncDefs of
                     Just (AST.Flip p:_) -> (nnf'', PST.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right)
                         where
