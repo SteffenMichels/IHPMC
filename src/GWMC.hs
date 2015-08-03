@@ -27,7 +27,6 @@ import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
 import qualified Data.HashMap.Lazy as HashMap
 import qualified AST
-import Data.Maybe (fromJust)
 import Text.Printf (printf)
 import GHC.Exts (sortWith)
 import Debug.Trace (trace)
@@ -145,10 +144,8 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
         combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
             (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
-        showDec dec nnf = Set.foldr (\d str -> str ++ show d ++ " " ++ (show $ Set.foldr (\x rfs -> Set.union rfs $ NNF.randomFunctions x nnf) Set.empty d) ++ "\n") "\n" dec
-
         decompose :: NNF.NodeLabel -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeLabel)))
-        decompose nnfLabel nnf = case fromJust $ NNF.lookUp nnfLabel nnf of
+        decompose nnfLabel nnf = case NNF.lookUp nnfLabel nnf of
             NNF.Operator op children -> let dec = decomposeChildren Set.empty children
                                         in  if Set.size dec == 1 then Nothing else Just (op, dec)
             _ -> Nothing

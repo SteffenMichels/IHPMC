@@ -142,12 +142,12 @@ insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (NNFEntry
         simplify (Operator operator originalChildren) nnf
             | nChildren == 0 = Deterministic filterValue
             | nChildren == 1 = let singleChildNode   = getFirst children
-                               in fromJust $ lookUp singleChildNode nnf
-            | Foldable.any (\c -> fromJust (lookUp c nnf) == Deterministic singleDeterminismValue) children =
+                               in lookUp singleChildNode nnf
+            | Foldable.any (\c -> lookUp c nnf == Deterministic singleDeterminismValue) children =
                 Deterministic singleDeterminismValue
             | otherwise = Operator operator children
             where
-                children = Set.filter (\c -> fromJust (lookUp c nnf) /= Deterministic filterValue) originalChildren
+                children = Set.filter (\c -> lookUp c nnf /= Deterministic filterValue) originalChildren
                 nChildren = Set.size children
                 -- truth value that causes determinism if at least a single child has it
                 singleDeterminismValue = if operator == And then False else True
@@ -161,8 +161,10 @@ insertFresh node nnf@(NNF nodes freshCounter) = (label, NNF nodes' (freshCounter
         (NNF nodes' _) = insert label node nnf
         label = uncondNodeLabel (show freshCounter)
 
-lookUp :: NodeLabel -> NNF -> Maybe Node
-lookUp label (NNF nodes _) = fmap (\(NNFEntry node _ _) -> node) $ Map.lookup label nodes
+lookUp :: NodeLabel -> NNF -> Node
+lookUp label (NNF nodes _) = case Map.lookup label nodes of
+    Just (NNFEntry node _ _) -> node
+    Nothing                  -> error "non-existing NNF node"
 
 randomFunctions :: NodeLabel -> NNF -> HashSet RFuncLabel
 randomFunctions label (NNF nodes _) = (\(NNFEntry _ rfs _) -> rfs) . fromJust $ Map.lookup label nodes
@@ -194,7 +196,7 @@ conditionBool nodeLabel rf val nnf
         Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
         condLabel = condNodeLabelBool rf val nodeLabel
-        node      = fromJust $ lookUp nodeLabel nnf
+        node      = lookUp nodeLabel nnf
 
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred (AST.BoolEq exprL exprR) = AST.BoolEq (conditionExpr exprL) (conditionExpr exprR)
@@ -224,7 +226,7 @@ conditionReal nodeLabel rf interv nnf
         Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
         condLabel = condNodeLabelReal rf interv nodeLabel
-        node      = fromJust $ lookUp nodeLabel nnf
+        node      = lookUp nodeLabel nnf
 
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred pred@(AST.RealIn predRf predInterv)
