@@ -10,19 +10,19 @@ data-dir: ""
 executable pclp
     build-depends: QuickCheck -any, base -any, containers -any,
                    explicit-exception -any, hashable -any, parsec -any,
-                   statistics -any, unordered-containers -any
+                   statistics -any, time -any, unordered-containers -any
     main-is: Main.hs
     buildable: True
     extensions: StandaloneDeriving GADTs
     hs-source-dirs: src
-    other-modules: NNF AST Parser Exception BasicTypes Grounder
-                   Interval GWMC Benchmarks PST
+    other-modules: Parser PST NNF GWMC AST BasicTypes Benchmarks
+                   Grounder Interval Exception
     ghc-options: -rtsopts -XDeriveGeneric
  
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
                    explicit-exception -any, hashable -any, parsec -any,
-                   statistics -any, unordered-containers -any
+                   statistics -any, time -any, unordered-containers -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True

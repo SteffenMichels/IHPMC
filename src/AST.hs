@@ -56,11 +56,11 @@ instance Show AST where
         queryStr     = concat [printf "query %s.\n" query | query <- Set.toList $ queries ast]
 
 data RFuncDef = Flip Rational
-              | RealDist (Rational -> Probability)
+              | RealDist (Rational -> Probability) (Probability -> Rational)
 
 instance Show RFuncDef where
-    show (Flip p)     = printf "flip(%s)" $ printProb p
-    show (RealDist _) = printf "realDist"
+    show (Flip p)       = printf "flip(%s)" $ printProb p
+    show (RealDist _ _) = printf "realDist"
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 

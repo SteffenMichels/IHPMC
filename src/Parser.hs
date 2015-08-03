@@ -135,7 +135,9 @@ parseNorm = do
     d <- parseRat
     stringAndSpaces ")"
     stringAndSpaces "."
-    return $ AST.RealDist (\x -> toRational $ Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) $ fromRat x)
+    return $ AST.RealDist
+        (\x -> toRational $ Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) $ fromRat x)
+        (\p -> toRational $ Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) $ fromRat p)
 
 -- expressions
 parseBoolExpr :: Parser (AST.Expr Bool)

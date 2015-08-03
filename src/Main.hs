@@ -34,6 +34,7 @@ import Benchmarks
 import Control.Monad (forM)
 import Numeric (fromRat)
 import Control.Monad.Exception.Synchronous -- TODO: remove, should be included by Exception
+import Data.Time.Clock.POSIX (getPOSIXTime)
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -49,18 +50,22 @@ exeMain = do
         exeMain' = do
             args <- return ["/tmp/tmp.pclp"]--doIO $ getArgs
             let firstArg = args !! 0
-            src <- doIO (readFile firstArg)
-            ast <- returnExceptional (parsePclp src)
+            src <- doIO $ readFile firstArg
+            ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
             (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst in putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
+            psts <- return $ take 10 psts
+            startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
+                                      in do
+                                        currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
+                                        putStrLn $ printf "%i %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float))
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            PST.exportAsDot "/tmp/pst.dot" $ last (take 2 psts)
-            return (length psts)
-            --return (length bounds, head $ reverse bounds)
-
+            PST.exportAsDot "/tmp/pst.dot" $ last psts
+            return . PST.bounds $ last psts
+            --return (length psts)
 
 -- Entry point for unit tests.
 testMain = undefined--do

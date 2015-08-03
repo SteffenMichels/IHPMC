@@ -47,7 +47,7 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import qualified Data.List as List
-import Interval (Interval)
+import Interval (Interval, IntervalLimit)
 import qualified Interval
 
 -- NNF nodes(node itself, rfuncs, heuristicScores) "counter for fresh nodes"
@@ -57,18 +57,18 @@ instance Show NNF where
     show (NNF nodes _) = show nodes
 
 -- last element is stored hash to avoid recomputation
-data NodeLabel = NodeLabel String (HashSet (RFuncLabel, Bool)) (HashSet (RFuncLabel, Interval)) Int
+data NodeLabel = NodeLabel String (HashMap RFuncLabel Bool) (HashMap RFuncLabel Interval) Int
 
--- comparing list representations of condition sets is faster than comparing sets directly
+-- comparing list representations of condition maps is faster than comparing sets directly
 instance Eq NodeLabel where
     (NodeLabel lX bCondsX rCondsX _) == (NodeLabel lY bCondsY rCondsY _) =
-        lX == lY && Set.toList bCondsX == Set.toList bCondsY && Set.toList rCondsX == Set.toList rCondsY
+        lX == lY && Map.toList bCondsX == Map.toList bCondsY && Map.toList rCondsX == Map.toList rCondsY
 
 instance Show NodeLabel where
     show (NodeLabel label bConds rConds _) = printf
         "%s|%s"
         label
-        (List.intercalate "," ((fmap showCondBool $ Set.toList bConds) ++ (fmap showCondReal $ Set.toList rConds)))
+        (List.intercalate "," ((fmap showCondBool $ Map.toList bConds) ++ (fmap showCondReal $ Map.toList rConds)))
         where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
             showCondReal (rf, interv) = printf "%s in %s" rf $ show interv
@@ -89,17 +89,17 @@ data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
 
 uncondNodeLabel :: PredicateLabel -> NodeLabel
-uncondNodeLabel label = NodeLabel label Set.empty Set.empty $ Hashable.hash label where
+uncondNodeLabel label = NodeLabel label Map.empty Map.empty $ Hashable.hash label where
 
 condNodeLabelBool :: RFuncLabel -> Bool -> NodeLabel -> NodeLabel
 condNodeLabelBool rFuncLabel rFuncVal (NodeLabel l bConds rConds hash) = NodeLabel l bConds' rConds hash' where
-    bConds' = Set.insert (rFuncLabel, rFuncVal) bConds
+    bConds' = Map.insert rFuncLabel rFuncVal bConds
     hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash rFuncVal) rFuncLabel
 
 condNodeLabelReal :: RFuncLabel -> Interval -> NodeLabel -> NodeLabel
-condNodeLabelReal rFuncLabel interv (NodeLabel l bConds rConds hash) = NodeLabel l bConds rConds' hash' where
-    rConds' = Set.insert (rFuncLabel, interv) rConds
-    hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash interv) rFuncLabel
+condNodeLabelReal rf interv (NodeLabel l bConds rConds hash) = NodeLabel l bConds rConds' hash' where
+    rConds' = Map.insert rf interv rConds
+    hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash interv) rf
 
 empty :: NNF
 empty = NNF Map.empty 0
