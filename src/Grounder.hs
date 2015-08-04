@@ -34,12 +34,12 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
             | nChildren == 0 = error "not implemented"
             | otherwise      = let (nnfChildren,nnf') = Set.foldr
                                     (\child (nnfChildren,nnf) ->
-                                        let (newChild,nnf'') = groundBody child nnf
-                                        in (Set.insert newChild nnfChildren, nnf'')
+                                        let (newChild,nnf') = groundBody child nnf
+                                        in  (Set.insert newChild nnfChildren, nnf')
                                     )
                                     (Set.empty,nnf)
                                     children
-                               in NNF.insert nnfLabel (NNF.Operator NNF.Or nnfChildren) nnf'
+                               in snd $ NNF.insert nnfLabel (NNF.Operator NNF.Or nnfChildren) nnf'
             where
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
@@ -51,13 +51,13 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
             [singleElement] -> groundElement singleElement nnf
             elements        -> let (nnfChildren, nnf') = foldl
                                         (\(nnfChildren, nnf) el ->
-                                            let (newChild,nnf'') = groundElement el nnf
-                                            in (Set.insert newChild nnfChildren, nnf'')
+                                            let (newChild,nnf') = groundElement el nnf
+                                            in (Set.insert newChild nnfChildren, nnf')
                                         )
                                         (Set.empty, nnf)
                                         elements
-                               in NNF.insertFresh (NNF.Operator NNF.And nnfChildren) nnf'
+                               in (\(e,nnf) -> (NNF.entryLabel e, nnf)) $ NNF.insertFresh (NNF.Operator NNF.And nnfChildren) nnf'
 
         groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeLabel, NNF)
         groundElement (AST.UserPredicate label)   nnf = (NNF.uncondNodeLabel label, groundRule label nnf)
-        groundElement (AST.BuildInPredicate pred) nnf = NNF.insertFresh (NNF.BuildInPredicate pred) nnf
+        groundElement (AST.BuildInPredicate pred) nnf = (\(e,nnf) -> (NNF.entryLabel e, nnf)) $ NNF.insertFresh (NNF.BuildInPredicate pred) nnf

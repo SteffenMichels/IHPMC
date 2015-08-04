@@ -17,18 +17,16 @@ module NNF
     , Node(..)
     , NodeType(..)
     , NodeLabel
+    , LabelWithEntry(entryLabel,entryNode,entryRFuncs,entryScores)
     , empty
     , member
     , insert
     , insertFresh
-    , lookUp
-    , randomFunctions
-    , allScores
+    , augmentWithEntry
     , exportAsDot
     , uncondNodeLabel
     , conditionBool
     , conditionReal
-    , deterministicValue
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -50,11 +48,22 @@ import qualified Data.List as List
 import Interval (Interval, IntervalLimit)
 import qualified Interval
 
--- NNF nodes(node itself, rfuncs, heuristicScores) "counter for fresh nodes"
+-- NNF nodes "counter for fresh nodes"
 data NNF = NNF (HashMap NodeLabel NNFEntry) Int
 
 instance Show NNF where
     show (NNF nodes _) = show nodes
+
+data LabelWithEntry = LabelWithEntry
+    { entryLabel  :: NodeLabel
+    , entryNode   :: Node
+    , entryRFuncs :: HashSet RFuncLabel
+    , entryScores :: HashMap RFuncLabel (Double, Double)
+    , entryHash   :: Int
+    } deriving (Eq, Show)
+instance Hashable LabelWithEntry where
+    hash lwe              = entryHash lwe
+    hashWithSalt salt lwe = Hashable.hashWithSalt salt $ entryHash lwe
 
 -- last element is stored hash to avoid recomputation
 data NodeLabel = NodeLabel String (HashMap RFuncLabel Bool) (HashMap RFuncLabel Interval) Int deriving (Eq)
@@ -102,20 +111,29 @@ empty = NNF Map.empty 0
 member :: NodeLabel -> NNF -> Bool
 member label (NNF nodes _) = Map.member label nodes
 
-insert :: NodeLabel -> Node -> NNF -> NNF
-insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (NNFEntry simplifiedNode rFuncs scores) nodes) freshCounter
+insert :: NodeLabel -> Node -> NNF -> (LabelWithEntry, NNF)
+insert label node nnf@(NNF nodes freshCounter) = (labelWithEntry, nnf')
     where
-        simplifiedNode = simplify node nnf
+        labelWithEntry = LabelWithEntry { entryLabel  = label
+                                        , entryNode   = simplifiedNode
+                                        , entryRFuncs = rFuncs
+                                        , entryScores = scores
+                                        -- just use label hash, as label uniquely determines content
+                                        , entryHash   = Hashable.hash label
+                                        }
+        nnf' = NNF (Map.insert label (NNFEntry simplifiedNode rFuncs scores) nodes) freshCounter
+
+        (simplifiedNode, children) = simplify node nnf
         rFuncs = case simplifiedNode of
             Deterministic _       -> Set.empty
             BuildInPredicate pred -> AST.randomFunctions pred
-            Operator _ children ->
-                Set.foldr (\child rfuncs -> Set.union rfuncs $ randomFunctions child nnf) Set.empty children
+            Operator _ _ ->
+                Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children
 
         scores = case simplifiedNode of
             Deterministic _       -> Map.empty
             BuildInPredicate pred -> Map.fromList [(rf, (1.0,1.0)) | rf <- Set.toList rFuncs]
-            Operator op children  -> Map.fromList [(rf, scores rf) | rf <- Set.toList rFuncs] where
+            Operator op _         -> Map.fromList [(rf, scores rf) | rf <- Set.toList rFuncs] where
                 scores rf = case op of
                     NNF.And -> (posScore/nRFuncs, negScore)
                     NNF.Or  -> (posScore, negScore/nRFuncs)
@@ -126,23 +144,26 @@ insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (NNFEntry
                                                  )
                                                  (0.0, 0.0)
                                                  childrenScores
-                childrenScores = [allScores c nnf | c <- Set.toList children]
+                childrenScores = [entryScores c | c <- Set.toList children]
         nRFuncs = fromIntegral (Set.size rFuncs)
 
-        simplify :: Node -> NNF -> Node
-        simplify node@(Deterministic _) _ = node
+        -- return children to avoid double Map lookup
+        simplify :: Node -> NNF -> (Node, HashSet LabelWithEntry)
+        simplify node@(Deterministic _) _ = (node, Set.empty)
         simplify node@(BuildInPredicate pred) _ = case AST.deterministicValue pred of
-            Just val -> Deterministic val
-            Nothing  -> node
-        simplify (Operator operator originalChildren) nnf
-            | nChildren == 0 = Deterministic filterValue
-            | nChildren == 1 = let singleChildNode   = getFirst children
-                               in lookUp singleChildNode nnf
-            | Foldable.any (\c -> lookUp c nnf == Deterministic singleDeterminismValue) children =
-                Deterministic singleDeterminismValue
-            | otherwise = Operator operator children
+            Just val -> (Deterministic val, Set.empty)
+            Nothing  -> (node, Set.empty)
+        simplify (Operator operator childLabels) nnf = (simplified, children)
             where
-                children = Set.filter (\c -> lookUp c nnf /= Deterministic filterValue) originalChildren
+                simplified
+                    | nChildren == 0 = (Deterministic filterValue)
+                    | nChildren == 1 = entryNode $ getFirst children
+                    | Foldable.any (\c -> entryNode c == Deterministic singleDeterminismValue) children =
+                        Deterministic singleDeterminismValue
+                    | otherwise = Operator operator $ Set.map entryLabel children
+
+                originalChildren = Set.map (\c -> augmentWithEntry c nnf) childLabels
+                children = Set.filter (\c -> entryNode c /= Deterministic filterValue) originalChildren
                 nChildren = Set.size children
                 -- truth value that causes determinism if at least a single child has it
                 singleDeterminismValue = if operator == And then False else True
@@ -150,48 +171,51 @@ insert label node nnf@(NNF nodes freshCounter) = NNF (Map.insert label (NNFEntry
                 filterValue = if operator == And then True else False
 
 -- possible optimisation: check whether equal node is already in NNF
-insertFresh :: Node -> NNF -> (NodeLabel, NNF)
-insertFresh node nnf@(NNF nodes freshCounter) = (label, NNF nodes' (freshCounter+1))
-    where
-        (NNF nodes' _) = insert label node nnf
+insertFresh :: Node -> NNF -> (LabelWithEntry, NNF)
+insertFresh node nnf@(NNF nodes freshCounter) = (entry, NNF nodes' (freshCounter+1))
+     where
+        (entry, NNF nodes' _) = insert label node nnf
         label = uncondNodeLabel (show freshCounter)
 
-lookUp :: NodeLabel -> NNF -> Node
-lookUp label (NNF nodes _) = case Map.lookup label nodes of
-    Just (NNFEntry node _ _) -> node
-    Nothing                  -> error "non-existing NNF node"
+augmentWithEntry :: NodeLabel -> NNF -> LabelWithEntry
+augmentWithEntry label nnf = case tryAugmentWithEntry label nnf of
+    Just entry -> entry
+    Nothing    -> error "non-existing NNF node"
 
-randomFunctions :: NodeLabel -> NNF -> HashSet RFuncLabel
-randomFunctions label (NNF nodes _) = (\(NNFEntry _ rfs _) -> rfs) . fromJust $ Map.lookup label nodes
+tryAugmentWithEntry :: NodeLabel -> NNF -> Maybe LabelWithEntry
+tryAugmentWithEntry label (NNF nodes _) = case Map.lookup label nodes of
+    Just (NNFEntry node rFuncs scores) -> Just LabelWithEntry
+        { entryLabel  = label
+        , entryNode   = node
+        , entryRFuncs = rFuncs
+        , entryScores = scores
+        -- just use label hash, as label uniquely determines content
+        , entryHash   = Hashable.hash label
+        }
+    Nothing                            -> Nothing
 
-allScores :: NodeLabel -> NNF -> HashMap RFuncLabel (Double, Double)
-allScores label (NNF nodes _) = (\(NNFEntry _ _ scores) -> scores) . fromJust $ Map.lookup label nodes
 
-deterministicValue :: NodeLabel -> NNF -> Maybe Bool
-deterministicValue label (NNF nodes _) = case (\(NNFEntry node _ _) -> node) . fromJust $ Map.lookup label nodes of
-    Deterministic val -> Just val
-    _                 -> Nothing
-
-conditionBool :: NodeLabel -> RFuncLabel -> Bool -> NNF -> (NodeLabel, NNF)
+conditionBool :: NodeLabel -> RFuncLabel -> Bool -> NNF -> (LabelWithEntry, NNF)
 conditionBool nodeLabel rf val nnf
-    | not $ Set.member rf $ randomFunctions nodeLabel nnf = (nodeLabel, nnf)
-    | member condLabel nnf                                = (condLabel, nnf)
-    | otherwise = case node of
-        Operator operator children ->
-            let (condChildren, nnf') = Set.foldr
-                    (\child (children, nnf) ->
-                        let (condChild, nnf') = conditionBool child rf val nnf
-                        in (Set.insert condChild children, nnf')
-                    )
-                    (Set.empty, nnf)
-                    children
-            in (condLabel, insert condLabel (Operator operator condChildren) nnf')
-        BuildInPredicate pred ->
-            (condLabel, insert condLabel (BuildInPredicate $ conditionPred pred) nnf)
-        Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
+    | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
+    | otherwise = case tryAugmentWithEntry condLabel nnf of
+        Just entry -> (entry, nnf)
+        _ -> case entryNode origNodeEntry of
+            Operator operator children ->
+                let (condChildren, nnf') = Set.foldr
+                        (\child (children, nnf) ->
+                            let (condChild, nnf') = conditionBool child rf val nnf
+                            in (Set.insert condChild children, nnf')
+                        )
+                        (Set.empty, nnf)
+                        children
+                in insert condLabel (Operator operator $ Set.map entryLabel condChildren) nnf'
+            BuildInPredicate pred ->
+                insert condLabel (BuildInPredicate $ conditionPred pred) nnf
+            Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
         condLabel = condNodeLabelBool rf val nodeLabel
-        node      = lookUp nodeLabel nnf
+        origNodeEntry = augmentWithEntry nodeLabel nnf
 
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred (AST.BoolEq exprL exprR) = AST.BoolEq (conditionExpr exprL) (conditionExpr exprR)
@@ -202,26 +226,27 @@ conditionBool nodeLabel rf val nnf
                 conditionExpr expr = expr
         conditionPred pred = pred
 
-conditionReal :: NodeLabel -> RFuncLabel -> Interval -> NNF -> (NodeLabel, NNF)
+conditionReal :: NodeLabel -> RFuncLabel -> Interval -> NNF -> (LabelWithEntry, NNF)
 conditionReal nodeLabel rf interv nnf
-    | not $ Set.member rf $ randomFunctions nodeLabel nnf = (nodeLabel, nnf)
-    | member condLabel nnf                                = (condLabel, nnf)
-    | otherwise = case node of
-        Operator operator children ->
-            let (condChildren, nnf') = Set.foldr
-                    (\child (children, nnf) ->
-                        let (condChild, nnf') = conditionReal child rf interv nnf
-                        in (Set.insert condChild children, nnf')
-                    )
-                    (Set.empty, nnf)
-                    children
-            in (condLabel, insert condLabel (Operator operator condChildren) nnf')
-        BuildInPredicate pred ->
-            (condLabel, insert condLabel (BuildInPredicate $ conditionPred pred) nnf)
-        Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
+    | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
+    | otherwise = case tryAugmentWithEntry condLabel nnf of
+        Just entry -> (entry, nnf)
+        _ -> case entryNode origNodeEntry of
+            Operator operator children ->
+                let (condChildren, nnf') = Set.foldr
+                        (\child (children, nnf) ->
+                            let (condChild, nnf') = conditionReal child rf interv nnf
+                            in (Set.insert condChild children, nnf')
+                        )
+                        (Set.empty, nnf)
+                        children
+                in insert condLabel (Operator operator $ Set.map entryLabel condChildren) nnf'
+            BuildInPredicate pred ->
+                insert condLabel (BuildInPredicate $ conditionPred pred) nnf
+            Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
         condLabel = condNodeLabelReal rf interv nodeLabel
-        node      = lookUp nodeLabel nnf
+        origNodeEntry = augmentWithEntry nodeLabel nnf
 
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred pred@(AST.RealIn predRf predInterv)

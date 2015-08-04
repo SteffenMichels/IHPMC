@@ -81,7 +81,7 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
             (nnf', PST.Decomposition op dec', combineProbsDecomp op dec')
             where
                 sortedChildren = sortWith (\c -> -PST.maxError c) dec
-                selectedChild = head sortedChildren
+                selectedChild  = head sortedChildren
                 selectedChildNode = case selectedChild of
                     PST.Unfinished pstNode _ -> pstNode
                     _                        -> error "finished node should not be selected for iteration"
@@ -91,20 +91,20 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
             Nothing -> case Map.lookup rf rfuncDefs of
                     Just (AST.Flip p:_) -> (nnf'', PST.ChoiceBool rf p left right, combineProbsChoice p left right)
                         where
-                            (leftNNFLabel,  nnf')  = NNF.conditionBool nnfLabel rf True nnf
-                            (rightNNFLabel, nnf'') = NNF.conditionBool nnfLabel rf False nnf'
-                            left  = toPSTNode leftNNFLabel nnf''
-                            right = toPSTNode rightNNFLabel nnf''
+                            (leftEntry,  nnf')  = NNF.conditionBool nnfLabel rf True nnf
+                            (rightEntry, nnf'') = NNF.conditionBool nnfLabel rf False nnf'
+                            left  = toPSTNode leftEntry
+                            right = toPSTNode rightEntry
                     Just (AST.RealDist cdf icdf:_) -> (nnf'', PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right)
                         where
                             p = (pUntilSplit-pUntilLower)/(pUntilUpper-pUntilLower)
                             pUntilLower = cdf' True curLower
                             pUntilUpper = cdf' False curUpper
                             pUntilSplit = cdf splitPoint
-                            (leftNNFLabel,  nnf')  = NNF.conditionReal nnfLabel rf (curLower, Open splitPoint) nnf
-                            (rightNNFLabel, nnf'') = NNF.conditionReal nnfLabel rf (Open splitPoint, curUpper) nnf'
-                            left  = toPSTNode leftNNFLabel nnf''
-                            right = toPSTNode rightNNFLabel nnf''
+                            (leftEntry,  nnf')  = NNF.conditionReal nnfLabel rf (curLower, Open splitPoint) nnf
+                            (rightEntry, nnf'') = NNF.conditionReal nnfLabel rf (Open splitPoint, curUpper) nnf'
+                            left  = toPSTNode leftEntry
+                            right = toPSTNode rightEntry
                             splitPoint = case (curLower, curUpper) of
                                 (Inf, Inf)       -> 0.0
                                 (Inf, Open u)    -> u-1.0
@@ -116,20 +116,19 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                             cdf' _ (Closed x) = cdf x
                     _  -> error ("undefined rfunc " ++ rf)
                     where
-                        xxx = sortWith (\(rf, (p,n)) -> -p+n) $ HashMap.toList $ NNF.allScores nnfLabel nnf
+                        xxx = sortWith (\(rf, (p,n)) -> -p+n) $ HashMap.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
                         --xxxy = trace (foldl (\str rf -> str ++ "\n" ++ (let (p,n) = NNF.heuristicScores rf nnfLabel nnf in show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                         rf = fst $ head xxx
 
-                        toPSTNode nnfLabel nnf = case NNF.deterministicValue nnfLabel nnf of
-                            Just True  -> PST.Finished 1.0
-                            Just False -> PST.Finished 0.0
-                            Nothing    -> PST.Unfinished (PST.Leaf nnfLabel) (0.0,1.0)
+                        toPSTNode entry = case NNF.entryNode entry of
+                            NNF.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
+                            _                     -> PST.Unfinished (PST.Leaf $ NNF.entryLabel entry) (0.0,1.0)
             Just (op, decomposition) -> (nnf', PST.Decomposition op psts, (0.0,1.0))
                 where
                     (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
                             let (fresh, nnf') = if Set.size dec > 1 then
-                                                    NNF.insertFresh (NNF.Operator op dec) nnf
+                                                    (\(e,nnf) -> (NNF.entryLabel e,nnf)) $ NNF.insertFresh (NNF.Operator op dec) nnf
                                                 else
                                                     (getFirst dec, nnf)
                             in  (PST.Unfinished (PST.Leaf fresh) (0.0,1.0):psts, nnf')
@@ -145,25 +144,25 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
             (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
         decompose :: NNF.NodeLabel -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeLabel)))
-        decompose nnfLabel nnf = case NNF.lookUp nnfLabel nnf of
-            NNF.Operator op children -> let dec = decomposeChildren Set.empty children
+        decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf of
+            NNF.Operator op children -> let dec = decomposeChildren Set.empty $ Set.map (\c -> NNF.augmentWithEntry c nnf) children
                                         in  if Set.size dec == 1 then Nothing else Just (op, dec)
             _ -> Nothing
             where
-                decomposeChildren :: (HashSet (HashSet NNF.NodeLabel)) -> (HashSet NNF.NodeLabel) -> (HashSet (HashSet NNF.NodeLabel))
+                decomposeChildren :: HashSet (HashSet NNF.LabelWithEntry) -> HashSet NNF.LabelWithEntry -> HashSet (HashSet NNF.NodeLabel)
                 decomposeChildren dec children
-                    | Set.null children = dec
+                    | Set.null children = Set.map (Set.map NNF.entryLabel) dec
                     | otherwise =
                         let first               = getFirst children
-                            (new, _, children') = findFixpoint (Set.singleton first) (NNF.randomFunctions first nnf) (Set.delete first children)
+                            (new, _, children') = findFixpoint (Set.singleton first) (NNF.entryRFuncs first) (Set.delete first children)
                         in  decomposeChildren (Set.insert new dec) children'
 
-                findFixpoint :: (HashSet NNF.NodeLabel) -> (HashSet RFuncLabel) -> (HashSet NNF.NodeLabel) -> (HashSet NNF.NodeLabel, HashSet RFuncLabel, HashSet NNF.NodeLabel)
+                findFixpoint :: HashSet NNF.LabelWithEntry -> HashSet RFuncLabel -> HashSet NNF.LabelWithEntry -> (HashSet NNF.LabelWithEntry, HashSet RFuncLabel, HashSet NNF.LabelWithEntry)
                 findFixpoint cur curRFs children
                     | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
                     | otherwise                                   = findFixpoint cur' curRFs' children'
                     where
-                        (withSharedRFs, withoutSharedRFs) = List.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.randomFunctions c nnf) $ Set.toList children
+                        (withSharedRFs, withoutSharedRFs) = List.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.entryRFuncs c) $ Set.toList children
                         cur'      = Set.union cur $ Set.fromList withSharedRFs
-                        curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.randomFunctions c nnf) curRFs $ Set.fromList withSharedRFs
+                        curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
                         children' = Set.fromList withoutSharedRFs
