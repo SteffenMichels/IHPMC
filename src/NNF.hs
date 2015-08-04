@@ -57,12 +57,12 @@ instance Show NNF where
     show (NNF nodes _) = show nodes
 
 -- last element is stored hash to avoid recomputation
-data NodeLabel = NodeLabel String (HashMap RFuncLabel Bool) (HashMap RFuncLabel Interval) Int
+data NodeLabel = NodeLabel String (HashMap RFuncLabel Bool) (HashMap RFuncLabel Interval) Int deriving (Eq)
 
 -- comparing list representations of condition maps is faster than comparing sets directly
-instance Eq NodeLabel where
-    (NodeLabel lX bCondsX rCondsX _) == (NodeLabel lY bCondsY rCondsY _) =
-        lX == lY && Map.toList bCondsX == Map.toList bCondsY && Map.toList rCondsX == Map.toList rCondsY
+--instance Eq NodeLabel where
+--    (NodeLabel lX bCondsX rCondsX _) == (NodeLabel lY bCondsY rCondsY _) =
+--        lX == lY && bCondsX == bCondsY && rCondsX == rCondsY
 
 instance Show NodeLabel where
     show (NodeLabel label bConds rConds _) = printf
