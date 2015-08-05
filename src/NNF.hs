@@ -138,13 +138,15 @@ insert label node nnf@(NNF nodes freshCounter) = (labelWithEntry, nnf')
                     NNF.And -> (posScore/nRFuncs, negScore)
                     NNF.Or  -> (posScore, negScore/nRFuncs)
                     where
-                    (posScore, negScore) = foldr (\childScores (posScore, negScore) ->
+                    (posScore', negScore') = foldr (\childScores (posScore, negScore) ->
                                                     let (cPosScore, cNegScore) = Map.lookupDefault (0.0,0.0) rf childScores
                                                     in  (posScore+cPosScore, negScore+cNegScore)
                                                  )
                                                  (0.0, 0.0)
                                                  childrenScores
-                childrenScores = [entryScores c | c <- Set.toList children]
+                    (posScore, negScore) = (posScore'/nChildren, negScore'/nChildren)
+                    nChildren = fromIntegral $ length childrenScores
+                    childrenScores = [entryScores c | c <- Set.toList children]
         nRFuncs = fromIntegral (Set.size rFuncs)
 
         -- return children to avoid double Map lookup
