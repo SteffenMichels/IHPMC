@@ -17,6 +17,7 @@ module PST
     , PSTNode(..)
     , initialNode
     , bounds
+    , score
     , maxError
     , exportAsDot
     ) where
@@ -35,7 +36,7 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 
 -- Probabilistic Sematic Tree
-data PST     = Unfinished PSTNode ProbabilityBounds
+data PST     = Unfinished PSTNode ProbabilityBounds Double
              | Finished Probability
              deriving (Show, Eq, Generic)
 instance Hashable PST
@@ -50,8 +51,12 @@ initialNode :: NNF.NodeLabel -> PSTNode
 initialNode query = Leaf query
 
 bounds :: PST -> ProbabilityBounds
-bounds (Unfinished _ b) = b
-bounds (Finished p)     = (p, p)
+bounds (Unfinished _ b _) = b
+bounds (Finished p)       = (p, p)
+
+score :: PST -> Double
+score (Unfinished _ _ s) = s
+score _                  = 0.0
 
 maxError :: PST -> Probability
 maxError pst = let (l,u) = bounds pst in u-l
@@ -70,21 +75,21 @@ exportAsDot path pst = do
                 doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (fromRat prob::Float))
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
-            Unfinished (ChoiceBool label prob left right) _ -> do
+            Unfinished (ChoiceBool label prob left right) _ _ -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
                 counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (fromRat prob::Float) label) left (counter+1) file
                 printNode (Just $ show counter) (Just $ printf "%f: %s=false" (fromRat (1-prob)::Float) label) right counter' file
-            Unfinished (ChoiceReal label prob splitPoint left right) _ -> do
+            Unfinished (ChoiceReal label prob splitPoint left right) _ _ -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
                 counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (fromRat prob::Float) label (fromRat splitPoint::Float)) left (counter+1) file
                 printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (fromRat (1-prob)::Float) label (fromRat splitPoint::Float)) right counter' file
-            Unfinished (Decomposition op psts) _ -> do
+            Unfinished (Decomposition op psts) _ _ -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\"];" counter (show op) (printBounds pst))
                 print mbParent (show counter) mbEdgeLabel
                 foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
-            Unfinished (Leaf label) _ -> do
+            Unfinished (Leaf label) _ _ -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter $ show label)
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
