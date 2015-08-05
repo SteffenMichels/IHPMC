@@ -56,17 +56,17 @@ exeMain = do
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
             (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            psts <- return $ take 15000 psts
+            --psts <- return $ take 15000 psts
             startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
-            doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
-                                      in do
-                                        currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            --doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
+            --                          in do
+            --                            currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
                                         --putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
-                                        putStrLn $ printf "%i %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float))
+            --                            putStrLn $ printf "%i %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float))
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
             --PST.exportAsDot "/tmp/pst.dot" $ last psts
-            --return . PST.bounds $ last psts
-            return $ length psts
+            return . PST.bounds $ last psts
+            --return $ length psts
 
 -- Entry point for unit tests.
 testMain = undefined--do

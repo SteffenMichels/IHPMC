@@ -126,14 +126,13 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                             _                     -> PST.Unfinished (PST.Leaf $ NNF.entryLabel entry) (0.0,1.0) (fromIntegral $ Set.size $ NNF.entryRFuncs entry)
             Just (op, decomposition) -> (nnf', PST.Decomposition op psts, (0.0,1.0), combineScoresDecomp psts)
                 where
-                    -- TODO: double NNF lookup!
                     (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
                             let (fresh, nnf') = if Set.size dec > 1 then
-                                                    (\(e,nnf) -> (NNF.entryLabel e,nnf)) $ NNF.insertFresh (NNF.Operator op dec) nnf
+                                                    NNF.insertFresh (NNF.Operator op dec) nnf
                                                 else
-                                                    (getFirst dec, nnf)
-                            in  (PST.Unfinished (PST.Leaf fresh) (0.0,1.0) (fromIntegral $ Set.size $ NNF.entryRFuncs (NNF.augmentWithEntry fresh nnf')):psts, nnf')
+                                                    (NNF.augmentWithEntry (getFirst dec) nnf, nnf)
+                            in  (PST.Unfinished (PST.Leaf $ NNF.entryLabel fresh) (0.0,1.0) (fromIntegral $ Set.size $ NNF.entryRFuncs fresh):psts, nnf')
                         )
                         ([], nnf)
                         decomposition
