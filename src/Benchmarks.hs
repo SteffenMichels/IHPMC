@@ -29,7 +29,7 @@ exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 5
+            n = 4
             bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()
@@ -82,8 +82,12 @@ paths n = AST.AST { AST.rFuncDefs = rFuncDefs
         rFuncDef (x, y) defs = defs'' where
             defs'  = if x < n-1 then def (x+1) y defs else defs
             defs'' = if y < n-1 then def x (y+1) defs' else defs'
-            def dx dy defs = Map.insert (printConnection ((x, y), (dx, dy))) [AST.Flip 0.5] defs
-
+            def dx dy defs = Map.insert (printConnection ((x, y), (dx, dy))) [AST.Flip $ prob dx] defs
+            prob x = case x of
+                0 -> 0.1
+                1 -> 0.9
+                2 -> 0.2
+                3 -> 0.8
         rules = Map.singleton "reachable" bodies
         bodies = Set.foldr body Set.empty $ paths undefined (0,0) Set.empty Set.empty
         body path bodies = Set.insert
