@@ -59,7 +59,8 @@ score (Unfinished _ _ s) = s
 score _                  = 0.0
 
 maxError :: PST -> Probability
-maxError pst = let (l,u) = bounds pst in u-l
+maxError (Unfinished _ (l,u) _) = u-l
+maxError _                      = 0.0
 
 exportAsDot :: FilePath -> PST -> ExceptionalT String IO ()
 exportAsDot path pst = do
