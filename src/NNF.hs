@@ -145,7 +145,7 @@ insert label node nnf@(NNF nodes freshCounter) = (labelWithEntry, nnf')
                                                  (0.0, 0.0)
                                                  childrenScores
                     (posScore, negScore) = (posScore'/nChildren, negScore'/nChildren)
-                    nChildren = fromIntegral $ length childrenScores
+                    nChildren = fromIntegral $ Set.size children
                     childrenScores = [entryScores c | c <- Set.toList children]
         nRFuncs = fromIntegral (Set.size rFuncs)
 

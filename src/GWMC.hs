@@ -170,7 +170,7 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                 findFixpoint :: HashSet NNF.LabelWithEntry -> HashSet RFuncLabel -> HashSet NNF.LabelWithEntry -> (HashSet NNF.LabelWithEntry, HashSet RFuncLabel, HashSet NNF.LabelWithEntry)
                 findFixpoint cur curRFs children
                     | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
-                    | otherwise                                   = findFixpoint cur' curRFs' children'
+                    | otherwise                                    = findFixpoint cur' curRFs' children'
                     where
                         (withSharedRFs, withoutSharedRFs) = List.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.entryRFuncs c) $ Set.toList children
                         cur'      = Set.union cur $ Set.fromList withSharedRFs
