@@ -197,8 +197,8 @@ tryAugmentWithEntry label (NNF nodes _) = case Map.lookup label nodes of
     Nothing                            -> Nothing
 
 
-conditionBool :: NodeLabel -> RFuncLabel -> Bool -> NNF -> (LabelWithEntry, NNF)
-conditionBool nodeLabel rf val nnf
+conditionBool :: LabelWithEntry -> RFuncLabel -> Bool -> NNF -> (LabelWithEntry, NNF)
+conditionBool origNodeEntry rf val nnf
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
     | otherwise = case tryAugmentWithEntry condLabel nnf of
         Just entry -> (entry, nnf)
@@ -206,7 +206,7 @@ conditionBool nodeLabel rf val nnf
             Operator operator children ->
                 let (condChildren, nnf') = Set.foldr
                         (\child (children, nnf) ->
-                            let (condChild, nnf') = conditionBool child rf val nnf
+                            let (condChild, nnf') = conditionBool (NNF.augmentWithEntry child nnf) rf val nnf
                             in (Set.insert condChild children, nnf')
                         )
                         (Set.empty, nnf)
@@ -216,8 +216,7 @@ conditionBool nodeLabel rf val nnf
                 insert condLabel (BuildInPredicate $ conditionPred pred) nnf
             Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
-        condLabel = condNodeLabelBool rf val nodeLabel
-        origNodeEntry = augmentWithEntry nodeLabel nnf
+        condLabel = condNodeLabelBool rf val $ NNF.entryLabel origNodeEntry
 
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred (AST.BoolEq exprL exprR) = AST.BoolEq (conditionExpr exprL) (conditionExpr exprR)
@@ -228,8 +227,8 @@ conditionBool nodeLabel rf val nnf
                 conditionExpr expr = expr
         conditionPred pred = pred
 
-conditionReal :: NodeLabel -> RFuncLabel -> Interval -> NNF -> (LabelWithEntry, NNF)
-conditionReal nodeLabel rf interv nnf
+conditionReal :: LabelWithEntry -> RFuncLabel -> Interval -> NNF -> (LabelWithEntry, NNF)
+conditionReal origNodeEntry rf interv nnf
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
     | otherwise = case tryAugmentWithEntry condLabel nnf of
         Just entry -> (entry, nnf)
@@ -237,7 +236,7 @@ conditionReal nodeLabel rf interv nnf
             Operator operator children ->
                 let (condChildren, nnf') = Set.foldr
                         (\child (children, nnf) ->
-                            let (condChild, nnf') = conditionReal child rf interv nnf
+                            let (condChild, nnf') = conditionReal (NNF.augmentWithEntry child nnf) rf interv nnf
                             in (Set.insert condChild children, nnf')
                         )
                         (Set.empty, nnf)
@@ -247,14 +246,13 @@ conditionReal nodeLabel rf interv nnf
                 insert condLabel (BuildInPredicate $ conditionPred pred) nnf
             Deterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
-        condLabel = condNodeLabelReal rf interv nodeLabel
-        origNodeEntry = augmentWithEntry nodeLabel nnf
+        condLabel = condNodeLabelReal rf interv $ NNF.entryLabel origNodeEntry
 
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred pred@(AST.RealIn predRf predInterv)
-            | predRf == rf && Interval.subsetEq interv predInterv  = AST.Constant True
-            | predRf == rf && Interval.disjoint interv predInterv  = AST.Constant False
-            | otherwise = pred
+            | predRf == rf && Interval.subsetEq interv predInterv = AST.Constant True
+            | predRf == rf && Interval.disjoint interv predInterv = AST.Constant False
+            | otherwise                                           = pred
         conditionPred (AST.RealIneq _ _ _) = error "conditionPred (AST.RealIneq ...) not implemented"
         conditionPred pred = pred
 

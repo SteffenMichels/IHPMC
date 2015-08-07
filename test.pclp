@@ -1,8 +1,7 @@
-~a   ~  flip( 0.33 ) .
-~b   ~  flip( 0.5 ) .
+~a ~  flip(0.5).
+~x ~  norm(0.0,1.0).
 
-q <- ~a = #true, ~b = #true.
+q <- ~x > 1.0.
+q <- ~a = #true, ~x > -1.0.
 
-qProxy <- q.
-
-query qProxy.
+query q.

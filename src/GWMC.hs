@@ -32,7 +32,9 @@ import GHC.Exts (sortWith)
 import Debug.Trace (trace)
 import qualified Data.List as List
 import Interval (Interval, IntervalLimit(..))
+import qualified Interval
 import Numeric (fromRat)
+import Data.Maybe (mapMaybe)
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> ([ProbabilityBounds], NNF)
 gwmc query rfuncDefs nnf = (fmap PST.bounds psts, nnf') where
@@ -92,8 +94,8 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
             Nothing -> case Map.lookup rf rfuncDefs of
                     Just (AST.Flip p:_) -> (nnf'', PST.ChoiceBool rf p left right, combineProbsChoice p left right, combineScoresChoice p left right)
                         where
-                            (leftEntry,  nnf')  = NNF.conditionBool nnfLabel rf True nnf
-                            (rightEntry, nnf'') = NNF.conditionBool nnfLabel rf False nnf'
+                            (leftEntry,  nnf')  = NNF.conditionBool nnfEntry rf True nnf
+                            (rightEntry, nnf'') = NNF.conditionBool nnfEntry rf False nnf'
                             left  = toPSTNode leftEntry
                             right = toPSTNode rightEntry
                     Just (AST.RealDist cdf icdf:_) -> (nnf'', PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice p left right)
@@ -102,25 +104,21 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                             pUntilLower = cdf' True curLower
                             pUntilUpper = cdf' False curUpper
                             pUntilSplit = cdf splitPoint
-                            (leftEntry,  nnf')  = NNF.conditionReal nnfLabel rf (curLower, Open splitPoint) nnf
-                            (rightEntry, nnf'') = NNF.conditionReal nnfLabel rf (Open splitPoint, curUpper) nnf'
+                            (leftEntry,  nnf')  = NNF.conditionReal nnfEntry rf (curLower, Open splitPoint) nnf
+                            (rightEntry, nnf'') = NNF.conditionReal nnfEntry rf (Open splitPoint, curUpper) nnf'
                             left  = toPSTNode leftEntry
                             right = toPSTNode rightEntry
-                            splitPoint = case (curLower, curUpper) of
-                                (Inf, Inf)       -> 0.0
-                                (Inf, Open u)    -> u-1.0
-                                (Open l, Inf)    -> l+1.0
-                                (Open l, Open u) -> (l+u)/2
-                            (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
+                            splitPoint = determineSplitPoint rf curInterv nnfEntry
+                            curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
                             cdf' lower Inf    = if lower then 0.0 else 1.0
                             cdf' _ (Open x)   = cdf x
                             cdf' _ (Closed x) = cdf x
                     _  -> error ("undefined rfunc " ++ rf)
                     where
                         xxx = sortWith (\(rf, (p,n)) -> -p+n) $ HashMap.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
-                        --xxxy = trace (foldl (\str rf -> str ++ "\n" ++ (let (p,n) = NNF.heuristicScores rf nnfLabel nnf in show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
+                        xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                         rf = fst $ head xxx
-
+                        nnfEntry = NNF.augmentWithEntry nnfLabel nnf
                         toPSTNode entry = case NNF.entryNode entry of
                             NNF.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
                             _                     -> PST.Unfinished (PST.Leaf $ NNF.entryLabel entry) (0.0,1.0) (fromIntegral $ Set.size $ NNF.entryRFuncs entry)
@@ -176,3 +174,26 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                         cur'      = Set.union cur $ Set.fromList withSharedRFs
                         curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
                         children' = Set.fromList withoutSharedRFs
+
+        determineSplitPoint :: RFuncLabel -> Interval -> NNF.LabelWithEntry -> Rational
+        determineSplitPoint rf curInterv nnfEntry = fst $ head list
+            where
+                list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore nnfEntry)
+                listTrace = trace (show list ++ show rf ++ (show $ NNF.entryLabel nnfEntry)) list
+                pointsWithScore entry
+                    | Set.member rf $ NNF.entryRFuncs entry = case NNF.entryNode entry of
+                        NNF.Operator op children -> foldr combine Map.empty [pointsWithScore $ NNF.augmentWithEntry c nnf | c <- Set.toList children]
+                        NNF.BuildInPredicate pred -> Map.fromList $ mapMaybe
+                            (\x -> case x of
+                                Inf      -> Nothing
+                                Open p   -> Just (p, 1.0)
+                                Closed p -> Just (p, 1.0)
+                            ) $ points pred
+                        _ -> Map.empty
+                    | otherwise = Map.empty
+
+                points (AST.RealIn _ (l,u)) = [l,u]
+                points _ = error "determinSplitPoint.points not implemented"
+
+                combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
+                combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x
