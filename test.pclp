@@ -1,7 +1,8 @@
 ~a ~  flip(0.5).
 ~x ~  norm(0.0,1.0).
+~y ~  norm(1.0,1.0).
 
-q <- ~x > 1.0.
+q <- ~x > ~y.
 q <- ~a = #true, ~x > -1.0.
 
 query q.

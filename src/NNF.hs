@@ -47,6 +47,7 @@ import qualified Data.Hashable as Hashable
 import qualified Data.List as List
 import Interval (Interval, IntervalLimit)
 import qualified Interval
+import Debug.Trace (trace)
 
 -- NNF nodes "counter for fresh nodes"
 data NNF = NNF (HashMap NodeLabel NNFEntry) Int
@@ -126,7 +127,7 @@ insert label node nnf@(NNF nodes freshCounter) = (labelWithEntry, nnf')
         (simplifiedNode, children) = simplify node nnf
         rFuncs = case simplifiedNode of
             Deterministic _       -> Set.empty
-            BuildInPredicate pred -> AST.randomFunctions pred
+            BuildInPredicate pred -> AST.predRandomFunctions pred
             Operator _ _ ->
                 Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children
 
@@ -227,8 +228,8 @@ conditionBool origNodeEntry rf val nnf
                 conditionExpr expr = expr
         conditionPred pred = pred
 
-conditionReal :: LabelWithEntry -> RFuncLabel -> Interval -> NNF -> (LabelWithEntry, NNF)
-conditionReal origNodeEntry rf interv nnf
+conditionReal :: LabelWithEntry -> RFuncLabel -> Interval -> HashMap RFuncLabel Interval -> NNF -> (LabelWithEntry, NNF)
+conditionReal origNodeEntry rf interv otherRealChoices nnf
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
     | otherwise = case tryAugmentWithEntry condLabel nnf of
         Just entry -> (entry, nnf)
@@ -236,7 +237,7 @@ conditionReal origNodeEntry rf interv nnf
             Operator operator children ->
                 let (condChildren, nnf') = Set.foldr
                         (\child (children, nnf) ->
-                            let (condChild, nnf') = conditionReal (NNF.augmentWithEntry child nnf) rf interv nnf
+                            let (condChild, nnf') = conditionReal (NNF.augmentWithEntry child nnf) rf interv otherRealChoices nnf
                             in (Set.insert condChild children, nnf')
                         )
                         (Set.empty, nnf)
@@ -253,7 +254,14 @@ conditionReal origNodeEntry rf interv nnf
             | predRf == rf && Interval.subsetEq interv predInterv = AST.Constant True
             | predRf == rf && Interval.disjoint interv predInterv = AST.Constant False
             | otherwise                                           = pred
-        conditionPred (AST.RealIneq _ _ _) = error "conditionPred (AST.RealIneq ...) not implemented"
+        conditionPred pred@(AST.RealIneq _ _ _)
+            -- check if choice is made for all rFuncs in pred
+            | length conditions == Set.size predRFuncs = trace ((show pred) ++ "\n" ++ (show $ length conditions) ++ " " ++ (show $ Set.size predRFuncs) ++ "\nconds\n" ++ show conditions ++ "\ncorners\n" ++ show corners) undefined
+            | otherwise = pred
+            where
+                conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = (rf, interv):[(rf,interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
+                corners = foldr (\(rf, (l,u)) corners -> corners) [(firstRf, firstLower),(firstRf, firstUpper)] otherConditions
+                predRFuncs = AST.predRandomFunctions pred
         conditionPred pred = pred
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()

@@ -48,7 +48,7 @@ exeMain = do
         Success x   -> putStrLn $ show x
     where
         exeMain' = do
-            args <- return ["/tmp/tmp.pclp"]--doIO $ getArgs
+            args <- return ["/home/smichels/steffen/pclp/test.pclp"]--doIO $ getArgs
             let firstArg = args !! 0
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
@@ -56,7 +56,7 @@ exeMain = do
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
             (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            --psts <- return $ take 4 psts
+            psts <- return $ take 10 psts
             startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
             doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
                                       in do

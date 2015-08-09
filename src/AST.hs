@@ -22,7 +22,7 @@ module AST
     , RealN
     , IneqOp(..)
     , deterministicValue
-    , randomFunctions
+    , predRandomFunctions
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -120,11 +120,11 @@ deterministicValue (BoolEq (UserRFunc left) (UserRFunc right)) | left == right =
 deterministicValue (Constant val)                                              = Just val
 deterministicValue _                                                           = Nothing
 
-randomFunctions :: BuildInPredicate -> HashSet RFuncLabel
-randomFunctions (BoolEq left right)     = Set.union (randomFunctions' left) (randomFunctions' right)
-randomFunctions (RealIneq _ left right) = Set.union (randomFunctions' left) (randomFunctions' right)
-randomFunctions (RealIn rf _)           = Set.singleton rf
-randomFunctions (Constant _)            = Set.empty
+predRandomFunctions :: BuildInPredicate -> HashSet RFuncLabel
+predRandomFunctions (BoolEq left right)     = Set.union (randomFunctions' left) (randomFunctions' right)
+predRandomFunctions (RealIneq _ left right) = Set.union (randomFunctions' left) (randomFunctions' right)
+predRandomFunctions (RealIn rf _)           = Set.singleton rf
+predRandomFunctions (Constant _)            = Set.empty
 
 randomFunctions' (UserRFunc label) = Set.singleton(label)
 randomFunctions' (BoolConstant _)  = Set.empty

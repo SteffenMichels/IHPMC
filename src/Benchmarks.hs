@@ -29,7 +29,7 @@ exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 4
+            n = 5
             bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()
@@ -88,6 +88,7 @@ paths n = AST.AST { AST.rFuncDefs = rFuncDefs
                 1 -> 0.9
                 2 -> 0.2
                 3 -> 0.8
+                4 -> 0.5
         rules = Map.singleton "reachable" bodies
         bodies = Set.foldr body Set.empty $ paths undefined (0,0) Set.empty Set.empty
         body path bodies = Set.insert

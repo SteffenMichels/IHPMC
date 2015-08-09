@@ -104,11 +104,11 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                             pUntilLower = cdf' True curLower
                             pUntilUpper = cdf' False curUpper
                             pUntilSplit = cdf splitPoint
-                            (leftEntry,  nnf')  = NNF.conditionReal nnfEntry rf (curLower, Open splitPoint) nnf
-                            (rightEntry, nnf'') = NNF.conditionReal nnfEntry rf (Open splitPoint, curUpper) nnf'
+                            (leftEntry,  nnf')  = NNF.conditionReal nnfEntry rf (curLower, Open splitPoint) previousChoicesReal nnf
+                            (rightEntry, nnf'') = NNF.conditionReal nnfEntry rf (Open splitPoint, curUpper) previousChoicesReal nnf'
                             left  = toPSTNode leftEntry
                             right = toPSTNode rightEntry
-                            splitPoint = determineSplitPoint rf curInterv nnfEntry
+                            splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry
                             curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
                             cdf' lower Inf    = if lower then 0.0 else 1.0
                             cdf' _ (Open x)   = cdf x
@@ -175,25 +175,25 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                         curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
                         children' = Set.fromList withoutSharedRFs
 
-        determineSplitPoint :: RFuncLabel -> Interval -> NNF.LabelWithEntry -> Rational
-        determineSplitPoint rf curInterv nnfEntry = fst $ head list
+        determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> NNF.LabelWithEntry -> Rational
+        determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry = fst $ head list
             where
                 list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore nnfEntry)
                 listTrace = trace (show list ++ show rf ++ (show $ NNF.entryLabel nnfEntry)) list
                 pointsWithScore entry
                     | Set.member rf $ NNF.entryRFuncs entry = case NNF.entryNode entry of
-                        NNF.Operator op children -> foldr combine Map.empty [pointsWithScore $ NNF.augmentWithEntry c nnf | c <- Set.toList children]
-                        NNF.BuildInPredicate pred -> Map.fromList $ mapMaybe
-                            (\x -> case x of
-                                Inf      -> Nothing
-                                Open p   -> Just (p, 1.0)
-                                Closed p -> Just (p, 1.0)
-                            ) $ points pred
-                        _ -> Map.empty
+                        NNF.Operator op children  -> foldr combine Map.empty [pointsWithScore $ NNF.augmentWithEntry c nnf | c <- Set.toList children]
+                        NNF.BuildInPredicate pred -> Map.fromList $ points pred
+                        _                         -> Map.empty
                     | otherwise = Map.empty
 
-                points (AST.RealIn _ (l,u)) = [l,u]
-                points _ = error "determinSplitPoint.points not implemented"
+                points (AST.RealIn _ (l,u)) = mapMaybe
+                                                (\x -> case x of
+                                                    Inf      -> Nothing
+                                                    Open p   -> Just (p, 1.0)
+                                                    Closed p -> Just (p, 1.0)
+                                                ) [l,u]
+                points _ = [(icdf ((pUntilLower + pUntilUpper)/2),1.0)]
 
                 combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
                 combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x
