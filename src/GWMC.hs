@@ -101,8 +101,8 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                     Just (AST.RealDist cdf icdf:_) -> (nnf'', PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice p left right)
                         where
                             p = (pUntilSplit-pUntilLower)/(pUntilUpper-pUntilLower)
-                            pUntilLower = cdf' True curLower
-                            pUntilUpper = cdf' False curUpper
+                            pUntilLower = cdf' cdf True curLower
+                            pUntilUpper = cdf' cdf False curUpper
                             pUntilSplit = cdf splitPoint
                             (leftEntry,  nnf')  = NNF.conditionReal nnfEntry rf (curLower, Open splitPoint) previousChoicesReal nnf
                             (rightEntry, nnf'') = NNF.conditionReal nnfEntry rf (Open splitPoint, curUpper) previousChoicesReal nnf'
@@ -110,18 +110,23 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                             right = toPSTNode rightEntry
                             splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry
                             curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
-                            cdf' lower Inf    = if lower then 0.0 else 1.0
-                            cdf' _ (Open x)   = cdf x
-                            cdf' _ (Closed x) = cdf x
                     _  -> error ("undefined rfunc " ++ rf)
                     where
-                        xxx = sortWith (\(rf, (p,n)) -> -p+n) $ HashMap.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
+                        xxx = sortWith (\(rf, (p,n)) ->
+                                case HashMap.lookup rf previousChoicesReal of
+                                    Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
+                                                  in  trace (rf ++ (show $ fromRat (cdf' cdf True u - cdf' cdf False l)*(-(p+n)))) $ fromRat (cdf' cdf True u - cdf' cdf False l)*(-(p+n))
+                                    _          -> trace (rf ++ (show (p+n))) $ -(p+n)
+                              ) $ HashMap.toList $ NNF.entryScores $ NNF.augmentWithEntry (trace "\n" nnfLabel) nnf
                         xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                         rf = fst $ head xxx
                         nnfEntry = NNF.augmentWithEntry nnfLabel nnf
                         toPSTNode entry = case NNF.entryNode entry of
                             NNF.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
                             _                     -> PST.Unfinished (PST.Leaf $ NNF.entryLabel entry) (0.0,1.0) (fromIntegral $ Set.size $ NNF.entryRFuncs entry)
+                        cdf' _ lower Inf    = if lower then 0.0 else 1.0
+                        cdf' cdf _ (Open x)   = cdf x
+                        cdf' cdf _ (Closed x) = cdf x
             Just (op, decomposition) -> (nnf', PST.Decomposition op psts, (0.0,1.0), combineScoresDecomp psts)
                 where
                     (psts, nnf') = Set.foldr

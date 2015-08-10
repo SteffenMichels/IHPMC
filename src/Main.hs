@@ -56,7 +56,7 @@ exeMain = do
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
             (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            psts <- return $ take 10 psts
+            psts <- return $ take 3 psts
             startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
             doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
                                       in do
