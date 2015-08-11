@@ -115,9 +115,10 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                         xxx = sortWith (\(rf, (p,n)) ->
                                 case HashMap.lookup rf previousChoicesReal of
                                     Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
-                                                  in  trace (rf ++ (show $ fromRat (cdf' cdf True u - cdf' cdf False l)*(-(p+n)))) $ fromRat (cdf' cdf True u - cdf' cdf False l)*(-(p+n))
-                                    _          -> trace (rf ++ (show (p+n))) $ -(p+n)
-                              ) $ HashMap.toList $ NNF.entryScores $ NNF.augmentWithEntry (trace "\n" nnfLabel) nnf
+                                                      currentP = fromRat (cdf' cdf True u - cdf' cdf False l)
+                                                  in  (-currentP * abs (p-n), -currentP)
+                                    _          -> (-abs (p-n), -1.0)
+                              ) $ HashMap.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
                         xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                         rf = fst $ head xxx
                         nnfEntry = NNF.augmentWithEntry nnfLabel nnf
@@ -147,8 +148,8 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
         combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
             (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
-        combineScoresChoice p left right = (PST.score left + PST.score right)/2
-        combineScoresDecomp dec          = foldr (\pst score -> score + PST.score pst) 0.0 dec/(fromIntegral $ length dec)::Double
+        combineScoresChoice p left right = (PST.score left + PST.score right){-/2-}
+        combineScoresDecomp dec          = foldr (\pst score -> score + PST.score pst) 0.0 dec{-/(fromIntegral $ length dec)::Double-}
 
         errorScore pst
             | maxError == 0.0 = 0.0
@@ -198,7 +199,7 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                                                     Open p   -> Just (p, 1.0)
                                                     Closed p -> Just (p, 1.0)
                                                 ) [l,u]
-                points _ = [(icdf ((pUntilLower + pUntilUpper)/2),1.0)]
+                points pred = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/(fromIntegral $ Set.size $ AST.predRandomFunctions pred))]
 
                 combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
                 combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x

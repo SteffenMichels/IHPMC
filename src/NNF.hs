@@ -45,7 +45,7 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import qualified Data.List as List
-import Interval (Interval, IntervalLimit)
+import Interval (Interval, IntervalLimit, IntervalLimitPoint(..), LowerUpper(..))
 import qualified Interval
 import Debug.Trace (trace)
 
@@ -254,13 +254,31 @@ conditionReal origNodeEntry rf interv otherRealChoices nnf
             | predRf == rf && Interval.subsetEq interv predInterv = AST.Constant True
             | predRf == rf && Interval.disjoint interv predInterv = AST.Constant False
             | otherwise                                           = pred
-        conditionPred pred@(AST.RealIneq _ _ _)
+        conditionPred pred@(AST.RealIneq op left right)
             -- check if choice is made for all rFuncs in pred
-            | length conditions == Set.size predRFuncs = trace ((show pred) ++ "\n" ++ (show $ length conditions) ++ " " ++ (show $ Set.size predRFuncs) ++ "\nconds\n" ++ show conditions ++ "\ncorners\n" ++ show corners) undefined
+            | length conditions == Set.size predRFuncs = conditionPred'
             | otherwise = pred
             where
-                conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = (rf, interv):[(rf,interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
-                corners = foldr (\(rf, (l,u)) corners -> corners) [(firstRf, firstLower),(firstRf, firstUpper)] otherConditions
+                conditionPred'
+                    | all (== True)  checkedPreds = AST.Constant True
+                    | all (== False) checkedPreds = AST.Constant False
+                    | otherwise                   = pred
+
+                checkedPreds = [checkPred corner | corner <- corners]
+
+                checkPred corner = case op of
+                    AST.Lt   -> evalLeft <  evalRight
+                    AST.LtEq -> evalLeft <= evalRight
+                    AST.Gt   -> evalLeft >  evalRight
+                    AST.GtEq -> evalLeft >= evalRight
+                    where
+                        evalLeft  = eval left
+                        evalRight = eval right
+                        eval (AST.UserRFunc rf)   = fromJust $ Map.lookup rf corner
+                        eval (AST.RealConstant r) = Point r
+
+                conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = (rf, interv):[(rf',interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
+                corners = foldr (\(rf, (l,u)) corners -> [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners]) [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]] otherConditions
                 predRFuncs = AST.predRandomFunctions pred
         conditionPred pred = pred
 

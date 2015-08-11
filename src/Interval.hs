@@ -14,42 +14,60 @@
 
 module Interval
     ( IntervalLimit(..)
+    , IntervalLimitPoint(..)
+    , LowerUpper(..)
     , Interval
     , subsetEq
     , disjoint
+    , toPoint
     ) where
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 
 data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic, Show)
+data LowerUpper = Lower | Upper
+data IntervalLimitPoint = PosInf | NegInf | Point Rational | PointPlus Rational | PointMinus Rational deriving (Eq, Show)
 instance Hashable IntervalLimit
-type Interval      = (IntervalLimit, IntervalLimit)
+type Interval = (IntervalLimit, IntervalLimit)
+
+toPoint :: LowerUpper -> IntervalLimit -> IntervalLimitPoint
+toPoint _     (Closed p) = Point p
+toPoint Lower (Open p)   = PointPlus p
+toPoint Upper (Open p)   = PointMinus p
+toPoint Lower Inf        = NegInf
+toPoint Upper Inf        = PosInf
 
 subsetEq :: Interval -> Interval -> Bool
-subsetEq (lx, ux) (ly, uy) = gtEqLower lx ly && ltEqUpper ux uy
+subsetEq (lx, ux) (ly, uy) = toPoint Lower lx >= toPoint Lower ly && toPoint Upper ux <= toPoint Upper uy
 
 disjoint :: Interval -> Interval -> Bool
-disjoint (lx, ux) (ly, uy) = ltUpperLower ux ly || ltUpperLower uy lx
+disjoint (lx, ux) (ly, uy) = toPoint Upper ux < toPoint Lower ly || toPoint Upper uy < toPoint Lower lx
 
-ltUpperLower :: IntervalLimit -> IntervalLimit -> Bool
-ltUpperLower (Open x)   (Open y)   = x <= y
-ltUpperLower (Closed x) (Closed y) = x <  y
-ltUpperLower (Open x)   (Closed y) = x <= y
-ltUpperLower (Closed x) (Open y)   = x <= y
-ltUpperLower _ _                   = False
+instance Ord IntervalLimitPoint where
+    x `compare` y | x == y = EQ
+    NegInf `compare` _      = LT
+    PosInf `compare` _      = GT
+    _      `compare` NegInf = GT
+    _      `compare` PosInf = LT
+    (Point x) `compare` (Point y) = x `compare` y
+    (Point x) `compare` (PointPlus y)
+        | x <= y    = LT
+        | otherwise = GT
+    (Point x) `compare` (PointMinus y)
+        | x < y     = LT
+        | otherwise = GT
+    (PointPlus x) `compare` (PointPlus y) = x `compare` y
+    (PointPlus x) `compare` (Point y)
+        | x < y     = LT
+        | otherwise = GT
+    (PointPlus x) `compare` (PointMinus y)
+        | x < y     = LT
+        | otherwise = GT
+    (PointMinus x) `compare` (PointMinus y) = x `compare` y
+    (PointMinus x) `compare` (Point y)
+        | x <= y    = LT
+        | otherwise = GT
+    (PointMinus x) `compare` (PointPlus y)
+        | x <= y    = LT
+        | otherwise = GT
 
-gtEqLower :: IntervalLimit -> IntervalLimit -> Bool
-gtEqLower _ Inf                 = True
-gtEqLower (Open x)   (Open y)   = x >= y
-gtEqLower (Closed x) (Closed y) = x >= y
-gtEqLower (Open x)   (Closed y) = x >= y
-gtEqLower (Closed x) (Open y)   = x >  y
-gtEqLower _ _                   = False
-
-ltEqUpper :: IntervalLimit -> IntervalLimit -> Bool
-ltEqUpper _ Inf                 = True
-ltEqUpper (Open x)   (Open y)   = x <= y
-ltEqUpper (Closed x) (Closed y) = x <= y
-ltEqUpper (Open x)   (Closed y) = x <= y
-ltEqUpper (Closed x) (Open y)   = x <  y
-ltEqUpper _ _                   = False
