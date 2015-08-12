@@ -28,6 +28,7 @@ import NNF
 import qualified PST
 import Text.Printf (printf)
 import GWMC
+import qualified GWMCExact
 import qualified AST
 import qualified Data.HashSet as Set
 import Benchmarks
@@ -48,25 +49,32 @@ exeMain = do
         Success x   -> putStrLn $ show x
     where
         exeMain' = do
-            args <- return ["/home/smichels/steffen/pclp/test.pclp"]--doIO $ getArgs
+            args <- return ["/tmp/tmp.pclp"]--doIO $ getArgs "/home/smichels/steffen/pclp/test.pclp"
             let firstArg = args !! 0
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
+            inferenceExact ast nnf
+
+        inferenceApprox ast nnf = do
             (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            psts <- return $ take 100000 psts
-            startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
-            doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
-                                      in do
-                                        currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            --psts <- return $ take 100000 psts
+            --startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            --doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
+            --                          in do
+            --                            currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --                            putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
-                                        putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
+            --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
             --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
             --PST.exportAsDot "/tmp/pst.dot" $ last psts
-            --return . PST.bounds $ last psts
-            return $ length psts
+            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ last psts
+            --return $ length psts
+
+        inferenceExact ast nnf = do
+            (p, nnfAfter) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
+            return (fromRat p :: Double)
 
 -- Entry point for unit tests.
 testMain = undefined--do

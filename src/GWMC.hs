@@ -25,7 +25,6 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
-import qualified Data.HashMap.Lazy as HashMap
 import qualified AST
 import Text.Printf (printf)
 import GHC.Exts (sortWith)
@@ -113,12 +112,12 @@ gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel
                     _  -> error ("undefined rfunc " ++ rf)
                     where
                         xxx = sortWith (\(rf, (p,n)) ->
-                                case HashMap.lookup rf previousChoicesReal of
+                                case Map.lookup rf previousChoicesReal of
                                     Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
                                                       currentP = fromRat (cdf' cdf True u - cdf' cdf False l)
                                                   in  (-currentP * abs (p-n), -currentP)
                                     _          -> (-abs (p-n), -1.0)
-                              ) $ HashMap.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
+                              ) $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
                         xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                         rf = fst $ head xxx
                         nnfEntry = NNF.augmentWithEntry nnfLabel nnf
