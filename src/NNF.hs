@@ -183,7 +183,7 @@ insertFresh node nnf@(NNF nodes freshCounter) = (entry, NNF nodes' (freshCounter
 augmentWithEntry :: NodeLabel -> NNF -> LabelWithEntry
 augmentWithEntry label nnf = case tryAugmentWithEntry label nnf of
     Just entry -> entry
-    Nothing    -> error "non-existing NNF node"
+    Nothing    -> error $ printf "non-existing NNF node '%s'" $ show label
 
 tryAugmentWithEntry :: NodeLabel -> NNF -> Maybe LabelWithEntry
 tryAugmentWithEntry label (NNF nodes _) = case Map.lookup label nodes of

@@ -56,20 +56,20 @@ exeMain = do
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
-            inferenceExact ast nnf
+            inferenceApprox ast nnf
 
         inferenceApprox ast nnf = do
-            (psts, nnfAfter) <- return $ gwmcPSTs (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            --psts <- return $ take 100000 psts
-            --startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
-            --doIO $ forM psts (\pst -> let (l,u) = PST.bounds pst
-            --                          in do
-            --                            currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            results <- return $ gwmcDebug (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
+            results <- return $ take 4 results
+            startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            doIO $ forM results (\(pst,_) -> let (l,u) = PST.bounds pst
+                                      in do
+                                        currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --                            putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
-            --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
-            --exportAsDot "/tmp/nnfAfter.dot" nnfAfter
-            --PST.exportAsDot "/tmp/pst.dot" $ last psts
-            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ last psts
+                                        putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
+            NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
+            PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
+            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
             --return $ length psts
 
         inferenceExact ast nnf = do

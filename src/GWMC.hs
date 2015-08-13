@@ -14,7 +14,7 @@
 
 module GWMC
     ( gwmc
-    , gwmcPSTs
+    , gwmcDebug
     ) where
 import NNF (NNF)
 import qualified NNF
@@ -35,18 +35,18 @@ import qualified Interval
 import Numeric (fromRat)
 import Data.Maybe (mapMaybe)
 
-gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> ([ProbabilityBounds], NNF)
-gwmc query rfuncDefs nnf = (fmap PST.bounds psts, nnf') where
-    (psts, nnf') = gwmcPSTs query rfuncDefs nnf
+gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
+gwmc query rfuncDefs nnf = fmap (\(pst,_) -> PST.bounds pst) results where
+    results = gwmcDebug query rfuncDefs nnf
 
-gwmcPSTs :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> ([PST], NNF)
-gwmcPSTs query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel query
+gwmcDebug :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [(PST, NNF)]
+gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabel query
     where
-        gwmc' :: NNF -> PSTNode -> ([PST], NNF)
+        gwmc' :: NNF -> PSTNode -> [(PST, NNF)]
         gwmc' nnf pstNode = case iterate nnf pstNode Map.empty of
-            (nnf', pst@(PST.Finished _))              -> ([pst], nnf')
-            (nnf', pst@(PST.Unfinished pstNode' _ _)) -> let (psts, nnf'') = gwmc' nnf' pstNode'
-                                                         in  (pst : psts, nnf'')
+            (nnf', pst@(PST.Finished _))              -> [(pst,nnf')]
+            (nnf', pst@(PST.Unfinished pstNode' _ _)) -> let results = gwmc' nnf' pstNode'
+                                                         in  (pst,nnf') : results
 
         iterate :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> (NNF, PST)
         iterate nnf pstNode previousChoicesReal
