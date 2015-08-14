@@ -20,6 +20,7 @@ module Interval
     , subsetEq
     , disjoint
     , toPoint
+    , pointRational
     ) where
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
@@ -36,6 +37,13 @@ toPoint Lower (Open p)   = PointPlus p
 toPoint Upper (Open p)   = PointMinus p
 toPoint Lower Inf        = NegInf
 toPoint Upper Inf        = PosInf
+
+pointRational :: IntervalLimitPoint -> Maybe Rational
+pointRational PosInf         = Nothing
+pointRational NegInf         = Nothing
+pointRational (Point r)      = Just r
+pointRational (PointPlus r)  = Just r
+pointRational (PointMinus r) = Just r
 
 subsetEq :: Interval -> Interval -> Bool
 subsetEq (lx, ux) (ly, uy) = toPoint Lower lx >= toPoint Lower ly && toPoint Upper ux <= toPoint Upper uy
@@ -70,4 +78,3 @@ instance Ord IntervalLimitPoint where
     (PointMinus x) `compare` (PointPlus y)
         | x <= y    = LT
         | otherwise = GT
-

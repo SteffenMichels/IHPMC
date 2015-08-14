@@ -30,10 +30,10 @@ import Text.Printf (printf)
 import GHC.Exts (sortWith)
 import Debug.Trace (trace)
 import qualified Data.List as List
-import Interval (Interval, IntervalLimit(..))
+import Interval (Interval, IntervalLimit(..), LowerUpper(..))
 import qualified Interval
 import Numeric (fromRat)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromJust)
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
 gwmc query rfuncDefs nnf = fmap (\(pst,_) -> PST.bounds pst) results where
@@ -107,7 +107,7 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabe
                             (rightEntry, nnf'') = NNF.conditionReal nnfEntry rf (Open splitPoint, curUpper) previousChoicesReal nnf'
                             left  = toPSTNode leftEntry
                             right = toPSTNode rightEntry
-                            splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry nnf
+                            splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf previousChoicesReal nnfEntry nnf
                             curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
                     _  -> error ("undefined rfunc " ++ rf)
                     where
@@ -180,8 +180,8 @@ decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf 
                 curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
                 children' = Set.fromList withoutSharedRFs
 
-determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> NNF.LabelWithEntry -> NNF -> Rational
-determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry nnf = fst $ head list
+determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> HashMap RFuncLabel Interval -> NNF.LabelWithEntry -> NNF -> Rational
+determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesReal nnfEntry nnf = fst $ head list
     where
         list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore nnfEntry)
         listTrace = trace (show list ++ show rf ++ (show $ NNF.entryLabel nnfEntry)) list
@@ -198,7 +198,23 @@ determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry nnf = fst
                                             Open p   -> Just (p, 1.0)
                                             Closed p -> Just (p, 1.0)
                                         ) [l,u]
-        points pred = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/(fromIntegral $ Set.size $ AST.predRandomFunctions pred))]
+        points pred = if (Set.size $ AST.predRandomFunctions pred) == 2 then points'' else error "determineSplitPoint: not implemented"
+            where
+                otherRf = let [x,y] = Set.toList $ AST.predRandomFunctions pred in if x == rf then y else x
+                mbOtherInterv = Map.lookup otherRf prevChoicesReal
+                points' = case mbOtherInterv of
+                    Nothing -> []
+                    Just (otherLower, otherUpper) ->
+                        -- points must be in interval and not at boundary
+                        filter (\p -> Interval.PointPlus p > Interval.toPoint Lower lower && (Interval.PointMinus p) < Interval.toPoint Upper upper) rationalPoints
+                        where
+                            -- can only split at rational points
+                            rationalPoints = mapMaybe Interval.pointRational [Interval.toPoint Lower otherLower, Interval.toPoint Upper otherUpper]
+
+                -- split probability mass in two equal part if no other split is possible
+                points''
+                    | length points' > 0 = [(p,1.0) | p <- points']
+                    | otherwise          = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/(fromIntegral $ Set.size $ AST.predRandomFunctions pred))]
 
         combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
         combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x
