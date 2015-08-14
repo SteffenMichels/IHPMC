@@ -16,7 +16,7 @@ module NNF
     ( NNF
     , Node(..)
     , NodeType(..)
-    , NodeLabel
+    , NodeLabel(..) -- TODO: constructors should not be exposed
     , LabelWithEntry(entryLabel,entryNode,entryRFuncs,entryScores)
     , empty
     , member

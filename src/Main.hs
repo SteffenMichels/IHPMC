@@ -60,7 +60,7 @@ exeMain = do
 
         inferenceApprox ast nnf = do
             results <- return $ gwmcDebug (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            results <- return $ take 4 results
+            results <- return $ take 1 results
             startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
             doIO $ forM results (\(pst,_) -> let (l,u) = PST.bounds pst
                                       in do

@@ -107,7 +107,7 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabe
                             (rightEntry, nnf'') = NNF.conditionReal nnfEntry rf (Open splitPoint, curUpper) previousChoicesReal nnf'
                             left  = toPSTNode leftEntry
                             right = toPSTNode rightEntry
-                            splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry
+                            splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry nnf
                             curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
                     _  -> error ("undefined rfunc " ++ rf)
                     where
@@ -140,65 +140,65 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabe
                         ([], nnf)
                         decomposition
 
-        combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
-            (leftLower,  leftUpper)  = PST.bounds left
-            (rightLower, rightUpper) = PST.bounds right
-        combineProbsDecomp NNF.And dec = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
-        combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
-            (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
+combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
+    (leftLower,  leftUpper)  = PST.bounds left
+    (rightLower, rightUpper) = PST.bounds right
+combineProbsDecomp NNF.And dec = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
+combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
+    (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
-        combineScoresChoice p left right = (PST.score left + PST.score right){-/2-}
-        combineScoresDecomp dec          = foldr (\pst score -> score + PST.score pst) 0.0 dec{-/(fromIntegral $ length dec)::Double-}
+combineScoresChoice p left right = (PST.score left + PST.score right){-/2-}
+combineScoresDecomp dec          = foldr (\pst score -> score + PST.score pst) 0.0 dec{-/(fromIntegral $ length dec)::Double-}
 
-        errorScore pst
-            | maxError == 0.0 = 0.0
-            | otherwise       = maxError/PST.score pst
+errorScore pst
+    | maxError == 0.0 = 0.0
+    | otherwise       = maxError/PST.score pst
+    where
+        maxError = fromRat $ PST.maxError pst::Double
+
+decompose :: NNF.NodeLabel -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeLabel)))
+decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf of
+    NNF.Operator op children -> let dec = decomposeChildren Set.empty $ Set.map (\c -> NNF.augmentWithEntry c nnf) children
+                                in  if Set.size dec == 1 then Nothing else Just (op, dec)
+    _ -> Nothing
+    where
+        decomposeChildren :: HashSet (HashSet NNF.LabelWithEntry) -> HashSet NNF.LabelWithEntry -> HashSet (HashSet NNF.NodeLabel)
+        decomposeChildren dec children
+            | Set.null children = Set.map (Set.map NNF.entryLabel) dec
+            | otherwise =
+                let first               = getFirst children
+                    (new, _, children') = findFixpoint (Set.singleton first) (NNF.entryRFuncs first) (Set.delete first children)
+                in  decomposeChildren (Set.insert new dec) children'
+
+        findFixpoint :: HashSet NNF.LabelWithEntry -> HashSet RFuncLabel -> HashSet NNF.LabelWithEntry -> (HashSet NNF.LabelWithEntry, HashSet RFuncLabel, HashSet NNF.LabelWithEntry)
+        findFixpoint cur curRFs children
+            | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
+            | otherwise                                    = findFixpoint cur' curRFs' children'
             where
-                maxError = fromRat $ PST.maxError pst::Double
+                (withSharedRFs, withoutSharedRFs) = List.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.entryRFuncs c) $ Set.toList children
+                cur'      = Set.union cur $ Set.fromList withSharedRFs
+                curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
+                children' = Set.fromList withoutSharedRFs
 
-        decompose :: NNF.NodeLabel -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeLabel)))
-        decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf of
-            NNF.Operator op children -> let dec = decomposeChildren Set.empty $ Set.map (\c -> NNF.augmentWithEntry c nnf) children
-                                        in  if Set.size dec == 1 then Nothing else Just (op, dec)
-            _ -> Nothing
-            where
-                decomposeChildren :: HashSet (HashSet NNF.LabelWithEntry) -> HashSet NNF.LabelWithEntry -> HashSet (HashSet NNF.NodeLabel)
-                decomposeChildren dec children
-                    | Set.null children = Set.map (Set.map NNF.entryLabel) dec
-                    | otherwise =
-                        let first               = getFirst children
-                            (new, _, children') = findFixpoint (Set.singleton first) (NNF.entryRFuncs first) (Set.delete first children)
-                        in  decomposeChildren (Set.insert new dec) children'
+determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> NNF.LabelWithEntry -> NNF -> Rational
+determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry nnf = fst $ head list
+    where
+        list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore nnfEntry)
+        listTrace = trace (show list ++ show rf ++ (show $ NNF.entryLabel nnfEntry)) list
+        pointsWithScore entry
+            | Set.member rf $ NNF.entryRFuncs entry = case NNF.entryNode entry of
+                NNF.Operator op children  -> foldr combine Map.empty [pointsWithScore $ NNF.augmentWithEntry c nnf | c <- Set.toList children]
+                NNF.BuildInPredicate pred -> Map.fromList $ points pred
+                _                         -> Map.empty
+            | otherwise = Map.empty
 
-                findFixpoint :: HashSet NNF.LabelWithEntry -> HashSet RFuncLabel -> HashSet NNF.LabelWithEntry -> (HashSet NNF.LabelWithEntry, HashSet RFuncLabel, HashSet NNF.LabelWithEntry)
-                findFixpoint cur curRFs children
-                    | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
-                    | otherwise                                    = findFixpoint cur' curRFs' children'
-                    where
-                        (withSharedRFs, withoutSharedRFs) = List.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.entryRFuncs c) $ Set.toList children
-                        cur'      = Set.union cur $ Set.fromList withSharedRFs
-                        curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
-                        children' = Set.fromList withoutSharedRFs
+        points (AST.RealIn _ (l,u)) = mapMaybe
+                                        (\x -> case x of
+                                            Inf      -> Nothing
+                                            Open p   -> Just (p, 1.0)
+                                            Closed p -> Just (p, 1.0)
+                                        ) [l,u]
+        points pred = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/(fromIntegral $ Set.size $ AST.predRandomFunctions pred))]
 
-        determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> NNF.LabelWithEntry -> Rational
-        determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf nnfEntry = fst $ head list
-            where
-                list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore nnfEntry)
-                listTrace = trace (show list ++ show rf ++ (show $ NNF.entryLabel nnfEntry)) list
-                pointsWithScore entry
-                    | Set.member rf $ NNF.entryRFuncs entry = case NNF.entryNode entry of
-                        NNF.Operator op children  -> foldr combine Map.empty [pointsWithScore $ NNF.augmentWithEntry c nnf | c <- Set.toList children]
-                        NNF.BuildInPredicate pred -> Map.fromList $ points pred
-                        _                         -> Map.empty
-                    | otherwise = Map.empty
-
-                points (AST.RealIn _ (l,u)) = mapMaybe
-                                                (\x -> case x of
-                                                    Inf      -> Nothing
-                                                    Open p   -> Just (p, 1.0)
-                                                    Closed p -> Just (p, 1.0)
-                                                ) [l,u]
-                points pred = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/(fromIntegral $ Set.size $ AST.predRandomFunctions pred))]
-
-                combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
-                combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x
+        combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
+        combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x

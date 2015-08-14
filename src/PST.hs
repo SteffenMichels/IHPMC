@@ -27,6 +27,7 @@ import qualified AST
 import BasicTypes
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
+import qualified Data.HashMap.Lazy as Map
 import Exception
 import System.IO
 import Text.Printf (printf)
@@ -34,6 +35,7 @@ import Control.Monad (foldM)
 import Numeric (fromRat)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
+import qualified Data.List as List
 
 -- Probabilistic Sematic Tree
 data PST     = Unfinished PSTNode ProbabilityBounds Double
@@ -91,7 +93,7 @@ exportAsDot path pst = do
                 print mbParent (show counter) mbEdgeLabel
                 foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
             Unfinished (Leaf label) _ _ -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter $ show label)
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter $ nodeLabelToReadableString label)
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
             where
@@ -104,3 +106,13 @@ exportAsDot path pst = do
 
                 printBounds :: PST -> String
                 printBounds pst = let (l,u) = PST.bounds pst in printf "[%f-%f]" (fromRat l::Float) (fromRat u::Float)
+
+                nodeLabelToReadableString :: NNF.NodeLabel -> String
+                nodeLabelToReadableString (NNF.NodeLabel label bConds rConds _) = printf
+                        "%s\n  |%s"
+                        label
+                        (List.intercalate "\n  ," ((fmap showCondBool $ Map.toList bConds) ++ (fmap showCondReal $ Map.toList rConds)))
+                        where
+                            showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
+                            showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
+
