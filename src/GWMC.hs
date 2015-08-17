@@ -111,15 +111,15 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.uncondNodeLabe
                             curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
                     _  -> error ("undefined rfunc " ++ rf)
                     where
-                        xxx = sortWith (\(rf, (p,n)) ->
-                                case Map.lookup rf previousChoicesReal of
-                                    Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
-                                                      currentP = fromRat (cdf' cdf True u - cdf' cdf False l)
-                                                  in  (-currentP * abs (p-n), -currentP)
-                                    _          -> (-abs (p-n), -1.0)
-                              ) $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
-                        xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                         rf = fst $ head xxx
+                        xxx = sortWith rfScore $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
+                        xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ (show (rfScore x)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
+                        rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
+                            Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
+                                              currentP = fromRat (cdf' cdf False u - cdf' cdf True l)
+                                          in  (-currentP * abs (p-n), -currentP)
+                            _          -> (-abs (p-n), -1.0)
+
                         nnfEntry = NNF.augmentWithEntry nnfLabel nnf
                         toPSTNode entry = case NNF.entryNode entry of
                             NNF.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
