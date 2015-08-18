@@ -78,22 +78,22 @@ exportAsDot path pst = do
                 doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (fromRat prob::Float))
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
-            Unfinished (ChoiceBool label prob left right) _ _ -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter (printBounds pst))
+            Unfinished (ChoiceBool label prob left right) _ score -> do
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
                 print mbParent (show counter) mbEdgeLabel
                 counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (fromRat prob::Float) label) left (counter+1) file
                 printNode (Just $ show counter) (Just $ printf "%f: %s=false" (fromRat (1-prob)::Float) label) right counter' file
-            Unfinished (ChoiceReal label prob splitPoint left right) _ _ -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter (printBounds pst))
+            Unfinished (ChoiceReal label prob splitPoint left right) _ score -> do
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
                 print mbParent (show counter) mbEdgeLabel
                 counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (fromRat prob::Float) label (fromRat splitPoint::Float)) left (counter+1) file
                 printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (fromRat (1-prob)::Float) label (fromRat splitPoint::Float)) right counter' file
-            Unfinished (Decomposition op psts) _ _ -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\"];" counter (show op) (printBounds pst))
+            Unfinished (Decomposition op psts) _ score -> do
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds pst) score)
                 print mbParent (show counter) mbEdgeLabel
                 foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
-            Unfinished (Leaf label) _ _ -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\"];" counter $ nodeLabelToReadableString label)
+            Unfinished (Leaf label) _ score -> do
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (nodeLabelToReadableString label) score)
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
             where
