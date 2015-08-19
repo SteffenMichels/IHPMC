@@ -42,14 +42,14 @@ data PST     = Unfinished PSTNode ProbabilityBounds Double
              | Finished Probability
              deriving (Show, Eq, Generic)
 instance Hashable PST
-data PSTNode = Leaf NNF.NodeLabel
+data PSTNode = Leaf NNF.NodeRef
              | ChoiceBool RFuncLabel Probability PST PST
              | ChoiceReal RFuncLabel Probability Rational PST PST
              | Decomposition NNF.NodeType [PST]
              deriving (Show, Eq, Generic)
 instance Hashable PSTNode
 
-initialNode :: NNF.NodeLabel -> PSTNode
+initialNode :: NNF.NodeRef -> PSTNode
 initialNode query = Leaf query
 
 bounds :: PST -> ProbabilityBounds
@@ -107,8 +107,8 @@ exportAsDot path pst = do
                 printBounds :: PST -> String
                 printBounds pst = let (l,u) = PST.bounds pst in printf "[%f-%f]" (fromRat l::Float) (fromRat u::Float)
 
-                nodeLabelToReadableString :: NNF.NodeLabel -> String
-                nodeLabelToReadableString (NNF.NodeLabel label bConds rConds _) = printf
+                nodeLabelToReadableString :: NNF.NodeRef -> String
+                nodeLabelToReadableString (NNF.RefComposed (NNF.ComposedLabel label bConds rConds _)) = printf
                         "%s\n  |%s"
                         label
                         (List.intercalate "\n  ," ((fmap showCondBool $ Map.toList bConds) ++ (fmap showCondReal $ Map.toList rConds)))

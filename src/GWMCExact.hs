@@ -24,7 +24,7 @@ import GHC.Exts (sortWith)
 import qualified AST
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> (Probability, NNF)
-gwmc query rfuncDefs nnf = gwmc' (NNF.augmentWithEntry (NNF.uncondNodeLabel query) nnf) nnf
+gwmc query rfuncDefs nnf = gwmc' (NNF.augmentWithEntry (NNF.RefComposed $ NNF.uncondNodeLabel query) nnf) nnf
     where
         gwmc' entry nnf = case NNF.entryNode entry of
             NNF.Deterministic True  -> (1.0, nnf)

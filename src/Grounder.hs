@@ -39,13 +39,13 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
                                     )
                                     (Set.empty,nnf)
                                     children
-                               in snd $ NNF.insert nnfLabel (NNF.Operator NNF.Or nnfChildren) nnf'
+                               in snd $ NNF.insert nnfLabel (NNF.Composed NNF.Or nnfChildren) nnf'
             where
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
                 nnfLabel = NNF.uncondNodeLabel label
 
-        groundBody :: AST.RuleBody -> NNF -> (NNF.NodeLabel, NNF)
+        groundBody :: AST.RuleBody -> NNF -> (NNF.NodeRef, NNF)
         groundBody (AST.RuleBody elements) nnf = case elements of
             []              -> error "not implemented"
             [singleElement] -> groundElement singleElement nnf
@@ -56,8 +56,8 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
                                         )
                                         (Set.empty, nnf)
                                         elements
-                               in (\(e,nnf) -> (NNF.entryLabel e, nnf)) $ NNF.insertFresh (NNF.Operator NNF.And nnfChildren) nnf'
+                               in (\(e,nnf) -> (NNF.entryRef e, nnf)) $ NNF.insertFresh NNF.And nnfChildren nnf'
 
-        groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeLabel, NNF)
-        groundElement (AST.UserPredicate label)   nnf = (NNF.uncondNodeLabel label, groundRule label nnf)
-        groundElement (AST.BuildInPredicate pred) nnf = (\(e,nnf) -> (NNF.entryLabel e, nnf)) $ NNF.insertFresh (NNF.BuildInPredicate pred) nnf
+        groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeRef, NNF)
+        groundElement (AST.UserPredicate label)   nnf = (NNF.RefComposed $ NNF.uncondNodeLabel label, groundRule label nnf)
+        groundElement (AST.BuildInPredicate pred) nnf = (NNF.RefBuildInPredicate pred, nnf)
