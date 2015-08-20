@@ -39,7 +39,7 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
                                     )
                                     (Set.empty,nnf)
                                     children
-                               in snd $ NNF.insert nnfLabel (NNF.Composed NNF.Or nnfChildren) nnf'
+                               in snd $ NNF.insert nnfLabel NNF.Or nnfChildren nnf'
             where
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children

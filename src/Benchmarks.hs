@@ -29,7 +29,7 @@ exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 4
+            n = 3
             bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()

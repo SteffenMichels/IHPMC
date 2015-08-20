@@ -61,12 +61,12 @@ exeMain = do
         inferenceApprox ast nnf = do
             results <- return $ gwmcDebug (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
             --results <- return $ take 100000 results
-            --startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
-            --doIO $ forM results (\(pst,_) -> let (l,u) = PST.bounds pst
-            --                          in do
-            --                            currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            doIO $ forM results (\(pst,_) -> let (l,u) = PST.bounds pst
+                                      in do
+                                        currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --                            putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
-            --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
+                                        putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
             --NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
             --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
             return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results

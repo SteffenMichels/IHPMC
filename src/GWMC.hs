@@ -111,7 +111,7 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed $ 
                             curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
                     _  -> error ("undefined rfunc " ++ rf)
                     where
-                        rf = fst $ head xxx
+                        rf = fst $ head (trace (show $ NNF.entryRef $ NNF.augmentWithEntry nnfLabel nnf) xxx)
                         xxx = sortWith rfScore $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
                         xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ (show (rfScore x)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                         rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
