@@ -115,4 +115,5 @@ exportAsDot path pst = do
                         where
                             showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
                             showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
+                nodeLabelToReadableString ref = show ref
 
