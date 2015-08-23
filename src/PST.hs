@@ -42,7 +42,7 @@ data PST     = Unfinished PSTNode ProbabilityBounds Double
              | Finished Probability
              deriving (Show, Eq, Generic)
 instance Hashable PST
-data PSTNode = Leaf NNF.NodeRef
+data PSTNode = Leaf NNF.NodeRef Bool
              | ChoiceBool RFuncLabel Probability PST PST
              | ChoiceReal RFuncLabel Probability Rational PST PST
              | Decomposition NNF.NodeType [PST]
@@ -50,7 +50,7 @@ data PSTNode = Leaf NNF.NodeRef
 instance Hashable PSTNode
 
 initialNode :: NNF.NodeRef -> PSTNode
-initialNode query = Leaf query
+initialNode query = Leaf query True
 
 bounds :: PST -> ProbabilityBounds
 bounds (Unfinished _ b _) = b

@@ -34,30 +34,30 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
             | nChildren == 0 = error "not implemented"
             | otherwise      = let (nnfChildren,nnf') = Set.foldr
                                     (\child (nnfChildren,nnf) ->
-                                        let (newChild,nnf') = groundBody child nnf
-                                        in  (Set.insert newChild nnfChildren, nnf')
+                                        let (newChild,b,nnf') = groundBody child nnf
+                                        in  (Set.insert (newChild,b) nnfChildren, nnf')
                                     )
                                     (Set.empty,nnf)
                                     children
-                               in snd $ NNF.insert nnfLabel NNF.Or nnfChildren nnf'
+                               in (\(_,_,nnf) -> nnf) $ NNF.insert nnfLabel NNF.Or nnfChildren nnf'
             where
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
                 nnfLabel = NNF.uncondNodeLabel label
 
-        groundBody :: AST.RuleBody -> NNF -> (NNF.NodeRef, NNF)
+        groundBody :: AST.RuleBody -> NNF -> (NNF.NodeRef, Bool, NNF)
         groundBody (AST.RuleBody elements) nnf = case elements of
             []              -> error "not implemented"
             [singleElement] -> groundElement singleElement nnf
             elements        -> let (nnfChildren, nnf') = foldl
                                         (\(nnfChildren, nnf) el ->
-                                            let (newChild,nnf') = groundElement el nnf
-                                            in (Set.insert newChild nnfChildren, nnf')
+                                            let (newChild,b,nnf') = groundElement el nnf
+                                            in (Set.insert (newChild, b) nnfChildren, nnf')
                                         )
                                         (Set.empty, nnf)
                                         elements
-                               in (\(e,nnf) -> (NNF.entryRef e, nnf)) $ NNF.insertFresh NNF.And nnfChildren nnf'
+                               in (\(e,b,nnf) -> (NNF.entryRef e,b,nnf)) $ NNF.insertFresh NNF.And nnfChildren nnf'
 
-        groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeRef, NNF)
-        groundElement (AST.UserPredicate label)   nnf = (NNF.RefComposed $ NNF.uncondNodeLabel label, groundRule label nnf)
-        groundElement (AST.BuildInPredicate pred) nnf = (NNF.RefBuildInPredicate pred, nnf)
+        groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeRef, Bool, NNF)
+        groundElement (AST.UserPredicate label)   nnf = (NNF.RefComposed $ NNF.uncondNodeLabel label, True, groundRule label nnf)
+        groundElement (AST.BuildInPredicate pred) nnf = (NNF.RefBuildInPredicate pred, True, nnf)

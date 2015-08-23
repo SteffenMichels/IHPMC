@@ -131,10 +131,12 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed $ 
                 where
                     (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
-                            let (fresh, nnf') = if Set.size dec > 1 then
+                            let (fresh, b, nnf') = if Set.size dec > 1 then
                                                     NNF.insertFresh op dec nnf
                                                 else
-                                                    (NNF.augmentWithEntry (getFirst dec) nnf, nnf)
+                                                    let (ref, b) = getFirst dec
+                                                        entry    = NNF.augmentWithEntry (getFirst dec) nnf
+                                                    in (entry, b, nnf)
                             in  (PST.Unfinished (PST.Leaf $ NNF.entryRef fresh) (0.0,1.0) partChoiceProb:psts, nnf')
                         )
                         ([], nnf)
@@ -150,13 +152,13 @@ combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
 combineScoresChoice left right = max (PST.score left) (PST.score right)
 combineScoresDecomp dec          = foldr (\pst score -> max score $ PST.score pst) 0.0 dec
 
-decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeRef)))
+decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet (NNF.NodeRef, Bool))))
 decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf of
     NNF.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (\c -> NNF.augmentWithEntry c nnf) children
                                 in  if Set.size dec == 1 then Nothing else Just (op, dec)
     _ -> Nothing
     where
-        decomposeChildren :: HashSet (HashSet NNF.RefWithNode) -> HashSet NNF.RefWithNode -> HashSet (HashSet NNF.NodeRef)
+        decomposeChildren :: HashSet (HashSet (NNF.RefWithNode, Bool)) -> HashSet (NNF.RefWithNode, Bool) -> HashSet (HashSet (NNF.NodeRef, Bool))
         decomposeChildren dec children
             | Set.null children = Set.map (Set.map NNF.entryRef) dec
             | otherwise =
@@ -164,7 +166,7 @@ decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf 
                     (new, _, children') = findFixpoint (Set.singleton first) (NNF.entryRFuncs first) (Set.delete first children)
                 in  decomposeChildren (Set.insert new dec) children'
 
-        findFixpoint :: HashSet NNF.RefWithNode -> HashSet RFuncLabel -> HashSet NNF.RefWithNode -> (HashSet NNF.RefWithNode, HashSet RFuncLabel, HashSet NNF.RefWithNode)
+        findFixpoint :: HashSet (NNF.RefWithNode, Bool) -> HashSet RFuncLabel -> HashSet (NNF.RefWithNode, Bool) -> (HashSet (NNF.RefWithNode, Bool), HashSet RFuncLabel, (NNF.RefWithNode, Bool))
         findFixpoint cur curRFs children
             | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
             | otherwise                                    = findFixpoint cur' curRFs' children'
