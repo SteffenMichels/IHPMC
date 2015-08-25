@@ -329,7 +329,9 @@ exportAsDot path (NNF nodes _) = do
             where
                 descr = case op of And -> "AND"; Or -> "OR"
                 labelHash = Hashable.hash label
-                writeEdge childRef = doIO (hPutStrLn file (printf "%i->%s;" labelHash $ childStr childRef))
-                childStr (RefComposed _ childLabel) = show $ Hashable.hash childLabel
-                childStr (RefBuildInPredicate pred) = printf "\"%s\"" $ show pred
-                childStr (RefDeterministic val)     = show val
+                writeEdge childRef = doIO (hPutStrLn file (printf "%i->%s;" labelHash (childStr childRef)))
+
+                childStr :: NodeRef -> String
+                childStr (RefComposed sign childLabel) = printf "%i[label=\"%s\"]" (Hashable.hash childLabel) (show sign)
+                childStr (RefBuildInPredicate pred)    = let h = Hashable.hashWithSalt labelHash pred in printf "%i;\n%i[label=\"%s\"]" h h $ show pred
+                childStr (RefDeterministic _)          = error "NNF export: should this happen?"

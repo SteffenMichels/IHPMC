@@ -54,7 +54,7 @@ exeMain = do
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
-            exportAsDot "/tmp/nnf.dot" nnf
+            --exportAsDot "/tmp/nnf.dot" nnf
             inferenceApprox ast nnf
 
         inferenceApprox ast nnf = do
