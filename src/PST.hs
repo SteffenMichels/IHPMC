@@ -24,7 +24,6 @@ module PST
 import BasicTypes
 import qualified NNF
 import qualified AST
-import BasicTypes
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import qualified Data.HashMap.Lazy as Map
@@ -50,7 +49,7 @@ data PSTNode = Leaf NNF.NodeRef
 instance Hashable PSTNode
 
 initialNode :: NNF.NodeRef -> PSTNode
-initialNode query = Leaf query
+initialNode = Leaf
 
 bounds :: PST -> ProbabilityBounds
 bounds (Unfinished _ b _) = b
@@ -72,7 +71,7 @@ exportAsDot path pst = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: (Maybe String) -> (Maybe String)-> PST -> Int -> Handle -> ExceptionalT String IO Int
+        printNode :: Maybe String -> Maybe String-> PST -> Int -> Handle -> ExceptionalT String IO Int
         printNode mbParent mbEdgeLabel pst counter file = case pst of
             Finished prob -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (fromRat prob::Float))
@@ -111,7 +110,7 @@ exportAsDot path pst = do
                 nodeLabelToReadableString (NNF.RefComposed sign (NNF.ComposedLabel label bConds rConds _)) = printf
                         "%s%s\n  |%s"
                         label
-                        (List.intercalate "\n  ," ((fmap showCondBool $ Map.toList bConds) ++ (fmap showCondReal $ Map.toList rConds)))
+                        (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))
                         (if sign then "" else "-")
                         where
                             showCondBool (rf, val)   = printf "%s=%s"    rf $ show val

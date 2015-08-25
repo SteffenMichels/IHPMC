@@ -25,7 +25,7 @@ import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous
 
 doIO :: IO a -> ExceptionalT String IO a
-doIO action = mapExceptionT show (fromEitherT (IOError.tryIOError (action)))
+doIO action = mapExceptionT show (fromEitherT (IOError.tryIOError action))
 
 returnExceptional :: Monad m => Exceptional e a -> ExceptionalT e m a
-returnExceptional func = ExceptionalT $ return $ func
+returnExceptional func = ExceptionalT $ return func

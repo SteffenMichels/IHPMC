@@ -113,7 +113,7 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed Fa
                     where
                         rf = fst $ head xxx
                         xxx = sortWith rfScore $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry ref nnf
-                        xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ (show (rfScore x)) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
+                        xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ show (rfScore x) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
                         rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
                             Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
                                               currentP = fromRat (cdf' cdf False u - cdf' cdf True l)
@@ -148,11 +148,11 @@ combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
     (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
 combineScoresChoice left right = max (PST.score left) (PST.score right)
-combineScoresDecomp dec          = foldr (\pst score -> max score $ PST.score pst) 0.0 dec
+combineScoresDecomp            = foldr (\pst score -> max score $ PST.score pst) 0.0
 
-decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeRef)))
+decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, HashSet (HashSet NNF.NodeRef))
 decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf of
-    NNF.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (\c -> NNF.augmentWithEntry c nnf) children
+    NNF.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (`NNF.augmentWithEntry` nnf) children
                                 in  if Set.size dec == 1 then Nothing else Just (op, dec)
     _ -> Nothing
     where
@@ -169,7 +169,7 @@ decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf 
             | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
             | otherwise                                    = findFixpoint cur' curRFs' children'
             where
-                (withSharedRFs, withoutSharedRFs) = List.partition (\c ->  not $ Set.null $ Set.intersection curRFs $ NNF.entryRFuncs c) $ Set.toList children
+                (withSharedRFs, withoutSharedRFs) = List.partition (not . Set.null . Set.intersection curRFs . NNF.entryRFuncs) $ Set.toList children
                 cur'      = Set.union cur $ Set.fromList withSharedRFs
                 curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
                 children' = Set.fromList withoutSharedRFs
@@ -178,7 +178,7 @@ determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (
 determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesReal nnfEntry nnf = fst $ head list
     where
         list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore nnfEntry)
-        listTrace = trace (show list ++ show rf ++ (show $ NNF.entryRef nnfEntry)) list
+        listTrace = trace (show list ++ show rf ++ show (NNF.entryRef nnfEntry)) list
         pointsWithScore entry
             | Set.member rf $ NNF.entryRFuncs entry = case NNF.entryNode entry of
                 NNF.Composed op children  -> foldr combine Map.empty [pointsWithScore $ NNF.augmentWithEntry c nnf | c <- Set.toList children]
@@ -192,7 +192,7 @@ determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesRea
                                             Open p   -> Just (p, 1.0)
                                             Closed p -> Just (p, 1.0)
                                         ) [l,u]
-        points pred = if (Set.size $ AST.predRandomFunctions pred) == 2 then points'' else error "determineSplitPoint: not implemented"
+        points pred = if Set.size (AST.predRandomFunctions pred) == 2 then points'' else error "determineSplitPoint: not implemented"
             where
                 otherRf = let [x,y] = Set.toList $ AST.predRandomFunctions pred in if x == rf then y else x
                 mbOtherInterv = Map.lookup otherRf prevChoicesReal
@@ -200,15 +200,15 @@ determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesRea
                     Nothing -> []
                     Just (otherLower, otherUpper) ->
                         -- points must be in interval and not at boundary
-                        filter (\p -> Interval.PointPlus p > Interval.toPoint Lower lower && (Interval.PointMinus p) < Interval.toPoint Upper upper) rationalPoints
+                        filter (\p -> Interval.PointPlus p > Interval.toPoint Lower lower && Interval.PointMinus p < Interval.toPoint Upper upper) rationalPoints
                         where
                             -- can only split at rational points
                             rationalPoints = mapMaybe Interval.pointRational [Interval.toPoint Lower otherLower, Interval.toPoint Upper otherUpper]
 
                 -- split probability mass in two equal part if no other split is possible
                 points''
-                    | length points' > 0 = [(p,1.0) | p <- points']
-                    | otherwise          = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/(fromIntegral $ Set.size $ AST.predRandomFunctions pred))]
+                    | null points' = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/fromIntegral (Set.size $ AST.predRandomFunctions pred))]
+                    | otherwise    = [(p,1.0) | p <- points']
 
         combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
         combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x

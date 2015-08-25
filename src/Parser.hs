@@ -73,7 +73,7 @@ parseRule = do
     return (label, AST.RuleBody body)
 
 parseBodyElement :: Parser AST.RuleBodyElement
-parseBodyElement = do
+parseBodyElement =
         fmap AST.UserPredicate parsePredicateLabel
     <|>
         fmap AST.BuildInPredicate parseBuildInPredicate
@@ -136,8 +136,8 @@ parseNorm = do
     stringAndSpaces ")"
     stringAndSpaces "."
     return $ AST.RealDist
-        (\x -> toRational $ Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) $ fromRat x)
-        (\p -> toRational $ Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) $ fromRat p)
+        (toRational . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
+        (toRational . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
 
 -- expressions
 parseBoolExpr :: Parser (AST.Expr Bool)
@@ -158,10 +158,10 @@ parseRealExpr =   fmap AST.RealConstant parseRat
               <|> fmap AST.UserRFunc parseUserRFuncLabel
 
 parseRealIneqOp :: Parser AST.IneqOp
-parseRealIneqOp =   (try $ stringAndSpaces "<"  >> return AST.Lt)
-                <|> (try $ stringAndSpaces "<=" >> return AST.LtEq)
-                <|> (try $ stringAndSpaces ">"  >> return AST.Gt)
-                <|> (try $ stringAndSpaces ">=" >> return AST.GtEq)
+parseRealIneqOp =   try (stringAndSpaces "<"  >> return AST.Lt)
+                <|> try (stringAndSpaces "<=" >> return AST.LtEq)
+                <|> try (stringAndSpaces ">"  >> return AST.Gt)
+                <|> try (stringAndSpaces ">=" >> return AST.GtEq)
 
 parseUserRFuncLabel :: Parser RFuncLabel
 parseUserRFuncLabel = do
@@ -183,7 +183,7 @@ parseQuery = do
 
 parseRat :: Parser Rational
 parseRat = do
-    neg <- (try $ string "-" >> return True) <|> return False
+    neg <- try (string "-" >> return True) <|> return False
     rat <- try parseDecimal <|> parseFraction
     spaces
     return $ if neg then -rat else rat
@@ -197,7 +197,7 @@ parseRat = do
             before <- many digit
             string "/"
             after <- many1 digit
-            return $ (read before) % (read after)
+            return $ read before % read after
 
 stringAndSpaces :: String -> Parser ()
 stringAndSpaces str = string str >> spaces

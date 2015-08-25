@@ -24,6 +24,7 @@ import qualified Data.HashMap.Lazy as Map
 import qualified Data.HashSet as Set
 import Data.Maybe (fromJust)
 import BasicTypes
+import Control.Arrow (first)
 
 groundPclp :: AST -> NNF
 groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule NNF.empty queries
@@ -56,7 +57,7 @@ groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule
                                         )
                                         (Set.empty, nnf)
                                         elements
-                               in (\(e,nnf) -> (NNF.entryRef e, nnf)) $ NNF.insertFresh True NNF.And nnfChildren nnf'
+                               in first NNF.entryRef $ NNF.insertFresh True NNF.And nnfChildren nnf'
 
         groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeRef, NNF)
         groundElement (AST.UserPredicate label)   nnf = (NNF.RefComposed True $ NNF.uncondNodeLabel label, groundRule label nnf)

@@ -14,7 +14,7 @@
 
 module Benchmarks where
 import AST (AST)
-import qualified AST as AST
+import qualified AST
 import System.IO
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
@@ -61,13 +61,12 @@ growingAnd n = AST.AST { AST.rFuncDefs = rFuncDefs
                        }
     where
         rFuncDefs = foldr rFuncDef Map.empty [0..n-1]
-        rFuncDef i defs = Map.insert (printf "x%i" i) [AST.Flip 0.5] defs
+        rFuncDef i = Map.insert (printf "x%i" i) [AST.Flip 0.5]
 
         rules = foldr rule Map.empty [0..n-1]
-        rule i rules = Map.insert
+        rule i = Map.insert
             (printf "a%i" i)
             (Set.singleton $ AST.RuleBody (equality:fmap bodyEl [i+1..n-1]))
-            rules
             where
                 equality = AST.BuildInPredicate $ AST.BoolEq True (AST.UserRFunc (printf "x%i" i)) (AST.BoolConstant True)
         bodyEl i = AST.UserPredicate (printf "a%i" i)
@@ -82,7 +81,7 @@ paths n = AST.AST { AST.rFuncDefs = rFuncDefs
         rFuncDef (x, y) defs = defs'' where
             defs'  = if x < n-1 then def (x+1) y defs else defs
             defs'' = if y < n-1 then def x (y+1) defs' else defs'
-            def dx dy defs = Map.insert (printConnection ((x, y), (dx, dy))) [AST.Flip $ prob dx] defs
+            def dx dy = Map.insert (printConnection ((x, y), (dx, dy))) [AST.Flip $ prob dx]
             prob x = case x of
                 0 -> 0.1
                 1 -> 0.9
@@ -91,9 +90,8 @@ paths n = AST.AST { AST.rFuncDefs = rFuncDefs
                 4 -> 0.5
         rules = Map.singleton "reachable" bodies
         bodies = Set.foldr body Set.empty $ paths undefined (0,0) Set.empty Set.empty
-        body path bodies = Set.insert
+        body path = Set.insert
             (AST.RuleBody [bodyEl connection | connection <- Set.toList path])
-            bodies
         bodyEl con = AST.BuildInPredicate $ AST.BoolEq True (AST.UserRFunc $ printConnection con) (AST.BoolConstant True)
 
         printConnection ((x0, y0), (x1, y1))

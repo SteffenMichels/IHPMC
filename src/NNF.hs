@@ -36,7 +36,7 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import System.IO
 import Exception
-import Control.Monad (forM)
+import Control.Monad (forM, void)
 import Data.Maybe (fromJust)
 import Text.Printf (printf)
 import qualified Data.Foldable as Foldable
@@ -60,7 +60,7 @@ data RefWithNode = RefWithNode
     , entryScores :: HashMap RFuncLabel (Double, Double)
     } deriving (Eq)
 instance Hashable RefWithNode where
-    hash rwn              = Hashable.hashWithSalt 0 rwn
+    hash                  = Hashable.hashWithSalt 0
     hashWithSalt salt rwn = case entryRef rwn of
         RefComposed sign (ComposedLabel _ _ _ hash) -> Hashable.hashWithSalt (Hashable.hashWithSalt salt sign) hash
         ref                                         -> Hashable.hashWithSalt salt ref
@@ -78,7 +78,7 @@ instance Show ComposedLabel where
     show (ComposedLabel name bConds rConds _) = printf
         "%s|%s"
         name
-        (List.intercalate "," ((fmap showCondBool $ Map.toList bConds) ++ (fmap showCondReal $ Map.toList rConds)))
+        (List.intercalate "," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))
         where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
             showCondReal (rf, interv) = printf "%s in %s" rf $ show interv
@@ -165,19 +165,19 @@ insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
         simplify (Composed operator childLabels) nnf = (simplified, children)
             where
                 simplified
-                    | nChildren == 0 = (Deterministic filterValue)
+                    | nChildren == 0 = Deterministic filterValue
                     | nChildren == 1 = entryNode $ getFirst children
                     | Foldable.any (\c -> entryNode c == Deterministic singleDeterminismValue) children =
                         Deterministic singleDeterminismValue
                     | otherwise = Composed operator $ Set.map entryRef children
 
-                originalChildren = Set.map (\c -> augmentWithEntry c nnf) childLabels
+                originalChildren = Set.map (`augmentWithEntry` nnf) childLabels
                 children = Set.filter (\c -> entryNode c /= Deterministic filterValue) originalChildren
                 nChildren = Set.size children
                 -- truth value that causes determinism if at least a single child has it
-                singleDeterminismValue = if operator == And then False else True
+                singleDeterminismValue = operator == Or
                 -- truth value that can be filtered out
-                filterValue = if operator == And then True else False
+                filterValue = operator == And
 
 insertFresh :: Bool -> NodeType -> HashSet NodeRef -> NNF -> (RefWithNode, NNF)
 insertFresh sign nType nChildren nnf@(NNF nodes freshCounter) = (entry, NNF nodes' (freshCounter+1))
@@ -325,7 +325,7 @@ exportAsDot path (NNF nodes _) = do
         printNode :: Handle -> (ComposedLabel, NNFEntry) -> ExceptionalT String IO ()
         printNode file (label, NNFEntry op children _ _) = do
             doIO (hPutStrLn file (printf "%i[label=\"%s\\n%s\"];" labelHash (show label) descr))
-            forM (Set.toList children) writeEdge >> return ()
+            void $ forM (Set.toList children) writeEdge
             where
                 descr = case op of And -> "AND"; Or -> "OR"
                 labelHash = Hashable.hash label

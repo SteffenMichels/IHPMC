@@ -39,6 +39,7 @@ import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
 import Numeric (fromRat)
 import Interval(Interval)
+import Control.Applicative ((<$>))
 
 data AST = AST
     { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches
@@ -106,11 +107,11 @@ data Expr a where
 
 deriving instance Eq (Expr a)
 instance Show (Expr a) where
-    show (BoolConstant const) = printf "#%s" $ fmap toLower $ show const
+    show (BoolConstant const) = printf "#%s" (toLower <$> show const)
     show (RealConstant const) = printf "%f" (fromRat const::Float)
     show (UserRFunc label)    = printf "~%s" label
 instance Hashable (Expr a) where
-    hash expr = Hashable.hashWithSalt 0 expr
+    hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
     hashWithSalt salt (UserRFunc r)    = Hashable.hashWithSalt salt r
@@ -138,6 +139,6 @@ predRandomFunctions (RealIneq _ left right) = Set.union (randomFunctions' left) 
 predRandomFunctions (RealIn rf _)           = Set.singleton rf
 predRandomFunctions (Constant _)            = Set.empty
 
-randomFunctions' (UserRFunc label) = Set.singleton(label)
+randomFunctions' (UserRFunc label) = Set.singleton label
 randomFunctions' (BoolConstant _)  = Set.empty
 randomFunctions' (RealConstant _)  = Set.empty

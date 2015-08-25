@@ -15,7 +15,7 @@
 
 module Main where
 import BasicTypes
-import Control.Monad (unless)
+import Control.Monad (unless, forM)
 import Data.List (stripPrefix)
 import System.Exit (exitFailure)
 import Test.QuickCheck.All (quickCheckAll)
@@ -32,7 +32,6 @@ import qualified GWMCExact
 import qualified AST
 import qualified Data.HashSet as Set
 import Benchmarks
-import Control.Monad (forM)
 import Numeric (fromRat)
 import Control.Monad.Exception.Synchronous -- TODO: remove, should be included by Exception
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -46,11 +45,11 @@ exeMain = do
     result <- runExceptionalT exeMain'
     case result of
         Exception e -> putStrLn (printf "\nError: %s" e)
-        Success x   -> putStrLn $ show x
+        Success x   -> print x
     where
         exeMain' = do
             args <- return ["/tmp/tmp.pclp"]--doIO $ getArgs "/home/smichels/steffen/pclp/test.pclp"
-            let firstArg = args !! 0
+            let firstArg = head args
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
@@ -59,7 +58,7 @@ exeMain = do
             inferenceApprox ast nnf
 
         inferenceApprox ast nnf = do
-            results <- return $ gwmcDebug (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
+            let results = gwmcDebug (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
             --results <- return $ take 7 results
             --startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --doIO $ forM results (\(pst,_) -> let (l,u) = PST.bounds pst
