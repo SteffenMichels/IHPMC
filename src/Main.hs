@@ -55,7 +55,7 @@ exeMain = do
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
-           -- exportAsDot "/tmp/nnf.dot" nnf
+            exportAsDot "/tmp/nnf.dot" nnf
             inferenceApprox ast nnf
 
         inferenceApprox ast nnf = do
@@ -69,8 +69,8 @@ exeMain = do
             --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
             --NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
             --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
-            --return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
-            return $ length results
+            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
+            --return $ length results
 
         inferenceExact ast nnf = do
             (p, nnfAfter) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf

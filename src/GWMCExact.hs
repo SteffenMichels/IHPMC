@@ -24,7 +24,7 @@ import GHC.Exts (sortWith)
 import qualified AST
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> (Probability, NNF)
-gwmc query rfuncDefs nnf = gwmc' (NNF.augmentWithEntry (NNF.RefComposed $ NNF.uncondNodeLabel query) nnf) nnf
+gwmc query rfuncDefs nnf = gwmc' (NNF.augmentWithEntry (NNF.RefComposed True $ NNF.uncondNodeLabel query) nnf) nnf
     where
         gwmc' entry nnf = case NNF.entryNode entry of
             NNF.Deterministic True  -> (1.0, nnf)
@@ -38,7 +38,6 @@ gwmc query rfuncDefs nnf = gwmc' (NNF.augmentWithEntry (NNF.RefComposed $ NNF.un
                         (pRight, nnf'''')    = gwmc' rightEntry nnf'''
                 Just (AST.RealDist cdf icdf:_) -> error "not implemented"
                 where
-                    xxx = sortWith (\(rf, (p,n)) -> -abs (p-n)) $ Map.toList $ NNF.entryScores $ entry
+                    xxx = sortWith (\(rf, (p,n)) -> -abs (p-n)) $ Map.toList $ NNF.entryScores entry
                     --xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                     rf = fst $ head xxx
-

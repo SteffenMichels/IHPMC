@@ -23,6 +23,7 @@ module AST
     , IneqOp(..)
     , deterministicValue
     , predRandomFunctions
+    , negatePred
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -77,14 +78,14 @@ instance Show RuleBodyElement where
     show (BuildInPredicate pred) = show pred
 instance Hashable RuleBodyElement
 
-data BuildInPredicate = BoolEq (Expr Bool) (Expr Bool)
+data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
                       | RealIneq IneqOp (Expr RealN) (Expr RealN)
                       | RealIn RFuncLabel Interval
                       | Constant Bool
                       deriving (Eq, Generic)
 
 instance Show BuildInPredicate where
-    show (BoolEq exprX exprY)      = printf "%s = %s"  (show exprX) (show exprY)
+    show (BoolEq eq exprX exprY)   = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
     show (RealIn rf interv)        = printf "%s in %s" rf (show interv)
 instance Hashable BuildInPredicate
@@ -114,14 +115,25 @@ instance Hashable (Expr a) where
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
     hashWithSalt salt (UserRFunc r)    = Hashable.hashWithSalt salt r
 
+negatePred :: BuildInPredicate -> BuildInPredicate
+negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
+negatePred (RealIneq op exprX exprY) = RealIneq (negateOp op) exprX exprY
+negatePred (RealIn _ _)              = error "not implemented: negation for real interval inclusion"
+
+negateOp :: IneqOp -> IneqOp
+negateOp Lt   = GtEq
+negateOp LtEq = Gt
+negateOp Gt   = LtEq
+negateOp GtEq = Lt
+
 deterministicValue :: BuildInPredicate -> Maybe Bool
-deterministicValue (BoolEq (BoolConstant left) (BoolConstant right))           = Just (left == right)
-deterministicValue (BoolEq (UserRFunc left) (UserRFunc right)) | left == right = Just True
-deterministicValue (Constant val)                                              = Just val
-deterministicValue _                                                           = Nothing
+deterministicValue (BoolEq eq (BoolConstant left) (BoolConstant right))           = Just $ (if eq then (==) else (/=)) left right
+deterministicValue (BoolEq eq (UserRFunc left) (UserRFunc right)) | left == right = Just eq
+deterministicValue (Constant val)                                                 = Just val
+deterministicValue _                                                              = Nothing
 
 predRandomFunctions :: BuildInPredicate -> HashSet RFuncLabel
-predRandomFunctions (BoolEq left right)     = Set.union (randomFunctions' left) (randomFunctions' right)
+predRandomFunctions (BoolEq _ left right)   = Set.union (randomFunctions' left) (randomFunctions' right)
 predRandomFunctions (RealIneq _ left right) = Set.union (randomFunctions' left) (randomFunctions' right)
 predRandomFunctions (RealIn rf _)           = Set.singleton rf
 predRandomFunctions (Constant _)            = Set.empty

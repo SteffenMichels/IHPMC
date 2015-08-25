@@ -29,7 +29,7 @@ exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 4
+            n = 3
             bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()
@@ -50,7 +50,7 @@ toProblogSourceBody (AST.RuleBody elements) = intercalate ", " (fmap toProblogSo
 
 toProblogSourceBodyElement :: AST.RuleBodyElement -> String
 toProblogSourceBodyElement (AST.UserPredicate label)   = label
-toProblogSourceBodyElement (AST.BuildInPredicate (AST.BoolEq (AST.UserRFunc label) (AST.BoolConstant True))) = label
+toProblogSourceBodyElement (AST.BuildInPredicate (AST.BoolEq True (AST.UserRFunc label) (AST.BoolConstant True))) = label
 toProblogSourceBodyElement _ = error "not supported to Problog printing"
 
 -- Benchmarks
@@ -69,7 +69,7 @@ growingAnd n = AST.AST { AST.rFuncDefs = rFuncDefs
             (Set.singleton $ AST.RuleBody (equality:fmap bodyEl [i+1..n-1]))
             rules
             where
-                equality = AST.BuildInPredicate $ AST.BoolEq (AST.UserRFunc (printf "x%i" i)) (AST.BoolConstant True)
+                equality = AST.BuildInPredicate $ AST.BoolEq True (AST.UserRFunc (printf "x%i" i)) (AST.BoolConstant True)
         bodyEl i = AST.UserPredicate (printf "a%i" i)
 
 paths :: Int -> AST
@@ -94,7 +94,7 @@ paths n = AST.AST { AST.rFuncDefs = rFuncDefs
         body path bodies = Set.insert
             (AST.RuleBody [bodyEl connection | connection <- Set.toList path])
             bodies
-        bodyEl con = AST.BuildInPredicate $ AST.BoolEq (AST.UserRFunc $ printConnection con) (AST.BoolConstant True)
+        bodyEl con = AST.BuildInPredicate $ AST.BoolEq True (AST.UserRFunc $ printConnection con) (AST.BoolConstant True)
 
         printConnection ((x0, y0), (x1, y1))
             | x0 < x1 || y0 < y1 = print x0 y0 x1 y1

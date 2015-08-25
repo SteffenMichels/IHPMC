@@ -62,11 +62,11 @@ data RefWithNode = RefWithNode
 instance Hashable RefWithNode where
     hash rwn              = Hashable.hashWithSalt 0 rwn
     hashWithSalt salt rwn = case entryRef rwn of
-        RefComposed (ComposedLabel _ _ _ hash) -> Hashable.hashWithSalt salt hash
-        ref                                    -> Hashable.hashWithSalt salt ref
+        RefComposed sign (ComposedLabel _ _ _ hash) -> Hashable.hashWithSalt (Hashable.hashWithSalt salt sign) hash
+        ref                                         -> Hashable.hashWithSalt salt ref
 
 -- last element is stored hash to avoid recomputation
-data NodeRef = RefComposed ComposedLabel
+data NodeRef = RefComposed Bool ComposedLabel
              | RefBuildInPredicate AST.BuildInPredicate
              | RefDeterministic Bool
              deriving (Eq, Show, Generic)
@@ -87,9 +87,9 @@ instance Hashable ComposedLabel where
     hashWithSalt salt (ComposedLabel _ _ _ hash) = Hashable.hashWithSalt salt hash
 
 -- the NNFEntry contain an NNF operator node, plus additional, redundant, cached information to avoid recomputations
-data NNFEntry = NNFEntry NodeType (HashSet (NodeRef, Bool)) (HashSet RFuncLabel) (HashMap RFuncLabel (Double, Double))
+data NNFEntry = NNFEntry NodeType (HashSet NodeRef) (HashSet RFuncLabel) (HashMap RFuncLabel (Double, Double))
 
-data Node = Composed NodeType (HashSet (NodeRef, Bool))
+data Node = Composed NodeType (HashSet NodeRef)
           | BuildInPredicate AST.BuildInPredicate
           | Deterministic Bool
           deriving (Eq)
@@ -116,26 +116,26 @@ empty = NNF Map.empty 0
 member :: ComposedLabel -> NNF -> Bool
 member label (NNF nodes _) = Map.member label nodes
 
-insert ::  ComposedLabel -> NodeType -> HashSet (NodeRef, Bool) -> NNF -> (RefWithNode, Bool, NNF)
-insert label op children nnf@(NNF nodes freshCounter) = (refWithNode, error "insert", nnf')
+insert ::  Bool -> ComposedLabel -> NodeType -> HashSet NodeRef -> NNF -> (RefWithNode, NNF)
+insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
     where
         (refWithNode, nnf') = case simplifiedNode of
-            Composed nType nChildren -> ( RefWithNode { entryRef    = RefComposed label
+            Composed nType nChildren -> ( RefWithNode { entryRef    = RefComposed sign label
                                                       , entryNode   = simplifiedNode
                                                       , entryRFuncs = rFuncs
                                                       , entryScores = scores
                                                       }
                                         , NNF (Map.insert label (NNFEntry nType nChildren rFuncs scores) nodes) freshCounter
                                         )
-            BuildInPredicate pred -> (predRefWithNode pred, nnf)
-            Deterministic val     -> (deterministicRefWithNode val, nnf)
+            BuildInPredicate pred -> (predRefWithNode $ if sign then pred else AST.negatePred pred, nnf)
+            Deterministic val     -> (deterministicRefWithNode (val == sign), nnf)
 
         (simplifiedNode, children') = simplify (Composed op children) nnf
         rFuncs = case simplifiedNode of
             Deterministic _       -> Set.empty
             BuildInPredicate pred -> AST.predRandomFunctions pred
             Composed _ _ ->
-                Set.foldr (\(child, _) rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
+                Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
 
         scores = case simplifiedNode of
             Deterministic _       -> Map.empty
@@ -153,11 +153,11 @@ insert label op children nnf@(NNF nodes freshCounter) = (refWithNode, error "ins
                                                  childrenScores
                     (posScore, negScore) = (posScore'/nChildren, negScore'/nChildren)
                     nChildren = fromIntegral $ Set.size children'
-                    childrenScores = [let scores = entryScores c in if b then scores else error "implement swapping scores"| (c, b) <- Set.toList children']
+                    childrenScores = [entryScores c | c <- Set.toList children']
         nRFuncs = fromIntegral (Set.size rFuncs)
 
         -- return children to avoid double Map lookup
-        simplify :: Node -> NNF -> (Node, HashSet (RefWithNode, Bool))
+        simplify :: Node -> NNF -> (Node, HashSet RefWithNode)
         simplify node@(Deterministic _) _ = (node, Set.empty)
         simplify node@(BuildInPredicate pred) _ = case AST.deterministicValue pred of
             Just val -> (Deterministic val, Set.empty)
@@ -166,23 +166,23 @@ insert label op children nnf@(NNF nodes freshCounter) = (refWithNode, error "ins
             where
                 simplified
                     | nChildren == 0 = (Deterministic filterValue)
-                    | nChildren == 1 = error "1" --entryNode $ getFirst children
-                    | error "3" = --Foldable.any (\c -> entryNode c == Deterministic singleDeterminismValue) undefined = --children =
+                    | nChildren == 1 = entryNode $ getFirst children
+                    | Foldable.any (\c -> entryNode c == Deterministic singleDeterminismValue) children =
                         Deterministic singleDeterminismValue
-                    | otherwise = Composed operator $ Set.map undefined undefined--entryRef children
+                    | otherwise = Composed operator $ Set.map entryRef children
 
-                originalChildren = Set.map (\(c, b) -> (augmentWithEntry c nnf, b)) childLabels
-                children = Set.filter (\(c, b) -> entryNode c /= Deterministic (b == filterValue)) originalChildren
+                originalChildren = Set.map (\c -> augmentWithEntry c nnf) childLabels
+                children = Set.filter (\c -> entryNode c /= Deterministic filterValue) originalChildren
                 nChildren = Set.size children
                 -- truth value that causes determinism if at least a single child has it
                 singleDeterminismValue = if operator == And then False else True
                 -- truth value that can be filtered out
                 filterValue = if operator == And then True else False
 
-insertFresh :: NodeType -> HashSet (NodeRef, Bool) -> NNF -> (RefWithNode, Bool, NNF)
-insertFresh nType nChildren nnf@(NNF nodes freshCounter) = (entry, b, NNF nodes' (freshCounter+1))
+insertFresh :: Bool -> NodeType -> HashSet NodeRef -> NNF -> (RefWithNode, NNF)
+insertFresh sign nType nChildren nnf@(NNF nodes freshCounter) = (entry, NNF nodes' (freshCounter+1))
      where
-        (entry, b, NNF nodes' _) = undefined--insert label nType nChildren nnf
+        (entry, NNF nodes' _) = insert sign label nType nChildren nnf
         label = uncondNodeLabel (show freshCounter)
 
 augmentWithEntry :: NodeRef -> NNF -> RefWithNode
@@ -191,7 +191,7 @@ augmentWithEntry label nnf = case tryAugmentWithEntry label nnf of
     Nothing    -> error $ printf "non-existing NNF node '%s'" $ show label
 
 tryAugmentWithEntry :: NodeRef -> NNF -> Maybe RefWithNode
-tryAugmentWithEntry ref@(RefComposed label) (NNF nodes _) = case Map.lookup label nodes of
+tryAugmentWithEntry ref@(RefComposed _ label) (NNF nodes _) = case Map.lookup label nodes of
     Just (NNFEntry nType nChildren rFuncs scores) -> Just RefWithNode
         { entryRef    = ref
         , entryNode   = Composed nType nChildren
@@ -202,9 +202,9 @@ tryAugmentWithEntry ref@(RefComposed label) (NNF nodes _) = case Map.lookup labe
 tryAugmentWithEntry ref@(RefBuildInPredicate pred) _ = Just $ predRefWithNode pred
 tryAugmentWithEntry ref@(RefDeterministic val) _     = Just $ deterministicRefWithNode val
 
-entryRefWithNode :: ComposedLabel -> NNFEntry -> RefWithNode
-entryRefWithNode label (NNFEntry op children rFuncs scores) = RefWithNode
-    { entryRef    = RefComposed label
+entryRefWithNode :: Bool -> ComposedLabel -> NNFEntry -> RefWithNode
+entryRefWithNode sign label (NNFEntry op children rFuncs scores) = RefWithNode
+    { entryRef    = RefComposed sign label
     , entryNode   = Composed op children
     , entryRFuncs = rFuncs
     , entryScores = scores
@@ -232,18 +232,18 @@ conditionBool :: RefWithNode -> RFuncLabel -> Bool -> NNF -> (RefWithNode, NNF)
 conditionBool origNodeEntry rf val nnf@(NNF nodes _)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
     | otherwise = case entryRef origNodeEntry of
-        RefComposed origLabel -> let label = condNodeLabelBool rf val origLabel
-                                 in case Map.lookup label nodes of
-                                    Just entry -> (entryRefWithNode label entry, nnf)
-                                    _ -> let (NNFEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
-                                             (condChildren, nnf') = Set.foldr
-                                                (\child (children, nnf) ->
-                                                    let (condChild, nnf') = conditionBool (NNF.augmentWithEntry child nnf) rf val nnf
-                                                    in (Set.insert condChild children, nnf')
-                                                )
-                                                (Set.empty, nnf)
-                                                undefined--children
-                                         in undefined--insert label op (Set.map entryRef condChildren) nnf'
+        RefComposed sign origLabel -> let label = condNodeLabelBool rf val origLabel
+                                      in case Map.lookup label nodes of
+                                        Just entry -> (entryRefWithNode sign label entry, nnf)
+                                        _ -> let (NNFEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
+                                                 (condChildren, nnf') = Set.foldr
+                                                    (\child (children, nnf) ->
+                                                        let (condChild, nnf') = conditionBool (NNF.augmentWithEntry child nnf) rf val nnf
+                                                        in (Set.insert condChild children, nnf')
+                                                    )
+                                                    (Set.empty, nnf)
+                                                    children
+                                             in insert sign label op (Set.map entryRef condChildren) nnf'
         RefBuildInPredicate pred -> let condPred = conditionPred pred
                                     in case AST.deterministicValue condPred of
                                         Just val -> (deterministicRefWithNode val, nnf)
@@ -251,7 +251,7 @@ conditionBool origNodeEntry rf val nnf@(NNF nodes _)
         RefDeterministic _       -> error "should not happen as deterministic nodes contains no rfunctions"
     where
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
-        conditionPred (AST.BoolEq exprL exprR) = AST.BoolEq (conditionExpr exprL) (conditionExpr exprR)
+        conditionPred (AST.BoolEq eq exprL exprR) = AST.BoolEq eq (conditionExpr exprL) (conditionExpr exprR)
             where
                 conditionExpr expr@(AST.UserRFunc exprRFuncLabel)
                     | exprRFuncLabel == rf = AST.BoolConstant val
@@ -263,18 +263,18 @@ conditionReal :: RefWithNode -> RFuncLabel -> Interval -> HashMap RFuncLabel Int
 conditionReal origNodeEntry rf interv otherRealChoices nnf@(NNF nodes _)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
     | otherwise = case entryRef origNodeEntry of
-        RefComposed origLabel -> let label = condNodeLabelReal rf interv origLabel
-                                 in case Map.lookup label nodes of
-                                    Just entry -> (entryRefWithNode label entry, nnf)
-                                    _ -> let (NNFEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
-                                             (condChildren, nnf') = Set.foldr
-                                                (\child (children, nnf) ->
-                                                    let (condChild, nnf') = conditionReal (NNF.augmentWithEntry child nnf) rf interv otherRealChoices nnf
-                                                    in (Set.insert condChild children, nnf')
-                                                )
-                                                (Set.empty, nnf)
-                                                undefined--children
-                                         in undefined--insert label op (Set.map entryRef condChildren) nnf'
+        RefComposed sign origLabel -> let label = condNodeLabelReal rf interv origLabel
+                                      in case Map.lookup label nodes of
+                                        Just entry -> (entryRefWithNode sign label entry, nnf)
+                                        _ -> let (NNFEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
+                                                 (condChildren, nnf') = Set.foldr
+                                                    (\child (children, nnf) ->
+                                                        let (condChild, nnf') = conditionReal (NNF.augmentWithEntry child nnf) rf interv otherRealChoices nnf
+                                                        in (Set.insert condChild children, nnf')
+                                                    )
+                                                    (Set.empty, nnf)
+                                                    children
+                                             in insert sign label op (Set.map entryRef condChildren) nnf'
         RefBuildInPredicate pred -> let condPred = conditionPred pred
                                     in case AST.deterministicValue condPred of
                                         Just val -> (deterministicRefWithNode val, nnf)
@@ -325,11 +325,11 @@ exportAsDot path (NNF nodes _) = do
         printNode :: Handle -> (ComposedLabel, NNFEntry) -> ExceptionalT String IO ()
         printNode file (label, NNFEntry op children _ _) = do
             doIO (hPutStrLn file (printf "%i[label=\"%s\\n%s\"];" labelHash (show label) descr))
-            error "2"--forM (Set.toList children) $ error "2" >> return ()--writeEdge >> return ()
+            forM (Set.toList children) writeEdge >> return ()
             where
                 descr = case op of And -> "AND"; Or -> "OR"
                 labelHash = Hashable.hash label
                 writeEdge childRef = doIO (hPutStrLn file (printf "%i->%s;" labelHash $ childStr childRef))
-                childStr (RefComposed childLabel)   = show $ Hashable.hash childLabel
+                childStr (RefComposed _ childLabel) = show $ Hashable.hash childLabel
                 childStr (RefBuildInPredicate pred) = printf "\"%s\"" $ show pred
                 childStr (RefDeterministic val)     = show val

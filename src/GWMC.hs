@@ -40,7 +40,7 @@ gwmc query rfuncDefs nnf = fmap (\(pst,_) -> PST.bounds pst) results where
     results = gwmcDebug query rfuncDefs nnf
 
 gwmcDebug :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [(PST, NNF)]
-gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed $ NNF.uncondNodeLabel query
+gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed False $ NNF.uncondNodeLabel query
     where
         gwmc' :: NNF -> PSTNode -> [(PST, NNF)]
         gwmc' nnf pstNode = case iterate nnf pstNode Map.empty 1.0 of
@@ -89,7 +89,7 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed $ 
                     _                          -> error "finished node should not be selected for iteration"
                 (nnf', selectedChild') = iterate nnf selectedChildNode previousChoicesReal partChoiceProb
                 dec' = selectedChild':tail sortedChildren
-        iterateNode nnf (PST.Leaf nnfLabel) previousChoicesReal partChoiceProb = case decompose nnfLabel nnf of
+        iterateNode nnf (PST.Leaf ref) previousChoicesReal partChoiceProb = case decompose ref nnf of
             Nothing -> case Map.lookup rf rfuncDefs of
                     Just (AST.Flip p:_) -> (nnf'', PST.ChoiceBool rf p left right, combineProbsChoice p left right, combineScoresChoice left right)
                         where
@@ -112,15 +112,15 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed $ 
                     _  -> error ("undefined rfunc " ++ rf)
                     where
                         rf = fst $ head xxx
-                        xxx = sortWith rfScore $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry nnfLabel nnf
-                        xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ (show (rfScore x)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
+                        xxx = sortWith rfScore $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry ref nnf
+                        xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ (show (rfScore x)) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
                         rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
                             Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
                                               currentP = fromRat (cdf' cdf False u - cdf' cdf True l)
                                           in  (-currentP * abs (p-n), -currentP)
                             _          -> (-abs (p-n), -1.0)
 
-                        nnfEntry = NNF.augmentWithEntry nnfLabel nnf
+                        nnfEntry = NNF.augmentWithEntry ref nnf
                         toPSTNode p entry = case NNF.entryNode entry of
                             NNF.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
                             _                     -> PST.Unfinished (PST.Leaf $ NNF.entryRef entry) (0.0,1.0) ((fromRat p::Double)*partChoiceProb)
@@ -131,12 +131,10 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed $ 
                 where
                     (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
-                            let (fresh, b, nnf') = if Set.size dec > 1 then
-                                                    NNF.insertFresh op dec nnf
+                            let (fresh, nnf') = if Set.size dec > 1 then
+                                                    NNF.insertFresh True op dec nnf
                                                 else
-                                                    let (ref, b) = getFirst dec
-                                                        entry    = NNF.augmentWithEntry (getFirst dec) nnf
-                                                    in (entry, b, nnf)
+                                                    (NNF.augmentWithEntry (getFirst dec) nnf, nnf)
                             in  (PST.Unfinished (PST.Leaf $ NNF.entryRef fresh) (0.0,1.0) partChoiceProb:psts, nnf')
                         )
                         ([], nnf)
@@ -152,13 +150,13 @@ combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
 combineScoresChoice left right = max (PST.score left) (PST.score right)
 combineScoresDecomp dec          = foldr (\pst score -> max score $ PST.score pst) 0.0 dec
 
-decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet (NNF.NodeRef, Bool))))
+decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, (HashSet (HashSet NNF.NodeRef)))
 decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf of
     NNF.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (\c -> NNF.augmentWithEntry c nnf) children
                                 in  if Set.size dec == 1 then Nothing else Just (op, dec)
     _ -> Nothing
     where
-        decomposeChildren :: HashSet (HashSet (NNF.RefWithNode, Bool)) -> HashSet (NNF.RefWithNode, Bool) -> HashSet (HashSet (NNF.NodeRef, Bool))
+        decomposeChildren :: HashSet (HashSet NNF.RefWithNode) -> HashSet NNF.RefWithNode -> HashSet (HashSet NNF.NodeRef)
         decomposeChildren dec children
             | Set.null children = Set.map (Set.map NNF.entryRef) dec
             | otherwise =
@@ -166,7 +164,7 @@ decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf 
                     (new, _, children') = findFixpoint (Set.singleton first) (NNF.entryRFuncs first) (Set.delete first children)
                 in  decomposeChildren (Set.insert new dec) children'
 
-        findFixpoint :: HashSet (NNF.RefWithNode, Bool) -> HashSet RFuncLabel -> HashSet (NNF.RefWithNode, Bool) -> (HashSet (NNF.RefWithNode, Bool), HashSet RFuncLabel, (NNF.RefWithNode, Bool))
+        findFixpoint :: HashSet NNF.RefWithNode -> HashSet RFuncLabel -> HashSet NNF.RefWithNode -> (HashSet NNF.RefWithNode, HashSet RFuncLabel, HashSet NNF.RefWithNode)
         findFixpoint cur curRFs children
             | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
             | otherwise                                    = findFixpoint cur' curRFs' children'

@@ -93,7 +93,7 @@ parseBoolPredicate = do
     exprX <- parseBoolExpr
     stringAndSpaces "="
     exprY <- parseBoolExpr
-    return (AST.BoolEq exprX exprY)
+    return (AST.BoolEq True exprX exprY)
 
 parseRealPredicate :: Parser AST.BuildInPredicate
 parseRealPredicate = do
