@@ -35,6 +35,7 @@ import qualified Interval
 import Numeric (fromRat)
 import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
+import Control.Applicative ((<$>))
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
 gwmc query rfuncDefs nnf = fmap (\(pst,_) -> PST.bounds pst) results where
@@ -44,17 +45,42 @@ gwmcDebug :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [(PST
 gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed True $ NNF.uncondNodeLabel query
     where
         gwmc' :: NNF -> PSTNode -> [(PST, NNF)]
-        gwmc' nnf pstNode = case iterate nnf pstNode Map.empty 1.0 of
+        gwmc' nnf pstNode = case GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs of
             (nnf', pst@(PST.Finished _))              -> [(pst,nnf')]
             (nnf', pst@(PST.Unfinished pstNode' _ _)) -> let results = gwmc' nnf' pstNode'
                                                          in  (pst,nnf') : results
 
-        iterate :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> Double -> (NNF, PST)
-        iterate nnf pstNode previousChoicesReal partChoiceProb
-            | l == u    = (nnf', PST.Finished l)
-            | otherwise = (nnf', PST.Unfinished pstNode' bounds score)
-            where
-                (nnf', pstNode', bounds@(l,u), score) = iterateNode nnf pstNode previousChoicesReal partChoiceProb
+gwmcEvidence :: PredicateLabel -> PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
+gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence) nnf
+    where
+        gwmc' :: PST -> PST -> NNF -> [(PST, PST, NNF)]
+        gwmc' (PST.Finished _) (PST.Finished _) _ = []
+        gwmc' qe nqe nnf
+            | PST.maxError qe > PST.maxError nqe = let (PST.Unfinished pstNode _ _) = qe
+                                                       (nnf', qe')  = GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs
+                                                       rest = gwmc' qe' nqe nnf'
+                                                   in  (qe', nqe, nnf') : rest
+            | otherwise                          = let (PST.Unfinished pstNode _ _) = nqe
+                                                       (nnf', nqe') = GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs
+                                                       rest = gwmc' qe nqe' nnf'
+                                                   in  (qe, nqe', nnf') : rest
+
+        probBounds (qe, nqe, _) = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
+            (lqe,  uqe)  = PST.bounds qe
+            (lnqe, unqe) = PST.bounds nqe
+
+        initPST nwr = PST.Unfinished (PST.initialNode $ NNF.entryRef nwr) (0.0,1.0) undefined
+        (queryAndEvidence,    nnf')  = NNF.insertFresh True NNF.And (Set.fromList [queryRef True,  evidenceRef]) nnf
+        (negQueryAndEvidence, nnf'') = NNF.insertFresh True NNF.And (Set.fromList [queryRef False, evidenceRef]) nnf'
+        queryRef sign = NNF.RefComposed sign $ NNF.uncondNodeLabel query
+        evidenceRef   = NNF.RefComposed True $ NNF.uncondNodeLabel evidence
+
+iterate :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> (NNF, PST)
+iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
+    | l == u    = (nnf', PST.Finished l)
+    | otherwise = (nnf', PST.Unfinished pstNode' bounds score)
+    where
+        (nnf', pstNode', bounds@(l,u), score) = iterateNode nnf pstNode previousChoicesReal partChoiceProb
 
         iterateNode :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> Double -> (NNF, PSTNode, ProbabilityBounds, Double)
         iterateNode nnf (PST.ChoiceBool rFuncLabel p left right) previousChoicesReal partChoiceProb =
@@ -62,10 +88,10 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed Tr
             where
                 (nnf', left', right') = case (left,right) of
                         (PST.Unfinished pstNode _ _, _) | PST.score left > PST.score  right ->
-                            let (nnf'', left'') = iterate nnf pstNode previousChoicesReal ((fromRat p::Double)*partChoiceProb)
+                            let (nnf'', left'') = GWMC.iterate nnf pstNode previousChoicesReal ((fromRat p::Double)*partChoiceProb) rfuncDefs
                             in  (nnf'', left'', right)
                         (_, PST.Unfinished pstNode _ _) ->
-                            let (nnf'', right'') = iterate nnf pstNode previousChoicesReal ((fromRat (1-p)::Double)*partChoiceProb)
+                            let (nnf'', right'') = GWMC.iterate nnf pstNode previousChoicesReal ((fromRat (1-p)::Double)*partChoiceProb) rfuncDefs
                             in  (nnf'', left, right'')
                         _ -> error "finished node should not be selected for iteration"
         iterateNode nnf (PST.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb =
@@ -73,10 +99,10 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed Tr
             where
                 (nnf', left', right') = case (left,right) of
                         (PST.Unfinished pstNode _ _, _) | PST.score  left > PST.score  right ->
-                            let (nnf'', left'') = iterate nnf pstNode (Map.insert rf (curLower, Open splitPoint) previousChoicesReal) ((fromRat p::Double)*partChoiceProb)
+                            let (nnf'', left'') = GWMC.iterate nnf pstNode (Map.insert rf (curLower, Open splitPoint) previousChoicesReal) ((fromRat p::Double)*partChoiceProb) rfuncDefs
                             in  (nnf'', left'', right)
                         (_, PST.Unfinished pstNode _ _) ->
-                            let (nnf'', right'') = iterate nnf pstNode (Map.insert rf (Open splitPoint, curUpper) previousChoicesReal) ((fromRat (1-p)::Double)*partChoiceProb)
+                            let (nnf'', right'') = GWMC.iterate nnf pstNode (Map.insert rf (Open splitPoint, curUpper) previousChoicesReal) ((fromRat (1-p)::Double)*partChoiceProb) rfuncDefs
                             in  (nnf'', left, right'')
                         _ -> error "finished node should not be selected for iteration"
                 (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
@@ -88,7 +114,7 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed Tr
                 selectedChildNode = case selectedChild of
                     PST.Unfinished pstNode _ _ -> pstNode
                     _                          -> error "finished node should not be selected for iteration"
-                (nnf', selectedChild') = iterate nnf selectedChildNode previousChoicesReal partChoiceProb
+                (nnf', selectedChild') = GWMC.iterate nnf selectedChildNode previousChoicesReal partChoiceProb rfuncDefs
                 dec' = selectedChild':tail sortedChildren
         iterateNode nnf (PST.Leaf ref) previousChoicesReal partChoiceProb = case decompose ref nnf of
             Nothing -> case Map.lookup rf rfuncDefs of

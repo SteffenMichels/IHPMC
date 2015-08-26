@@ -60,15 +60,24 @@ exeMain = do
         inferenceApprox ast nnf = do
             let results = gwmcDebug (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
             --results <- return $ take 7 results
-            --startTime <- doIO $ fmap (\x -> round (x*1000)::Int) getPOSIXTime
-            --doIO $ forM results (\(pst,_) -> let (l,u) = PST.bounds pst
-            --                          in do
-            --                            currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
-            --                            putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))
+            startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
+            doIO $ forM results (\(pst,_) -> do
+                    let (l,u)    = PST.bounds pst
+                    currentTime <- fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
+                    let appr     = fromRat (u+l)/2::Double
+                    let err      = (0.6339446564891053 - appr)^2
+                    putStrLn $ printf "%f %f" (currentTime-startTime) err
+                )
+                --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            --                                    appr <- return $ fromRat (u+l)/2::Float
+            --                                    err  <- return (0.4053876623346897 - appr)^2
+            --                                    putStrLn $ printf "%i %f" (currentTime-startTime) err
+            --                            putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))0.4053876623346897
             --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
             --NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
             --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
-            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
+            return ()
+            --return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
             --return $ length results
 
         inferenceExact ast nnf = do
