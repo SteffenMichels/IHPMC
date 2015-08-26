@@ -52,15 +52,23 @@ exeMain = do
             let firstArg = head args
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
-            doIO (putStrLn $ show ast)
-            nnf <- return $ groundPclp ast
-            --exportAsDot "/tmp/nnf.dot" nnf
-            inferenceApprox ast nnf
+            --doIO (putStrLn $ show ast)
+            (mbEvidence, nnf) <- return $ groundPclp ast
+            exportAsDot "/tmp/nnf.dot" nnf
+            inferenceApprox mbEvidence ast nnf
 
-        inferenceApprox ast nnf = do
-            let bounds = case AST.evidence ast of
+        inferenceApprox mbEvidence ast nnf = do
+            let bounds = case mbEvidence of
                     Nothing -> gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
                     Just ev -> gwmcEvidence (getFirst $ AST.queries ast) ev (AST.rFuncDefs ast) nnf
+
+            startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
+            doIO $ forM bounds (\(l,u) -> do
+                    currentTime <- fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
+                    let appr     = fromRat (u+l)/2::Double
+                    let err      = (0.6339446564891053 - appr)^2
+                    putStrLn $ printf "%f %f" (currentTime-startTime) appr
+                )
             return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) $ last bounds
 
         inferenceDebug ast nnf = do

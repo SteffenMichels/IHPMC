@@ -31,7 +31,6 @@ import qualified Data.HashMap.Lazy as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Text.Printf (printf)
-import BasicTypes
 import Data.List (intercalate)
 import Data.Char (toLower)
 import Data.Hashable (Hashable)
@@ -57,7 +56,9 @@ instance Show AST where
                             [printf "%s <- %s.\n" label $ show body | body <- Set.toList bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
         queryStr     = concat [printf "query %s.\n" query | query <- Set.toList $ queries ast]
-        evStr        = printf "evidence %s.\n" (show $ evidence ast)
+        evStr = case evidence ast of
+            Just ev -> printf "evidence %s.\n" ev
+            Nothing -> ""
 
 data RFuncDef = Flip Rational
               | RealDist (Rational -> Probability) (Probability -> Rational)

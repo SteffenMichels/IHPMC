@@ -37,6 +37,8 @@ import Numeric (fromRat)
 import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
 import Control.Applicative ((<$>))
+import System.IO.Unsafe (unsafePerformIO)
+import Exception
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
 gwmc query rfuncDefs nnf = fmap (\(pst,_) -> PST.bounds pst) results where
@@ -51,11 +53,11 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed Tr
             (nnf', pst@(PST.Unfinished pstNode' _ _)) -> let results = gwmc' nnf' pstNode'
                                                          in  (pst,nnf') : results
 
-gwmcEvidence :: PredicateLabel -> PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
-gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence) nnf
+gwmcEvidence :: PredicateLabel -> NNF.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
+gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence) nnf''
     where
         gwmc' :: PST -> PST -> NNF -> [(PST, PST, NNF)]
-        gwmc' (PST.Finished _) (PST.Finished _) _ = []
+        gwmc' (PST.Finished _) (PST.Finished _) nnf = (unsafePerformIO $ runExceptionalT (NNF.exportAsDot "/tmp/nnf.dot" nnf) >> return [])
         gwmc' qe nqe nnf
             | PST.maxError qe > PST.maxError nqe = let (PST.Unfinished pstNode _ _) = qe
                                                        (nnf', qe')  = GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs
@@ -71,10 +73,9 @@ gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryA
             (lnqe, unqe) = PST.bounds nqe
 
         initPST nwr = PST.Unfinished (PST.initialNode $ NNF.entryRef nwr) (0.0,1.0) undefined
-        (queryAndEvidence,    nnf')  = NNF.insertFresh True NNF.And (Set.fromList [queryRef True,  evidenceRef]) nnf
-        (negQueryAndEvidence, nnf'') = NNF.insertFresh True NNF.And (Set.fromList [queryRef False, evidenceRef]) nnf'
+        (queryAndEvidence,    nnf')  = NNF.insertFresh True NNF.And (Set.fromList [queryRef True,  evidence]) nnf
+        (negQueryAndEvidence, nnf'') = NNF.insertFresh True NNF.And (Set.fromList [queryRef False, evidence]) nnf'
         queryRef sign = NNF.RefComposed sign $ NNF.uncondNodeLabel query
-        evidenceRef   = NNF.RefComposed True $ NNF.uncondNodeLabel evidence
 
 iterate :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> (NNF, PST)
 iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs

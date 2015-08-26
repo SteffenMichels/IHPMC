@@ -40,7 +40,6 @@ import Control.Monad (forM, void)
 import Data.Maybe (fromJust)
 import Text.Printf (printf)
 import qualified Data.Foldable as Foldable
-import BasicTypes
 import qualified AST
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
@@ -120,7 +119,7 @@ insert ::  Bool -> ComposedLabel -> NodeType -> HashSet NodeRef -> NNF -> (RefWi
 insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
     where
         (refWithNode, nnf') = case simplifiedNode of
-            Composed nType nChildren -> ( RefWithNode { entryRef    = RefComposed sign label
+            Composed nType nChildren -> ( RefWithNode { entryRef    = RefComposed (sign == simplifiedSign) label
                                                       , entryNode   = simplifiedNode
                                                       , entryRFuncs = rFuncs
                                                       , entryScores = scores
@@ -130,7 +129,7 @@ insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
             BuildInPredicate pred -> (predRefWithNode $ if sign then pred else AST.negatePred pred, nnf)
             Deterministic val     -> (deterministicRefWithNode (val == sign), nnf)
 
-        (simplifiedNode, children') = simplify (Composed op children) nnf
+        (simplifiedNode, simplifiedSign, children') = simplify (Composed op children) nnf
         rFuncs = case simplifiedNode of
             Deterministic _       -> Set.empty
             BuildInPredicate pred -> AST.predRandomFunctions pred
@@ -157,13 +156,16 @@ insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
         nRFuncs = fromIntegral (Set.size rFuncs)
 
         -- return children to avoid double Map lookup
-        simplify :: Node -> NNF -> (Node, HashSet RefWithNode)
-        simplify node@(Deterministic _) _ = (node, Set.empty)
+        simplify :: Node -> NNF -> (Node, Bool, HashSet RefWithNode)
+        simplify node@(Deterministic _) _ = (node, undefined, Set.empty)
         simplify node@(BuildInPredicate pred) _ = case AST.deterministicValue pred of
-            Just val -> (Deterministic val, Set.empty)
-            Nothing  -> (node, Set.empty)
-        simplify (Composed operator childLabels) nnf = (simplified, children)
+            Just val -> (Deterministic val, undefined, Set.empty)
+            Nothing  -> (node, undefined, Set.empty)
+        simplify (Composed operator childLabels) nnf = (simplified, sign, children)
             where
+                sign = case (nChildren, entryRef $ getFirst children) of
+                    (1, RefComposed s _) -> s
+                    _                    -> True
                 simplified
                     | nChildren == 0 = Deterministic filterValue
                     | nChildren == 1 = entryNode $ getFirst children
