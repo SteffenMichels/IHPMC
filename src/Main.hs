@@ -52,12 +52,18 @@ exeMain = do
             let firstArg = head args
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
-            --doIO (putStrLn $ show ast)
+            doIO (putStrLn $ show ast)
             nnf <- return $ groundPclp ast
             --exportAsDot "/tmp/nnf.dot" nnf
             inferenceApprox ast nnf
 
         inferenceApprox ast nnf = do
+            let bounds = case AST.evidence ast of
+                    Nothing -> gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
+                    Just ev -> gwmcEvidence (getFirst $ AST.queries ast) ev (AST.rFuncDefs ast) nnf
+            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) $ last bounds
+
+        inferenceDebug ast nnf = do
             let results = gwmcDebug (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
             --results <- return $ take 7 results
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
@@ -76,8 +82,8 @@ exeMain = do
             --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
             --NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
             --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
-            return ()
-            --return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
+            --return ()
+            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
             --return $ length results
 
         inferenceExact ast nnf = do

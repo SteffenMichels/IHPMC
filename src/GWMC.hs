@@ -14,6 +14,7 @@
 
 module GWMC
     ( gwmc
+    , gwmcEvidence
     , gwmcDebug
     ) where
 import NNF (NNF)

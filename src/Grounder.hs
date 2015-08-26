@@ -27,8 +27,12 @@ import BasicTypes
 import Control.Arrow (first)
 
 groundPclp :: AST -> NNF
-groundPclp AST.AST {AST.queries=queries, AST.rules=rules} = Set.foldr groundRule NNF.empty queries
+groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} = case mbEvidence of
+    Nothing -> groundedQueries
+    Just ev -> groundRule ev groundedQueries
     where
+        groundedQueries = Set.foldr groundRule NNF.empty queries
+
         groundRule :: PredicateLabel -> NNF -> NNF
         groundRule label nnf
             | NNF.member nnfLabel nnf = nnf -- already added

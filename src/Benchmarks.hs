@@ -29,7 +29,7 @@ exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 4
+            n = 3
             bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()
@@ -58,6 +58,7 @@ growingAnd :: Int -> AST
 growingAnd n = AST.AST { AST.rFuncDefs = rFuncDefs
                        , AST.rules     = rules
                        , AST.queries   = Set.singleton "a0"
+                       , AST.evidence  = Nothing
                        }
     where
         rFuncDefs = foldr rFuncDef Map.empty [0..n-1]
@@ -75,6 +76,7 @@ paths :: Int -> AST
 paths n = AST.AST { AST.rFuncDefs = rFuncDefs
                   , AST.rules     = rules
                   , AST.queries   = Set.singleton "reachable"
+                  , AST.evidence  = Nothing
                   }
     where
         rFuncDefs = foldr rFuncDef Map.empty [(x,y) | x <- [0..n-1], y <- [0..n-1]]

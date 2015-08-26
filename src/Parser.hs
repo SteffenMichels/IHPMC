@@ -35,6 +35,7 @@ parsePclp src =
             { AST.rFuncDefs = Map.empty
             , AST.rules     = Map.empty
             , AST.queries   = Set.empty
+            , AST.evidence  = Nothing
             }
     in mapException show (fromEither (parse (parseTheory initialState) "PCLP theory" src))
 
@@ -43,6 +44,12 @@ parseTheory ast = spaces >>
                 (     try ( do -- query
                         query <- parseQuery
                         let ast' = ast {AST.queries = Set.insert query $ AST.queries ast}
+                        parseTheory ast'
+                      )
+                  <|> try (do --evidence
+                        evidence <- parseEvidence
+                        -- TODO: handle multiple evidence statements
+                        let ast' = ast {AST.evidence = Just evidence}
                         parseTheory ast'
                       )
                   <|> ( do -- random function definition
@@ -178,6 +185,14 @@ parseQuery = do
     query <- parsePredicateLabel
     stringAndSpaces "."
     return query
+
+-- evidence
+parseEvidence :: Parser PredicateLabel
+parseEvidence = do
+    stringAndSpaces "evidence"
+    evidence <- parsePredicateLabel
+    stringAndSpaces "."
+    return evidence
 
 -- common
 

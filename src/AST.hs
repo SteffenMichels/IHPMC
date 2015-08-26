@@ -45,10 +45,11 @@ data AST = AST
     { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches
     , rules     :: HashMap PredicateLabel (HashSet RuleBody)
     , queries   :: HashSet PredicateLabel
+    , evidence  :: Maybe PredicateLabel
     }
 
 instance Show AST where
-    show ast = rfuncDefsStr ++ rulesStr ++ queryStr where
+    show ast = rfuncDefsStr ++ rulesStr ++ queryStr ++ evStr where
         rfuncDefsStr = concat $ concat [
                             [printf "~%s ~ %s.\n" label $ show def | def <- defs]
                        | (label, defs) <- Map.toList $ rFuncDefs ast]
@@ -56,6 +57,7 @@ instance Show AST where
                             [printf "%s <- %s.\n" label $ show body | body <- Set.toList bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
         queryStr     = concat [printf "query %s.\n" query | query <- Set.toList $ queries ast]
+        evStr        = printf "evidence %s.\n" (show $ evidence ast)
 
 data RFuncDef = Flip Rational
               | RealDist (Rational -> Probability) (Probability -> Rational)
