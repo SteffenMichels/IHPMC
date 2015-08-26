@@ -34,13 +34,14 @@ import Interval (Interval, IntervalLimit(..), LowerUpper(..))
 import qualified Interval
 import Numeric (fromRat)
 import Data.Maybe (mapMaybe, fromJust)
+import Control.Arrow (first)
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
 gwmc query rfuncDefs nnf = fmap (\(pst,_) -> PST.bounds pst) results where
     results = gwmcDebug query rfuncDefs nnf
 
 gwmcDebug :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [(PST, NNF)]
-gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed False $ NNF.uncondNodeLabel query
+gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed True $ NNF.uncondNodeLabel query
     where
         gwmc' :: NNF -> PSTNode -> [(PST, NNF)]
         gwmc' nnf pstNode = case iterate nnf pstNode Map.empty 1.0 of
@@ -127,18 +128,23 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed Fa
                         cdf' _ lower Inf    = if lower then 0.0 else 1.0
                         cdf' cdf _ (Open x)   = cdf x
                         cdf' cdf _ (Closed x) = cdf x
-            Just (op, decomposition) -> (nnf', PST.Decomposition op psts, (0.0,1.0), combineScoresDecomp psts)
+            Just (origOp, decOp, sign, decomposition) -> (nnf', PST.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
                 where
                     (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
                             let (fresh, nnf') = if Set.size dec > 1 then
-                                                    NNF.insertFresh True op dec nnf
+                                                    first NNF.entryRef $ NNF.insertFresh sign origOp dec nnf
                                                 else
-                                                    (NNF.augmentWithEntry (getFirst dec) nnf, nnf)
-                            in  (PST.Unfinished (PST.Leaf $ NNF.entryRef fresh) (0.0,1.0) partChoiceProb:psts, nnf')
+                                                    let single = getFirst dec
+                                                    in  (if sign then single else negate single, nnf)
+                            in  (PST.Unfinished (PST.Leaf fresh) (0.0,1.0) partChoiceProb:psts, nnf')
                         )
                         ([], nnf)
                         decomposition
+
+                    negate (NNF.RefComposed sign label)   = NNF.RefComposed (not sign) label
+                    negate (NNF.RefBuildInPredicate pred) = NNF.RefBuildInPredicate (AST.negatePred pred)
+                    negate (NNF.RefDeterministic val)     = NNF.RefDeterministic (not val)
 
 combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
     (leftLower,  leftUpper)  = PST.bounds left
@@ -150,10 +156,10 @@ combineProbsDecomp NNF.Or dec  = (1-nl, 1-nu) where
 combineScoresChoice left right = max (PST.score left) (PST.score right)
 combineScoresDecomp            = foldr (\pst score -> max score $ PST.score pst) 0.0
 
-decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, HashSet (HashSet NNF.NodeRef))
-decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf of
+decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, NNF.NodeType, Bool, HashSet (HashSet NNF.NodeRef))
+decompose ref nnf = case NNF.entryNode $ NNF.augmentWithEntry ref nnf of
     NNF.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (`NNF.augmentWithEntry` nnf) children
-                                in  if Set.size dec == 1 then Nothing else Just (op, dec)
+                                in  if Set.size dec == 1 then Nothing else Just (op, decOp op, sign, dec)
     _ -> Nothing
     where
         decomposeChildren :: HashSet (HashSet NNF.RefWithNode) -> HashSet NNF.RefWithNode -> HashSet (HashSet NNF.NodeRef)
@@ -173,6 +179,14 @@ decompose nnfLabel nnf = case NNF.entryNode $ NNF.augmentWithEntry nnfLabel nnf 
                 cur'      = Set.union cur $ Set.fromList withSharedRFs
                 curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ NNF.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
                 children' = Set.fromList withoutSharedRFs
+        decOp op
+            | sign = op
+            | otherwise = case op of
+                NNF.And -> NNF.Or
+                NNF.Or  -> NNF.And
+        sign = case ref of
+            NNF.RefComposed sign _ -> sign
+            _                      -> error "nodes other than composed ones have to sign"
 
 determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> HashMap RFuncLabel Interval -> NNF.RefWithNode -> NNF -> Rational
 determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesReal nnfEntry nnf = fst $ head list
