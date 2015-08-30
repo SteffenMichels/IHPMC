@@ -36,8 +36,8 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import System.IO
 import Exception
-import Control.Monad (forM, void)
-import Data.Maybe (fromJust)
+import Control.Monad (void)
+import Data.Maybe (fromJust, fromMaybe)
 import Text.Printf (printf)
 import qualified Data.Foldable as Foldable
 import qualified AST
@@ -47,6 +47,7 @@ import qualified Data.Hashable as Hashable
 import qualified Data.List as List
 import Interval (Interval, IntervalLimit, IntervalLimitPoint(..), LowerUpper(..))
 import qualified Interval
+import Data.Foldable (forM_)
 import Debug.Trace (trace)
 
 -- NNF nodes "counter for fresh nodes"
@@ -188,9 +189,9 @@ insertFresh sign nType nChildren nnf@(NNF nodes freshCounter) = (entry, NNF node
         label = uncondNodeLabel (show freshCounter)
 
 augmentWithEntry :: NodeRef -> NNF -> RefWithNode
-augmentWithEntry label nnf = case tryAugmentWithEntry label nnf of
-    Just entry -> entry
-    Nothing    -> error $ printf "non-existing NNF node '%s'" $ show label
+augmentWithEntry label nnf = fromMaybe
+                               (error $ printf "non-existing NNF node '%s'" $ show label)
+                               (tryAugmentWithEntry label nnf)
 
 tryAugmentWithEntry :: NodeRef -> NNF -> Maybe RefWithNode
 tryAugmentWithEntry ref@(RefComposed _ label) (NNF nodes _) = case Map.lookup label nodes of
@@ -261,7 +262,7 @@ conditionBool origNodeEntry rf val nnf@(NNF nodes _)
                 conditionExpr expr = expr
         conditionPred pred = pred
 
-conditionReal :: RefWithNode -> RFuncLabel -> Interval -> HashMap RFuncLabel Interval -> NNF -> (RefWithNode, NNF)
+conditionReal :: RefWithNode -> RFuncLabel -> Interval -> HashMap RFuncLabel (Interval, Int) -> NNF -> (RefWithNode, NNF)
 conditionReal origNodeEntry rf interv otherRealChoices nnf@(NNF nodes _)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, nnf)
     | otherwise = case entryRef origNodeEntry of
@@ -311,7 +312,7 @@ conditionReal origNodeEntry rf interv otherRealChoices nnf@(NNF nodes _)
                         eval (AST.UserRFunc rf)   = fromJust $ Map.lookup rf corner
                         eval (AST.RealConstant r) = Point r
 
-                conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = (rf, interv):[(rf',interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
+                conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = (rf, interv):[(rf',interv) | (rf',(interv, _)) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
                 corners = foldr (\(rf, (l,u)) corners -> [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners]) [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]] otherConditions
                 predRFuncs = AST.predRandomFunctions pred
         conditionPred pred = pred
@@ -320,14 +321,14 @@ exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _) = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph NNF {")
-    forM (Map.toList nodes) (printNode file)
+    forM_ (Map.toList nodes) (printNode file)
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
         printNode :: Handle -> (ComposedLabel, NNFEntry) -> ExceptionalT String IO ()
         printNode file (label, NNFEntry op children _ _) = do
             doIO (hPutStrLn file (printf "%i[label=\"%s\\n%s\"];" labelHash (show label) descr))
-            void $ forM (Set.toList children) writeEdge
+            void $ forM_ children writeEdge
             where
                 descr = case op of And -> "AND"; Or -> "OR"
                 labelHash = Hashable.hash label

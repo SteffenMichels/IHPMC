@@ -65,23 +65,16 @@ exeMain = do
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
             doIO $ forM bounds (\(l,u) -> do
                     currentTime <- fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
-                    let appr     = fromRat (u+l)/2::Double
+                    let appr     = fromRat (u+l)::Double
                     let err      = (0.10338645418326829 - appr)^2
-                    putStrLn $ printf "%f %f" (currentTime-startTime) (fromRat (u-l) :: Double)
+                    putStrLn $ printf "%f %f %f" (currentTime-startTime) (fromRat (u+l)/2 :: Double) (fromRat (u-l) :: Double)
                 )
             return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) $ last bounds
 
-        inferenceDebug queries ast nnf = do
+        inferenceDebug queries Nothing ast nnf = do
             let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) nnf
-            --results <- return $ take 7 results
+            results <- return $ take 25 results
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
-            doIO $ forM results (\(pst,_) -> do
-                    let (l,u)    = PST.bounds pst
-                    currentTime <- fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
-                    let appr     = fromRat (u+l)/2::Double
-                    let err      = (0.6339446564891053 - appr)^2
-                    putStrLn $ printf "%f %f" (currentTime-startTime) err
-                )
                 --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --                                    appr <- return $ fromRat (u+l)/2::Float
             --                                    err  <- return (0.4053876623346897 - appr)^2
@@ -89,7 +82,7 @@ exeMain = do
             --                            putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))0.4053876623346897
             --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
             --NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
-            --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
+            PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
             --return ()
             return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
             --return $ length results

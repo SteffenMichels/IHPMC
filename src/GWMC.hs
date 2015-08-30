@@ -77,14 +77,14 @@ gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryA
             NNF.RefComposed qSign label  -> NNF.RefComposed (sign == qSign) label
             NNF.RefBuildInPredicate pred -> NNF.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
 
-iterate :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> (NNF, PST)
+iterate :: NNF -> PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> (NNF, PST)
 iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
     | l == u    = (nnf', PST.Finished l)
     | otherwise = (nnf', PST.Unfinished pstNode' bounds score)
     where
         (nnf', pstNode', bounds@(l,u), score) = iterateNode nnf pstNode previousChoicesReal partChoiceProb
 
-        iterateNode :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> Double -> (NNF, PSTNode, ProbabilityBounds, Double)
+        iterateNode :: NNF -> PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> (NNF, PSTNode, ProbabilityBounds, Double)
         iterateNode nnf (PST.ChoiceBool rFuncLabel p left right) previousChoicesReal partChoiceProb =
             (nnf', PST.ChoiceBool rFuncLabel p left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
             where
@@ -101,13 +101,13 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
             where
                 (nnf', left', right') = case (left,right) of
                         (PST.Unfinished pstNode _ _, _) | PST.score  left > PST.score  right ->
-                            let (nnf'', left'') = GWMC.iterate nnf pstNode (Map.insert rf (curLower, Open splitPoint) previousChoicesReal) ((fromRat p::Double)*partChoiceProb) rfuncDefs
+                            let (nnf'', left'') = GWMC.iterate nnf pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) ((fromRat p::Double)*partChoiceProb) rfuncDefs
                             in  (nnf'', left'', right)
                         (_, PST.Unfinished pstNode _ _) ->
-                            let (nnf'', right'') = GWMC.iterate nnf pstNode (Map.insert rf (Open splitPoint, curUpper) previousChoicesReal) ((fromRat (1-p)::Double)*partChoiceProb) rfuncDefs
+                            let (nnf'', right'') = GWMC.iterate nnf pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) ((fromRat (1-p)::Double)*partChoiceProb) rfuncDefs
                             in  (nnf'', left, right'')
                         _ -> error "finished node should not be selected for iteration"
-                (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
+                ((curLower, curUpper), curCount) = Map.lookupDefault ((Inf, Inf), 0) rf previousChoicesReal
         iterateNode nnf (PST.Decomposition op dec) previousChoicesReal partChoiceProb =
             (nnf', PST.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
             where
@@ -137,17 +137,19 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
                             left  = toPSTNode p leftEntry
                             right = toPSTNode (1-p) rightEntry
                             splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf previousChoicesReal nnfEntry nnf
-                            curInterv@(curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf previousChoicesReal
+                            curInterv@(curLower, curUpper) = fst $ Map.lookupDefault ((Inf, Inf), undefined) rf previousChoicesReal
                     _  -> error ("undefined rfunc " ++ rf)
                     where
                         rf = fst $ head xxx
                         xxx = sortWith rfScore $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry ref nnf
                         xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ show (rfScore x) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
+                        --rfScore (rf, (p,n)) = let count = snd $ Map.lookupDefault (undefined, 0) rf previousChoicesReal
+                                              --in (-abs (p-n) / fromIntegral count, count)
                         rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
-                            Just (l,u) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
-                                              currentP = fromRat (cdf' cdf False u - cdf' cdf True l)
-                                          in  (-currentP * abs (p-n), -currentP)
-                            _          -> (-abs (p-n), -1.0)
+                            Just ((l,u), count) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
+                                                       currentP = fromRat (cdf' cdf False u - cdf' cdf True l)
+                                                   in  (count, -p-n)
+                            _                   -> (0, -p-n)
 
                         nnfEntry = NNF.augmentWithEntry ref nnf
                         toPSTNode p entry = case NNF.entryNode entry of
@@ -216,7 +218,7 @@ decompose ref nnf = case NNF.entryNode $ NNF.augmentWithEntry ref nnf of
             NNF.RefComposed sign _ -> sign
             _                      -> error "nodes other than composed ones have to sign"
 
-determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> HashMap RFuncLabel Interval -> NNF.RefWithNode -> NNF -> Rational
+determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> HashMap RFuncLabel (Interval, Int) -> NNF.RefWithNode -> NNF -> Rational
 determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesReal nnfEntry nnf = fst $ head list
     where
         list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore nnfEntry)
@@ -240,7 +242,7 @@ determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesRea
                 mbOtherInterv = Map.lookup otherRf prevChoicesReal
                 points' = case mbOtherInterv of
                     Nothing -> []
-                    Just (otherLower, otherUpper) ->
+                    Just ((otherLower, otherUpper), _) ->
                         -- points must be in interval and not at boundary
                         filter (\p -> Interval.PointPlus p > Interval.toPoint Lower lower && Interval.PointMinus p < Interval.toPoint Upper upper) rationalPoints
                         where
