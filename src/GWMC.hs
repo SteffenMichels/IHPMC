@@ -37,15 +37,13 @@ import Numeric (fromRat)
 import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
 import Control.Applicative ((<$>))
-import System.IO.Unsafe (unsafePerformIO)
-import Exception
 
-gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
+gwmc :: NNF.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
 gwmc query rfuncDefs nnf = fmap (\(pst,_) -> PST.bounds pst) results where
     results = gwmcDebug query rfuncDefs nnf
 
-gwmcDebug :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [(PST, NNF)]
-gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed True $ NNF.uncondNodeLabel query
+gwmcDebug :: NNF.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [(PST, NNF)]
+gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode query
     where
         gwmc' :: NNF -> PSTNode -> [(PST, NNF)]
         gwmc' nnf pstNode = case GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs of
@@ -53,16 +51,16 @@ gwmcDebug query rfuncDefs nnf = gwmc' nnf $ PST.initialNode $ NNF.RefComposed Tr
             (nnf', pst@(PST.Unfinished pstNode' _ _)) -> let results = gwmc' nnf' pstNode'
                                                          in  (pst,nnf') : results
 
-gwmcEvidence :: PredicateLabel -> NNF.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
+gwmcEvidence :: NNF.NodeRef -> NNF.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> NNF -> [ProbabilityBounds]
 gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence) nnf''
     where
         gwmc' :: PST -> PST -> NNF -> [(PST, PST, NNF)]
-        gwmc' (PST.Finished _) (PST.Finished _) nnf = (unsafePerformIO $ runExceptionalT (NNF.exportAsDot "/tmp/nnf.dot" nnf) >> return [])
+        gwmc' (PST.Finished _) (PST.Finished _) _ = []
         gwmc' qe nqe nnf
-            | PST.maxError qe > PST.maxError nqe = let (PST.Unfinished pstNode _ _) = qe
-                                                       (nnf', qe')  = GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs
-                                                       rest = gwmc' qe' nqe nnf'
-                                                   in  (qe', nqe, nnf') : rest
+            | PST.maxError qe > PST.maxError nqe =let (PST.Unfinished pstNode _ _) = qe
+                                                      (nnf', qe')  = GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs
+                                                      rest = gwmc' qe' nqe nnf'
+                                                   in (qe', nqe, nnf') : rest
             | otherwise                          = let (PST.Unfinished pstNode _ _) = nqe
                                                        (nnf', nqe') = GWMC.iterate nnf pstNode Map.empty 1.0 rfuncDefs
                                                        rest = gwmc' qe nqe' nnf'
@@ -75,7 +73,9 @@ gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryA
         initPST nwr = PST.Unfinished (PST.initialNode $ NNF.entryRef nwr) (0.0,1.0) undefined
         (queryAndEvidence,    nnf')  = NNF.insertFresh True NNF.And (Set.fromList [queryRef True,  evidence]) nnf
         (negQueryAndEvidence, nnf'') = NNF.insertFresh True NNF.And (Set.fromList [queryRef False, evidence]) nnf'
-        queryRef sign = NNF.RefComposed sign $ NNF.uncondNodeLabel query
+        queryRef sign = case query of
+            NNF.RefComposed qSign label  -> NNF.RefComposed (sign == qSign) label
+            NNF.RefBuildInPredicate pred -> NNF.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
 
 iterate :: NNF -> PSTNode -> HashMap RFuncLabel Interval -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> (NNF, PST)
 iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs

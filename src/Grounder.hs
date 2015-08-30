@@ -21,17 +21,19 @@ import NNF (NNF)
 import qualified NNF
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
+import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Data.Maybe (fromJust)
 import BasicTypes
 import Control.Arrow (first)
 
-groundPclp :: AST -> (Maybe NNF.NodeRef, NNF)
+groundPclp :: AST -> (HashSet NNF.NodeRef, Maybe NNF.NodeRef, NNF)
 groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} = case mbEvidence of
-    Nothing -> (Nothing, snd groundedQueries)
-    Just ev -> first Just $ groundRule ev (snd groundedQueries)
+    Nothing -> (groundedQueries, Nothing, groundedNNF)
+    Just ev -> let (groundedEvidence, groundedNNF') = groundRule ev groundedNNF
+               in  (groundedQueries, Just groundedEvidence, groundedNNF')
     where
-        groundedQueries = Set.foldr (\q (refs,nnf) -> first (`Set.insert` refs) $ groundRule q nnf) (Set.empty, NNF.empty) queries
+        (groundedQueries, groundedNNF) = Set.foldr (\q (refs,nnf) -> first (`Set.insert` refs) $ groundRule q nnf) (Set.empty, NNF.empty) queries
 
         groundRule :: PredicateLabel -> NNF -> (NNF.NodeRef, NNF)
         groundRule label nnf
