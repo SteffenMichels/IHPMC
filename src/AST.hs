@@ -60,7 +60,7 @@ instance Show AST where
             Just ev -> printf "evidence %s.\n" ev
             Nothing -> ""
 
-data RFuncDef = Flip Rational
+data RFuncDef = Flip Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
 
 instance Show RFuncDef where

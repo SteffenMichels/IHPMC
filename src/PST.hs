@@ -74,19 +74,19 @@ exportAsDot path pst = do
         printNode :: Maybe String -> Maybe String-> PST -> Int -> Handle -> ExceptionalT String IO Int
         printNode mbParent mbEdgeLabel pst counter file = case pst of
             Finished prob -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (fromRat prob::Float))
+                doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
             Unfinished (ChoiceBool label prob left right) _ score -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
                 print mbParent (show counter) mbEdgeLabel
-                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (fromRat prob::Float) label) left (counter+1) file
-                printNode (Just $ show counter) (Just $ printf "%f: %s=false" (fromRat (1-prob)::Float) label) right counter' file
+                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) label) left (counter+1) file
+                printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) label) right counter' file
             Unfinished (ChoiceReal label prob splitPoint left right) _ score -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
                 print mbParent (show counter) mbEdgeLabel
-                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (fromRat prob::Float) label (fromRat splitPoint::Float)) left (counter+1) file
-                printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (fromRat (1-prob)::Float) label (fromRat splitPoint::Float)) right counter' file
+                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) label (fromRat splitPoint::Float)) left (counter+1) file
+                printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) label (fromRat splitPoint::Float)) right counter' file
             Unfinished (Decomposition op psts) _ score -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds pst) score)
                 print mbParent (show counter) mbEdgeLabel
@@ -104,7 +104,7 @@ exportAsDot path pst = do
                         )))
 
                 printBounds :: PST -> String
-                printBounds pst = let (l,u) = PST.bounds pst in printf "[%f-%f]" (fromRat l::Float) (fromRat u::Float)
+                printBounds pst = let (l,u) = PST.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
 
                 nodeLabelToReadableString :: NNF.NodeRef -> String
                 nodeLabelToReadableString (NNF.RefComposed sign (NNF.ComposedLabel label bConds rConds _)) = printf

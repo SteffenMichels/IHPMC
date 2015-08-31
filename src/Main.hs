@@ -35,6 +35,7 @@ import Benchmarks
 import Numeric (fromRat)
 import Control.Monad.Exception.Synchronous -- TODO: remove, should be included by Exception
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Control.Arrow ((***))
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -65,11 +66,11 @@ exeMain = do
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
             doIO $ forM bounds (\(l,u) -> do
                     currentTime <- fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
-                    let appr     = fromRat (u+l)::Double
-                    let err      = (0.10338645418326829 - appr)^2
-                    putStrLn $ printf "%f %f %f" (currentTime-startTime) (fromRat (u+l)/2 :: Double) (fromRat (u-l) :: Double)
+                    let appr     = probToDouble (u+l)/2
+                    let err      = (0.6339679832532711 - appr)^2
+                    putStrLn $ printf "%f %f" (currentTime-startTime) err
                 )
-            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) $ last bounds
+            return . (probToDouble *** probToDouble) $ last bounds
 
         inferenceDebug queries Nothing ast nnf = do
             let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) nnf
@@ -84,12 +85,12 @@ exeMain = do
             --NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
             PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
             --return ()
-            return . (\(l,u) -> (fromRat l::Double,fromRat u::Double)) . PST.bounds $ fst $ last results
+            return . (probToDouble *** probToDouble) . PST.bounds $ fst $ last results
             --return $ length results
 
         inferenceExact ast nnf = do
             (p, nnfAfter) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
-            return (fromRat p :: Double)
+            return (probToDouble p)
 
 -- Entry point for unit tests.
 testMain = undefined--do

@@ -90,10 +90,10 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
             where
                 (nnf', left', right') = case (left,right) of
                         (PST.Unfinished pstNode _ _, _) | PST.score left > PST.score  right ->
-                            let (nnf'', left'') = GWMC.iterate nnf pstNode previousChoicesReal ((fromRat p::Double)*partChoiceProb) rfuncDefs
+                            let (nnf'', left'') = GWMC.iterate nnf pstNode previousChoicesReal (probToDouble p * partChoiceProb) rfuncDefs
                             in  (nnf'', left'', right)
                         (_, PST.Unfinished pstNode _ _) ->
-                            let (nnf'', right'') = GWMC.iterate nnf pstNode previousChoicesReal ((fromRat (1-p)::Double)*partChoiceProb) rfuncDefs
+                            let (nnf'', right'') = GWMC.iterate nnf pstNode previousChoicesReal (probToDouble (1-p) * partChoiceProb) rfuncDefs
                             in  (nnf'', left, right'')
                         _ -> error "finished node should not be selected for iteration"
         iterateNode nnf (PST.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb =
@@ -101,10 +101,10 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
             where
                 (nnf', left', right') = case (left,right) of
                         (PST.Unfinished pstNode _ _, _) | PST.score  left > PST.score  right ->
-                            let (nnf'', left'') = GWMC.iterate nnf pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) ((fromRat p::Double)*partChoiceProb) rfuncDefs
+                            let (nnf'', left'') = GWMC.iterate nnf pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) (probToDouble p * partChoiceProb) rfuncDefs
                             in  (nnf'', left'', right)
                         (_, PST.Unfinished pstNode _ _) ->
-                            let (nnf'', right'') = GWMC.iterate nnf pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) ((fromRat (1-p)::Double)*partChoiceProb) rfuncDefs
+                            let (nnf'', right'') = GWMC.iterate nnf pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) (probToDouble (1-p) * partChoiceProb) rfuncDefs
                             in  (nnf'', left, right'')
                         _ -> error "finished node should not be selected for iteration"
                 ((curLower, curUpper), curCount) = Map.lookupDefault ((Inf, Inf), 0) rf previousChoicesReal
@@ -147,15 +147,15 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
                                               --in (-abs (p-n) / fromIntegral count, count)
                         rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
                             Just ((l,u), count) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
-                                                       currentP = fromRat (cdf' cdf False u - cdf' cdf True l)
+                                                       currentP = probToDouble (cdf' cdf False u - cdf' cdf True l)
                                                    in  (count, -p-n)
                             _                   -> (0, -p-n)
 
                         nnfEntry = NNF.augmentWithEntry ref nnf
                         toPSTNode p entry = case NNF.entryNode entry of
                             NNF.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
-                            _                     -> PST.Unfinished (PST.Leaf $ NNF.entryRef entry) (0.0,1.0) ((fromRat p::Double)*partChoiceProb)
-                        cdf' _ lower Inf    = if lower then 0.0 else 1.0
+                            _                     -> PST.Unfinished (PST.Leaf $ NNF.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
+                        cdf' _ lower Inf      = if lower then 0.0 else 1.0
                         cdf' cdf _ (Open x)   = cdf x
                         cdf' cdf _ (Closed x) = cdf x
             Just (origOp, decOp, sign, decomposition) -> (nnf', PST.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)

@@ -129,7 +129,7 @@ parseRFuncDef = do
 parseFlip :: Parser AST.RFuncDef
 parseFlip = do
     stringAndSpaces "flip("
-    prob <- parseRat
+    prob <- ratToProb <$> parseRat
     stringAndSpaces ")"
     stringAndSpaces "."
     return $ AST.Flip prob
@@ -143,8 +143,8 @@ parseNorm = do
     stringAndSpaces ")"
     stringAndSpaces "."
     return $ AST.RealDist
-        (toRational . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
-        (toRational . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
+        (doubleToProb . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
+        (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
 
 -- expressions
 parseBoolExpr :: Parser (AST.Expr Bool)

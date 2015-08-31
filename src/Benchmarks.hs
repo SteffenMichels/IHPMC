@@ -41,7 +41,7 @@ writeBenchmark printFunc path ast = do
 -- Problog
 toProblogSource :: AST -> String
 toProblogSource  ast = rfuncDefsStr ++ rulesStr ++ queryStr where
-    rfuncDefsStr = concat [printf "%f :: %s.\n" (fromRat p::Float) label | (label, [AST.Flip p]) <- Map.toList $ AST.rFuncDefs ast]
+    rfuncDefsStr = concat [printf "%f :: %s.\n" (probToDouble p) label | (label, [AST.Flip p]) <- Map.toList $ AST.rFuncDefs ast]
     rulesStr     = concat $ concat [[printf "%s :- %s.\n" label $ toProblogSourceBody body | body <- Set.toList bodies] | (label,bodies) <- Map.toList $ AST.rules ast]
     queryStr     = concat [printf "query(%s).\n" query | query <- Set.toList $ AST.queries ast]
 
