@@ -73,7 +73,9 @@ data NodeRef = RefComposed Bool ComposedLabel
 instance Hashable NodeRef
 
 data ComposedLabel = ComposedLabel String (HashMap RFuncLabel Bool) (HashMap RFuncLabel Interval) Int
-                      deriving (Eq)
+                      --deriving (Eq)
+instance Eq ComposedLabel where
+    (ComposedLabel _ _ _ x) == (ComposedLabel _ _ _ y) = x == y
 instance Show ComposedLabel where
     show (ComposedLabel name bConds rConds _) = printf
         "%s|%s"
@@ -142,13 +144,14 @@ insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
         scores = case simplifiedNode of
             Deterministic _       -> (0, Map.empty)
             BuildInPredicate pred -> let rfs = AST.predRandomFunctions pred in (Set.size rfs, Map.fromList [(rf, 0) | rf <- Set.toList rfs])
-            Composed op _         -> (primitiveCount, Map.fromList [(rf, scores rf) | rf <- Set.toList rFuncs])
+            Composed op _         -> (primitiveCount, newRFScores)
                 where
+                    newRFScores = Set.foldr (\rf map -> Map.insert rf (scores rf) map) Map.empty rFuncs
                     primitiveCount = foldr (\(cc,_) c -> c + cc) 0 childrenScores
                     scores rf
                         | Set.member rf rfsInPrimitive = primitiveCount
                         | otherwise                    = foldr (\(_, scores) s ->
-                                                            let s' = Map.lookupDefault (-primitiveCount) rf scores
+                                                            let s' = Map.lookupDefault 0 rf scores
                                                             in  (s+s')
                                                          ) 0 childrenScores
                     rfsInPrimitive = Set.foldr (\child rfs -> case entryNode child of

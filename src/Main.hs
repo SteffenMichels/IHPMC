@@ -56,7 +56,7 @@ exeMain = do
             --doIO (putStrLn $ show ast)
             (queries, mbEvidence, nnf) <- return $ groundPclp ast
             exportAsDot "/tmp/nnf.dot" nnf
-            inferenceApprox queries mbEvidence ast nnf
+            inferenceDebug queries mbEvidence ast nnf
 
         inferenceApprox queries mbEvidence ast nnf = do
             let bounds = case mbEvidence of
@@ -68,14 +68,14 @@ exeMain = do
                     currentTime <- fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
                     let appr     = probToDouble (u+l)/2
                     let err      = (0.6339679832532711 - appr)^2
-                    putStrLn $ printf "%f %f %f" (currentTime-startTime) l u
+                    putStrLn $ printf "%f %f" (currentTime-startTime) err
                 )
             return $ length bounds
             --return . (probToDouble *** probToDouble) $ last bounds
 
         inferenceDebug queries Nothing ast nnf = do
             let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) nnf
-            --results <- return $ take 3 results
+            results <- return $ take 300 results
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
             --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --                                    appr <- return $ fromRat (u+l)/2::Float
@@ -86,8 +86,8 @@ exeMain = do
             ----NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
             --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
             --return ()
-            --return . (probToDouble *** probToDouble) . PST.bounds $ fst $ last results
-            return $ length results
+            return . (probToDouble *** probToDouble) . PST.bounds $ fst $ last results
+            --return $ length results
 
         inferenceExact ast nnf = do
             (p, nnfAfter) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf

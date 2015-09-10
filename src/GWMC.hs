@@ -142,17 +142,10 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
                     where
                         rf = fst $ head xxx
                         xxx = sortWith rfScore $ Map.toList $ snd $ NNF.entryScores $ NNF.augmentWithEntry ref nnf
-                        xxxy = trace (foldl (\str x@(rf,_) -> str ++ "\n" ++ show (rfScore x) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
+                        --xxxy = trace (foldl (\str x@(rf,_) -> str ++ "\n" ++ show (rfScore x) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
                         rfScore (rf, s) = case Map.lookup rf previousChoicesReal of
-                            Just ((l,u), count) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
-                                                       currentP = probToDouble (cdf' cdf False u - cdf' cdf True l)
-                                                   in  (count, -s)
-                            _                   -> (0, -s)
-                        {-rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
-                            Just ((l,u), count) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
-                                                       currentP = probToDouble (cdf' cdf False u - cdf' cdf True l)
-                                                   in  (count, -p-n)
-                            _                   -> (0, -p-n)-}
+                            Just (_, count) -> (count, -s)
+                            _               -> (case Map.lookup rf rfuncDefs of Just (AST.Flip p:_) -> -1; _ -> 0, -s)
 
                         nnfEntry = NNF.augmentWithEntry ref nnf
                         toPSTNode p entry = case NNF.entryNode entry of
@@ -190,7 +183,7 @@ combineScoresChoice left right = max (PST.score left) (PST.score right)
 combineScoresDecomp            = foldr (\pst score -> max score $ PST.score pst) 0.0
 
 decompose :: NNF.NodeRef -> NNF -> Maybe (NNF.NodeType, NNF.NodeType, Bool, HashSet (HashSet NNF.NodeRef))
-decompose ref nnf = case NNF.entryNode $ NNF.augmentWithEntry ref nnf of
+decompose ref nnf = Nothing{-case NNF.entryNode $ NNF.augmentWithEntry ref nnf of
     NNF.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (`NNF.augmentWithEntry` nnf) children
                                 in  if Set.size dec == 1 then Nothing else Just (op, decOp op, sign, dec)
     _ -> Nothing
@@ -219,7 +212,7 @@ decompose ref nnf = case NNF.entryNode $ NNF.augmentWithEntry ref nnf of
                 NNF.Or  -> NNF.And
         sign = case ref of
             NNF.RefComposed sign _ -> sign
-            _                      -> error "nodes other than composed ones have to sign"
+            _                      -> error "nodes other than composed ones have to sign"-}
 
 determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> HashMap RFuncLabel (Interval, Int) -> NNF.RefWithNode -> NNF -> Rational
 determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesReal nnfEntry nnf = fst $ head list

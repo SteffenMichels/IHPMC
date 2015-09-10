@@ -5,7 +5,7 @@ build-type: Simple
 license: AllRightsReserved
 license-file: ""
 data-dir: ""
- 
+
 executable pclp
     build-depends: QuickCheck -any, base -any, containers -any,
                    explicit-exception -any, hashable -any, parsec -any,
@@ -17,7 +17,7 @@ executable pclp
     other-modules: GWMCExact Parser PST NNF GWMC AST BasicTypes
                    Benchmarks Grounder Interval Exception
     ghc-options: -rtsopts -XDeriveGeneric
- 
+
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
                    explicit-exception -any, hashable -any, parsec -any,
