@@ -146,19 +146,13 @@ insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
             BuildInPredicate pred -> let rfs = AST.predRandomFunctions pred in (Set.size rfs, Map.fromList [(rf, 0) | rf <- Set.toList rfs])
             Composed op _         -> (primitiveCount, Set.foldr (\rf map -> Map.insert rf primitiveCount map) newRFScores rfsInPrimitive)
                 where
-                    newRFScores = Set.foldr (\(_,child) all -> Map.unionWith (+) all child) Map.empty childrenScores--Set.foldr (\rf map -> Map.insert rf (scores rf) map) Map.empty rFuncs
-                    primitiveCount = Set.foldr (\(cc,_) c -> c + cc) 0 childrenScores
-                    {-scores rf
-                        | Set.member rf rfsInPrimitive = primitiveCount
-                        | otherwise                    = foldr (\(_, scores) s ->
-                                                            let s' = Map.lookupDefault 0 rf scores
-                                                            in  (s+s')
-                                                         ) 0 childrenScores-}
+                    newRFScores = foldr (\(_,child) all -> Map.unionWith (+) all child) Map.empty childrenScores
+                    primitiveCount = foldr (\(cc,_) c -> c + cc) 0 childrenScores
                     rfsInPrimitive = Set.foldr (\child rfs -> case entryNode child of
                             BuildInPredicate pred -> Set.union rfs $ AST.predRandomFunctions pred
                             _                     -> rfs
                         ) Set.empty children'
-                    childrenScores = Set.map entryScores children'
+                    childrenScores = [entryScores c | c <- Set.toList children']
 
         -- return children to avoid double Map lookup
         simplify :: Node -> NNF -> (Node, Bool, HashSet RefWithNode)
