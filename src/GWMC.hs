@@ -141,15 +141,18 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
                     _  -> error ("undefined rfunc " ++ rf)
                     where
                         rf = fst $ head xxx
-                        xxx = sortWith rfScore $ Map.toList $ NNF.entryScores $ NNF.augmentWithEntry ref nnf
-                        xxxy = trace (foldl (\str x@(rf,(p,n)) -> str ++ "\n" ++ show (rfScore x) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
-                        --rfScore (rf, (p,n)) = let count = snd $ Map.lookupDefault (undefined, 0) rf previousChoicesReal
-                                              --in (-abs (p-n) / fromIntegral count, count)
-                        rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
+                        xxx = sortWith rfScore $ Map.toList $ snd $ NNF.entryScores $ NNF.augmentWithEntry ref nnf
+                        xxxy = trace (foldl (\str x@(rf,_) -> str ++ "\n" ++ show (rfScore x) ++ " " ++ rf) ("\n" ++ show ref) xxx) xxx
+                        rfScore (rf, s) = case Map.lookup rf previousChoicesReal of
+                            Just ((l,u), count) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
+                                                       currentP = probToDouble (cdf' cdf False u - cdf' cdf True l)
+                                                   in  (count, -s)
+                            _                   -> (0, -s)
+                        {-rfScore (rf, (p,n)) = case Map.lookup rf previousChoicesReal of
                             Just ((l,u), count) -> let Just (AST.RealDist cdf _:_) = Map.lookup rf rfuncDefs
                                                        currentP = probToDouble (cdf' cdf False u - cdf' cdf True l)
                                                    in  (count, -p-n)
-                            _                   -> (0, -p-n)
+                            _                   -> (0, -p-n)-}
 
                         nnfEntry = NNF.augmentWithEntry ref nnf
                         toPSTNode p entry = case NNF.entryNode entry of

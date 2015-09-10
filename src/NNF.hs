@@ -57,7 +57,7 @@ data RefWithNode = RefWithNode
     { entryRef    :: NodeRef
     , entryNode   :: Node
     , entryRFuncs :: HashSet RFuncLabel
-    , entryScores :: HashMap RFuncLabel (Double, Double)
+    , entryScores :: Scores
     } deriving (Eq)
 instance Hashable RefWithNode where
     hash                  = Hashable.hashWithSalt 0
@@ -87,7 +87,7 @@ instance Hashable ComposedLabel where
     hashWithSalt salt (ComposedLabel _ _ _ hash) = Hashable.hashWithSalt salt hash
 
 -- the NNFEntry contain an NNF operator node, plus additional, redundant, cached information to avoid recomputations
-data NNFEntry = NNFEntry NodeType (HashSet NodeRef) (HashSet RFuncLabel) (HashMap RFuncLabel (Double, Double))
+data NNFEntry = NNFEntry NodeType (HashSet NodeRef) (HashSet RFuncLabel) Scores
 
 data Node = Composed NodeType (HashSet NodeRef)
           | BuildInPredicate AST.BuildInPredicate
@@ -96,6 +96,8 @@ data Node = Composed NodeType (HashSet NodeRef)
 
 data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
+
+type Scores = (Int, HashMap RFuncLabel Int)
 
 uncondNodeLabel :: RFuncLabel -> ComposedLabel
 uncondNodeLabel name = ComposedLabel name Map.empty Map.empty $ Hashable.hash name
@@ -138,23 +140,22 @@ insert sign label op children nnf@(NNF nodes freshCounter) = (refWithNode, nnf')
                 Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
 
         scores = case simplifiedNode of
-            Deterministic _       -> Map.empty
-            BuildInPredicate pred -> Map.fromList [(rf, (1.0,1.0)) | rf <- Set.toList rFuncs]
-            Composed op _         -> Map.fromList [(rf, scores rf) | rf <- Set.toList rFuncs] where
-                scores rf = case op of
-                    NNF.And -> (posScore/nRFuncs, negScore)
-                    NNF.Or  -> (posScore, negScore/nRFuncs)
-                    where
-                    (posScore', negScore') = foldr (\childScores (posScore, negScore) ->
-                                                    let (cPosScore, cNegScore) = Map.lookupDefault (0.0,0.0) rf childScores
-                                                    in  (posScore+cPosScore, negScore+cNegScore)
-                                                 )
-                                                 (0.0, 0.0)
-                                                 childrenScores
-                    (posScore, negScore) = (posScore'/nChildren, negScore'/nChildren)
-                    nChildren = fromIntegral $ Set.size children'
+            Deterministic _       -> (0, Map.empty)
+            BuildInPredicate pred -> let rfs = AST.predRandomFunctions pred in (Set.size rfs, Map.fromList [(rf, 0) | rf <- Set.toList rfs])
+            Composed op _         -> (primitiveCount, Map.fromList [(rf, scores rf) | rf <- Set.toList rFuncs])
+                where
+                    primitiveCount = foldr (\(cc,_) c -> c + cc) 0 childrenScores
+                    scores rf
+                        | Set.member rf rfsInPrimitive = primitiveCount
+                        | otherwise                    = foldr (\(_, scores) s ->
+                                                            let s' = Map.lookupDefault (-primitiveCount) rf scores
+                                                            in  (s+s')
+                                                         ) 0 childrenScores
+                    rfsInPrimitive = Set.foldr (\child rfs -> case entryNode child of
+                            BuildInPredicate pred -> Set.union rfs $ AST.predRandomFunctions pred
+                            _                     -> rfs
+                        ) Set.empty children'
                     childrenScores = [entryScores c | c <- Set.toList children']
-        nRFuncs = fromIntegral (Set.size rFuncs)
 
         -- return children to avoid double Map lookup
         simplify :: Node -> NNF -> (Node, Bool, HashSet RefWithNode)
@@ -218,7 +219,7 @@ predRefWithNode pred = RefWithNode
     { entryRef    = RefBuildInPredicate pred
     , entryNode   = BuildInPredicate pred
     , entryRFuncs = rFuncs
-    , entryScores = Map.fromList [(rf, (1.0,1.0)) | rf <- Set.toList rFuncs]
+    , entryScores = let rfs = AST.predRandomFunctions pred in (Set.size rfs, Map.fromList [(rf, 0) | rf <- Set.toList rfs])
     }
     where
         rFuncs = AST.predRandomFunctions pred
@@ -228,7 +229,7 @@ deterministicRefWithNode val = RefWithNode
     { entryRef    = RefDeterministic val
     , entryNode   = Deterministic val
     , entryRFuncs = Set.empty
-    , entryScores = Map.empty
+    , entryScores = (0, Map.empty)
     }
 
 conditionBool :: RefWithNode -> RFuncLabel -> Bool -> NNF -> (RefWithNode, NNF)

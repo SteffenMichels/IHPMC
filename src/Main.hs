@@ -68,25 +68,26 @@ exeMain = do
                     currentTime <- fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
                     let appr     = probToDouble (u+l)/2
                     let err      = (0.6339679832532711 - appr)^2
-                    putStrLn $ printf "%f %f" (currentTime-startTime) err
+                    putStrLn $ printf "%f %f %f" (currentTime-startTime) l u
                 )
-            return . (probToDouble *** probToDouble) $ last bounds
+            return $ length bounds
+            --return . (probToDouble *** probToDouble) $ last bounds
 
         inferenceDebug queries Nothing ast nnf = do
             let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) nnf
-            results <- return $ take 25 results
+            --results <- return $ take 3 results
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
-                --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
+            --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --                                    appr <- return $ fromRat (u+l)/2::Float
             --                                    err  <- return (0.4053876623346897 - appr)^2
             --                                    putStrLn $ printf "%i %f" (currentTime-startTime) err
-            --                            putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float))0.4053876623346897
+                                        --putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float)
             --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
-            --NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
-            PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
+            ----NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
+            --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
             --return ()
-            return . (probToDouble *** probToDouble) . PST.bounds $ fst $ last results
-            --return $ length results
+            --return . (probToDouble *** probToDouble) . PST.bounds $ fst $ last results
+            return $ length results
 
         inferenceExact ast nnf = do
             (p, nnfAfter) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf

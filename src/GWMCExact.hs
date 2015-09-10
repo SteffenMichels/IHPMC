@@ -38,6 +38,6 @@ gwmc query rfuncDefs nnf = gwmc' (NNF.augmentWithEntry (NNF.RefComposed True $ N
                         (pRight, nnf'''')    = gwmc' rightEntry nnf'''
                 Just (AST.RealDist cdf icdf:_) -> error "not implemented"
                 where
-                    xxx = sortWith (\(rf, (p,n)) -> -abs (p-n)) $ Map.toList $ NNF.entryScores entry
+                    xxx = sortWith (\(rf, s) -> s) $ Map.toList $ snd $ NNF.entryScores entry
                     --xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show nnfLabel) xxx) xxx
                     rf = fst $ head xxx
