@@ -75,7 +75,7 @@ exeMain = do
 
         inferenceDebug queries Nothing ast nnf = do
             let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) nnf
-            results <- return $ take 300 results
+            results <- return $ take 1000 results
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
             --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
             --                                    appr <- return $ fromRat (u+l)/2::Float
