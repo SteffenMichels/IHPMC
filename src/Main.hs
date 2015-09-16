@@ -55,7 +55,7 @@ exeMain = do
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             (queries, mbEvidence, nnf) <- return $ groundPclp ast
-            exportAsDot "/tmp/nnf.dot" nnf
+            --exportAsDot "/tmp/nnf.dot" nnf
             inferenceApprox queries mbEvidence ast nnf
 
         inferenceApprox queries mbEvidence ast nnf = do
@@ -70,7 +70,7 @@ exeMain = do
                     let err      = (0.40522773712567817 - appr)^2
                     putStrLn $ printf "%f %f" (currentTime-startTime) ((u-l)/2)
                 )-}
-            return $ last $ take 1000 bounds
+            return $ last $ take 200 bounds
             --return . (probToDouble *** probToDouble) $ last bounds
 
         inferenceDebug queries Nothing ast nnf = do

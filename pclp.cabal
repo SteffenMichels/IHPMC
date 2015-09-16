@@ -16,7 +16,7 @@ executable pclp
     hs-source-dirs: src
     other-modules: GWMCExact Parser PST NNF GWMC AST BasicTypes
                    Benchmarks Grounder Interval Exception
-    ghc-options: -rtsopts -XDeriveGeneric
+    ghc-options: -rtsopts -XDeriveGeneric -prof -fprof-auto
 
 test-suite test-pclp
     build-depends: QuickCheck -any, base -any, containers -any,
