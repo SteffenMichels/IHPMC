@@ -71,8 +71,8 @@ gwmcEvidence query evidence rfuncDefs nnf = probBounds <$> gwmc' (initPST queryA
             (lnqe, unqe) = PST.bounds nqe
 
         initPST nwr = PST.Unfinished (PST.initialNode $ NNF.entryRef nwr) (0.0,1.0) undefined
-        (queryAndEvidence,    nnf')  = NNF.insertFresh True NNF.And (Set.fromList [queryRef True,  evidence]) nnf
-        (negQueryAndEvidence, nnf'') = NNF.insertFresh True NNF.And (Set.fromList [queryRef False, evidence]) nnf'
+        (queryAndEvidence,    nnf')  = NNF.insert True NNF.And (Set.fromList [queryRef True,  evidence]) nnf
+        (negQueryAndEvidence, nnf'') = NNF.insert True NNF.And (Set.fromList [queryRef False, evidence]) nnf'
         queryRef sign = case query of
             NNF.RefComposed qSign label  -> NNF.RefComposed (sign == qSign) label
             NNF.RefBuildInPredicate pred -> NNF.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
@@ -159,7 +159,7 @@ iterate nnf pstNode previousChoicesReal partChoiceProb rfuncDefs
                     (psts, nnf') = Set.foldr
                         (\dec (psts, nnf) ->
                             let (fresh, nnf') = if Set.size dec > 1 then
-                                                    first NNF.entryRef $ NNF.insertFresh sign origOp dec nnf
+                                                    first NNF.entryRef $ NNF.insert sign origOp dec nnf
                                                 else
                                                     let single = getFirst dec
                                                     in  (if sign then single else negate single, nnf)

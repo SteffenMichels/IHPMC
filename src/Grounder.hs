@@ -37,7 +37,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
 
         groundRule :: PredicateLabel -> NNF -> (NNF.NodeRef, NNF)
         groundRule label nnf
-            | NNF.member nnfLabel nnf = (NNF.RefComposed True nnfLabel, nnf) -- already added
+            -- | NNF.member nnfLabel nnf = (NNF.RefComposed True nnfLabel, nnf) -- already added
             | nChildren == 0 = error "not implemented"
             | otherwise      = let (nnfChildren,nnf') = Set.foldr
                                     (\child (nnfChildren,nnf) ->
@@ -46,11 +46,11 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                     )
                                     (Set.empty,nnf)
                                     children
-                               in first NNF.entryRef $ NNF.insert True nnfLabel NNF.Or nnfChildren nnf'
+                               in first NNF.entryRef $ NNF.insert True NNF.Or nnfChildren nnf'
             where
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
-                nnfLabel = NNF.uncondNodeLabel label
+                --nnfLabel = NNF.uncondNodeLabel label
 
         groundBody :: AST.RuleBody -> NNF -> (NNF.NodeRef, NNF)
         groundBody (AST.RuleBody elements) nnf = case elements of
@@ -63,8 +63,9 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                         )
                                         (Set.empty, nnf)
                                         elements
-                               in first NNF.entryRef $ NNF.insertFresh True NNF.And nnfChildren nnf'
+                               in first NNF.entryRef $ NNF.insert True NNF.And nnfChildren nnf'
 
         groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeRef, NNF)
-        groundElement (AST.UserPredicate label)   nnf = (NNF.RefComposed True $ NNF.uncondNodeLabel label, snd $ groundRule label nnf)
+        groundElement (AST.UserPredicate label)   nnf = (ref, nnf') where
+            (ref, nnf') = groundRule label nnf
         groundElement (AST.BuildInPredicate pred) nnf = (NNF.RefBuildInPredicate pred, nnf)

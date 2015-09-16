@@ -92,7 +92,7 @@ exportAsDot path pst = do
                 print mbParent (show counter) mbEdgeLabel
                 foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
             Unfinished (Leaf label) _ score -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (nodeLabelToReadableString label) score)
+                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (nodeRefToReadableString label) score)
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
             where
@@ -106,7 +106,16 @@ exportAsDot path pst = do
                 printBounds :: PST -> String
                 printBounds pst = let (l,u) = PST.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
 
-                nodeLabelToReadableString :: NNF.NodeRef -> String
+                nodeRefToReadableString :: NNF.NodeRef -> String
+                nodeRefToReadableString (NNF.RefComposed sign id) = printf
+                        "%s%s\n"
+                        (if sign then "" else "-")
+                        (show id)
+                        where
+                            showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
+                            showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
+                nodeRefToReadableString ref = show ref
+                {-nodeLabelToReadableString :: NNF.NodeRef -> String
                 nodeLabelToReadableString (NNF.RefComposed sign (NNF.ComposedLabel label bConds rConds _)) = printf
                         "%s%s\n  |%s"
                         label
@@ -115,5 +124,5 @@ exportAsDot path pst = do
                         where
                             showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
                             showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
-                nodeLabelToReadableString ref = show ref
+                nodeLabelToReadableString ref = show ref-}
 
