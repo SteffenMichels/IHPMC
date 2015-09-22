@@ -26,6 +26,7 @@ import qualified Data.HashSet as Set
 import Data.Maybe (fromJust)
 import BasicTypes
 import Control.Arrow (first)
+import Text.Printf (printf)
 
 groundPclp :: AST -> (HashSet NNF.NodeRef, Maybe NNF.NodeRef, NNF)
 groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} = case mbEvidence of
@@ -36,24 +37,24 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
         (groundedQueries, groundedNNF) = Set.foldr (\q (refs,nnf) -> first (`Set.insert` refs) $ groundRule q nnf) (Set.empty, NNF.empty) queries
 
         groundRule :: PredicateLabel -> NNF -> (NNF.NodeRef, NNF)
-        groundRule label nnf
-            -- | NNF.member nnfLabel nnf = (NNF.RefComposed True nnfLabel, nnf) -- already added
-            | nChildren == 0 = error "not implemented"
-            | otherwise      = let (nnfChildren,nnf') = Set.foldr
-                                    (\child (nnfChildren,nnf) ->
-                                        let (newChild,nnf') = groundBody child nnf
-                                        in  (Set.insert newChild nnfChildren, nnf')
-                                    )
-                                    (Set.empty,nnf)
-                                    children
-                               in first NNF.entryRef $ NNF.insert True NNF.Or nnfChildren nnf'
+        groundRule label nnf = case NNF.labelId nnfLabel nnf of
+            Just nodeId        -> (NNF.RefComposed True nodeId, nnf)
+            _ | nChildren == 0 -> error "not implemented"
+            _                  -> let (nnfChildren,nnf',_) = Set.foldr
+                                        (\child (nnfChildren,nnf,counter) ->
+                                            let (newChild,nnf') = groundBody (printf "%s%i" label counter) child nnf
+                                            in  (Set.insert newChild nnfChildren, nnf', counter+1)
+                                        )
+                                        (Set.empty,nnf,0::Int)
+                                        children
+                                  in first NNF.entryRef $ NNF.insert (Just $ NNF.uncondNodeLabel label) True NNF.Or nnfChildren nnf'
             where
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
-                --nnfLabel = NNF.uncondNodeLabel label
+                nnfLabel = NNF.uncondNodeLabel label
 
-        groundBody :: AST.RuleBody -> NNF -> (NNF.NodeRef, NNF)
-        groundBody (AST.RuleBody elements) nnf = case elements of
+        groundBody :: PredicateLabel -> AST.RuleBody -> NNF -> (NNF.NodeRef, NNF)
+        groundBody label (AST.RuleBody elements) nnf = case elements of
             []              -> error "not implemented"
             [singleElement] -> groundElement singleElement nnf
             elements        -> let (nnfChildren, nnf') = foldl
@@ -63,7 +64,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                         )
                                         (Set.empty, nnf)
                                         elements
-                               in first NNF.entryRef $ NNF.insert True NNF.And nnfChildren nnf'
+                               in first NNF.entryRef $ NNF.insert (Just $ NNF.uncondNodeLabel label) True NNF.And nnfChildren nnf'
 
         groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeRef, NNF)
         groundElement (AST.UserPredicate label)   nnf = (ref, nnf') where
