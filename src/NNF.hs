@@ -134,7 +134,8 @@ insert mbLabel sign op children nnf@(NNF nodes freshCounter labels2ids) = (refWi
             BuildInPredicate pred -> (predRefWithNode $ if sign then pred else AST.negatePred pred, nnf)
             Deterministic val     -> (deterministicRefWithNode (val == sign), nnf)
 
-        (simplifiedNode, simplifiedSign, children') = simplify (Composed op children) nnf
+        (simplifiedNode, simplifiedSign) = simplify (Composed op children) nnf
+        children' = Set.map (`augmentWithEntry` nnf) $ nodeChildren simplifiedNode
         rFuncs = case simplifiedNode of
             Deterministic _       -> Set.empty
             BuildInPredicate pred -> AST.predRandomFunctions pred
@@ -149,32 +150,30 @@ insert mbLabel sign op children nnf@(NNF nodes freshCounter labels2ids) = (refWi
                     newRFScores    = foldr (\(_,child) all -> Map.unionWith (+) all child) Map.empty childrenScores
                     primitiveCount = foldr (\(cc,_) c -> c + cc) 0 childrenScores
                     rfsInPrimitive = Set.foldr (\child rfs -> case entryNode child of
-                            BuildInPredicate pred -> Set.union rfs $ AST.predRandomFunctions pred
-                            _                     -> rfs
+                            BuildInPredicate _ -> Set.union rfs $ entryRFuncs child
+                            _                  -> rfs
                         ) Set.empty children'
                     childrenScores = [entryScores c | c <- Set.toList children']
 
-        -- return children to avoid double Map lookup
-        simplify :: Node -> NNF -> (Node, Bool, HashSet RefWithNode)
-        simplify node@(Deterministic _) _ = (node, undefined, Set.empty)
+        simplify :: Node -> NNF -> (Node, Bool)
+        simplify node@(Deterministic val) _ = (node, undefined)
         simplify node@(BuildInPredicate pred) _ = case AST.deterministicValue pred of
-            Just val -> (Deterministic val, undefined, Set.empty)
-            Nothing  -> (node, undefined, Set.empty)
-        simplify (Composed operator childLabels) nnf = (simplified, sign, children)
+            Just val -> (Deterministic val, undefined)
+            Nothing  -> (node, undefined)
+        simplify (Composed operator childRefs) nnf = (simplified, sign)
             where
-                sign = case (nChildren, entryRef $ getFirst children) of
+                sign = case (nChildren, getFirst newChildRefs) of
                     (1, RefComposed s _) -> s
                     _                    -> True
                 simplified
                     | nChildren == 0 = Deterministic filterValue
-                    | nChildren == 1 = entryNode $ getFirst children
-                    | Foldable.any (\c -> entryNode c == Deterministic singleDeterminismValue) children =
+                    | nChildren == 1 = entryNode . (`augmentWithEntry` nnf) $ getFirst newChildRefs
+                    | Foldable.any (RefDeterministic singleDeterminismValue ==) childRefs =
                         Deterministic singleDeterminismValue
-                    | otherwise = Composed operator $ Set.map entryRef children
+                    | otherwise = Composed operator newChildRefs
 
-                originalChildren = Set.map (`augmentWithEntry` nnf) childLabels
-                children = Set.filter (\c -> entryNode c /= Deterministic filterValue) originalChildren
-                nChildren = Set.size children
+                newChildRefs = Set.filter (RefDeterministic filterValue /=) childRefs
+                nChildren    = Set.size newChildRefs
                 -- truth value that causes determinism if at least a single child has it
                 singleDeterminismValue = operator == Or
                 -- truth value that can be filtered out
@@ -317,6 +316,10 @@ conditionReal origNodeEntry rf interv otherRealChoices nnf@(NNF nodes _ labels2i
                 corners = foldr (\(rf, (l,u)) corners -> [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners]) [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]] otherConditions
                 predRFuncs = AST.predRandomFunctions pred
         conditionPred pred = pred
+
+nodeChildren :: Node -> HashSet NodeRef
+nodeChildren (Composed _ children) = children
+nodeChildren _                     = Set.empty
 
 exportAsDot :: FilePath -> NNF -> ExceptionalT String IO ()
 exportAsDot path (NNF nodes _ _) = do

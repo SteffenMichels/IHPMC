@@ -70,7 +70,7 @@ exeMain = do
                     let err      = (0.40522773712567817 - appr)^2
                     putStrLn $ printf "%f %f" (currentTime-startTime) ((u-l)/2)
                 )-}
-            return $ last $ take 2000000 bounds
+            return $ last $ take 200 bounds
             --return . (probToDouble *** probToDouble) $ last bounds
 
         inferenceDebug queries Nothing ast nnf = do

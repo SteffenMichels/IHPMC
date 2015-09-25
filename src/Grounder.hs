@@ -47,8 +47,10 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                         )
                                         (Set.empty,nnf,0::Int)
                                         children
-                                  in first NNF.entryRef $ NNF.insert (Just $ NNF.uncondNodeLabel label) True NNF.Or nnfChildren nnf'
+                                  in first NNF.entryRef $ NNF.insert mbLabel True NNF.Or nnfChildren nnf'
             where
+                mbLabel | Set.member label queries = Nothing
+                        | otherwise                = Just $ NNF.uncondNodeLabel label
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
                 nnfLabel = NNF.uncondNodeLabel label
