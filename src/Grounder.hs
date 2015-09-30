@@ -17,8 +17,8 @@ module Grounder
     ) where
 import AST (AST)
 import qualified AST
-import NNF (NNF)
-import qualified NNF
+import Formula (Formula)
+import qualified Formula
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
 import Data.HashSet (HashSet)
@@ -28,47 +28,47 @@ import BasicTypes
 import Control.Arrow (first)
 import Text.Printf (printf)
 
-groundPclp :: AST -> (HashSet NNF.NodeRef, Maybe NNF.NodeRef, NNF)
+groundPclp :: AST -> (HashSet Formula.NodeRef, Maybe Formula.NodeRef, Formula)
 groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} = case mbEvidence of
-    Nothing -> (groundedQueries, Nothing, groundedNNF)
-    Just ev -> let (groundedEvidence, groundedNNF') = groundRule ev groundedNNF
-               in  (groundedQueries, Just groundedEvidence, groundedNNF')
+    Nothing -> (groundedQueries, Nothing, groundedFormula)
+    Just ev -> let (groundedEvidence, groundedFormula') = groundRule ev groundedFormula
+               in  (groundedQueries, Just groundedEvidence, groundedFormula')
     where
-        (groundedQueries, groundedNNF) = Set.foldr (\q (refs,nnf) -> first (`Set.insert` refs) $ groundRule q nnf) (Set.empty, NNF.empty) queries
+        (groundedQueries, groundedFormula) = Set.foldr (\q (refs,f) -> first (`Set.insert` refs) $ groundRule q f) (Set.empty, Formula.empty) queries
 
-        groundRule :: PredicateLabel -> NNF -> (NNF.NodeRef, NNF)
-        groundRule label nnf = case NNF.labelId nnfLabel nnf of
-            Just nodeId        -> (NNF.RefComposed True nodeId, nnf)
+        groundRule :: PredicateLabel -> Formula -> (Formula.NodeRef, Formula)
+        groundRule label f = case Formula.labelId fLabel f of
+            Just nodeId        -> (Formula.RefComposed True nodeId, f)
             _ | nChildren == 0 -> error "not implemented"
-            _                  -> let (nnfChildren,nnf',_) = Set.foldr
-                                        (\child (nnfChildren,nnf,counter) ->
-                                            let (newChild,nnf') = groundBody (printf "%s%i" label counter) child nnf
-                                            in  (Set.insert newChild nnfChildren, nnf', counter+1)
+            _                  -> let (fChildren,f',_) = Set.foldr
+                                        (\child (fChildren,f,counter) ->
+                                            let (newChild,f') = groundBody (printf "%s%i" label counter) child f
+                                            in  (Set.insert newChild fChildren, f', counter+1)
                                         )
-                                        (Set.empty,nnf,0::Int)
+                                        (Set.empty,f,0::Int)
                                         children
-                                  in first NNF.entryRef $ NNF.insert mbLabel True NNF.Or nnfChildren nnf'
+                                  in first Formula.entryRef $ Formula.insert mbLabel True Formula.Or fChildren f'
             where
                 mbLabel | Set.member label queries = Nothing
-                        | otherwise                = Just $ NNF.uncondNodeLabel label
+                        | otherwise                = Just $ Formula.uncondNodeLabel label
                 children = Map.lookupDefault (error "rule not found") label rules
                 nChildren = Set.size children
-                nnfLabel = NNF.uncondNodeLabel label
+                fLabel = Formula.uncondNodeLabel label
 
-        groundBody :: PredicateLabel -> AST.RuleBody -> NNF -> (NNF.NodeRef, NNF)
-        groundBody label (AST.RuleBody elements) nnf = case elements of
+        groundBody :: PredicateLabel -> AST.RuleBody -> Formula -> (Formula.NodeRef, Formula)
+        groundBody label (AST.RuleBody elements) f = case elements of
             []              -> error "not implemented"
-            [singleElement] -> groundElement singleElement nnf
-            elements        -> let (nnfChildren, nnf') = foldl
-                                        (\(nnfChildren, nnf) el ->
-                                            let (newChild,nnf') = groundElement el nnf
-                                            in (Set.insert newChild nnfChildren, nnf')
+            [singleElement] -> groundElement singleElement f
+            elements        -> let (fChildren, f') = foldl
+                                        (\(fChildren, f) el ->
+                                            let (newChild,f') = groundElement el f
+                                            in (Set.insert newChild fChildren, f')
                                         )
-                                        (Set.empty, nnf)
+                                        (Set.empty, f)
                                         elements
-                               in first NNF.entryRef $ NNF.insert (Just $ NNF.uncondNodeLabel label) True NNF.And nnfChildren nnf'
+                               in first Formula.entryRef $ Formula.insert (Just $ Formula.uncondNodeLabel label) True Formula.And fChildren f'
 
-        groundElement :: AST.RuleBodyElement -> NNF -> (NNF.NodeRef, NNF)
-        groundElement (AST.UserPredicate label)   nnf = (ref, nnf') where
-            (ref, nnf') = groundRule label nnf
-        groundElement (AST.BuildInPredicate pred) nnf = (NNF.RefBuildInPredicate pred, nnf)
+        groundElement :: AST.RuleBodyElement -> Formula -> (Formula.NodeRef, Formula)
+        groundElement (AST.UserPredicate label)   f = (ref, f') where
+            (ref, f') = groundRule label f
+        groundElement (AST.BuildInPredicate pred) f = (Formula.RefBuildInPredicate pred, f)

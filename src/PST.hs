@@ -22,7 +22,7 @@ module PST
     , exportAsDot
     ) where
 import BasicTypes
-import qualified NNF
+import qualified Formula
 import qualified AST
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
@@ -41,14 +41,14 @@ data PST     = Unfinished PSTNode ProbabilityBounds Double
              | Finished Probability
              deriving (Show, Eq, Generic)
 instance Hashable PST
-data PSTNode = Leaf NNF.NodeRef
+data PSTNode = Leaf Formula.NodeRef
              | ChoiceBool RFuncLabel Probability PST PST
              | ChoiceReal RFuncLabel Probability Rational PST PST
-             | Decomposition NNF.NodeType [PST]
+             | Decomposition Formula.NodeType [PST]
              deriving (Show, Eq, Generic)
 instance Hashable PSTNode
 
-initialNode :: NNF.NodeRef -> PSTNode
+initialNode :: Formula.NodeRef -> PSTNode
 initialNode = Leaf
 
 bounds :: PST -> ProbabilityBounds
@@ -66,7 +66,7 @@ maxError _                      = 0.0
 exportAsDot :: FilePath -> PST -> ExceptionalT String IO ()
 exportAsDot path pst = do
     file <- doIO (openFile path WriteMode)
-    doIO (hPutStrLn file "digraph NNF {")
+    doIO (hPutStrLn file "digraph Formula {")
     printNode Nothing Nothing pst 0 file
     doIO (hPutStrLn file "}")
     doIO (hClose file)
@@ -106,8 +106,8 @@ exportAsDot path pst = do
                 printBounds :: PST -> String
                 printBounds pst = let (l,u) = PST.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
 
-                nodeRefToReadableString :: NNF.NodeRef -> String
-                nodeRefToReadableString (NNF.RefComposed sign id) = printf
+                nodeRefToReadableString :: Formula.NodeRef -> String
+                nodeRefToReadableString (Formula.RefComposed sign id) = printf
                         "%s%s\n"
                         (if sign then "" else "-")
                         (show id)
@@ -115,8 +115,8 @@ exportAsDot path pst = do
                             showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
                             showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
                 nodeRefToReadableString ref = show ref
-                {-nodeLabelToReadableString :: NNF.NodeRef -> String
-                nodeLabelToReadableString (NNF.RefComposed sign (NNF.ComposedLabel label bConds rConds _)) = printf
+                {-nodeLabelToReadableString :: Formula.NodeRef -> String
+                nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf
                         "%s%s\n  |%s"
                         label
                         (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))

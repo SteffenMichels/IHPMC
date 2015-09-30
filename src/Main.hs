@@ -24,7 +24,7 @@ import System.Environment (getArgs)
 import Parser
 import Grounder
 import Exception
-import NNF
+import Formula
 import qualified PST
 import Text.Printf (printf)
 import GWMC
@@ -54,14 +54,14 @@ exeMain = do
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
-            (queries, mbEvidence, nnf) <- return $ groundPclp ast
-            --exportAsDot "/tmp/nnf.dot" nnf
-            inferenceApprox queries mbEvidence ast nnf
+            (queries, mbEvidence, f) <- return $ groundPclp ast
+            --exportAsDot "/tmp/Formula.dot" Formula
+            inferenceApprox queries mbEvidence ast f
 
-        inferenceApprox queries mbEvidence ast nnf = do
+        inferenceApprox queries mbEvidence ast f = do
             let bounds = case mbEvidence of
-                    Nothing -> gwmc (getFirst queries) (AST.rFuncDefs ast) nnf
-                    Just ev -> gwmcEvidence (getFirst queries) ev (AST.rFuncDefs ast) nnf
+                    Nothing -> gwmc (getFirst queries) (AST.rFuncDefs ast) f
+                    Just ev -> gwmcEvidence (getFirst queries) ev (AST.rFuncDefs ast) f
 
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
             {-doIO $ forM bounds (\(l,u) -> do
@@ -70,11 +70,11 @@ exeMain = do
                     let err      = (0.40522773712567817 - appr)^2
                     putStrLn $ printf "%f %f" (currentTime-startTime) ((u-l)/2)
                 )-}
-            return $ last $ take 200 bounds
+            return $ last $ take 5000000 bounds
             --return . (probToDouble *** probToDouble) $ last bounds
 
-        inferenceDebug queries Nothing ast nnf = do
-            let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) nnf
+        inferenceDebug queries Nothing ast f = do
+            let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) f
             results <- return $ take 2000 results
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
             --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
@@ -83,14 +83,14 @@ exeMain = do
             --                                    putStrLn $ printf "%i %f" (currentTime-startTime) err
                                         --putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float)
             --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
-            ----NNF.exportAsDot "/tmp/nnfAfter.dot" $ snd $ last results
+            ----Formula.exportAsDot "/tmp/FormulaAfter.dot" $ snd $ last results
             --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
             --return ()
             return . (probToDouble *** probToDouble) . PST.bounds $ fst $ last results
             --return $ length results
 
-        inferenceExact ast nnf = do
-            (p, nnfAfter) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) nnf
+        inferenceExact ast f = do
+            (p, _) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) f
             return (probToDouble p)
 
 -- Entry point for unit tests.
