@@ -1,24 +1,9 @@
-{-# LANGUAGE CPP #-}
------------------------------------------------------------------------------
---
--- Module      :  Main
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
-
-module Main where
+module MainPCLP where
 import BasicTypes
 import Control.Monad (unless, forM)
 import Data.List (stripPrefix)
 import System.Exit (exitFailure)
-import Test.QuickCheck.All (quickCheckAll)
+--import Test.QuickCheck.All (quickCheckAll)
 import System.IO (readFile)
 import System.Environment (getArgs)
 import Parser
@@ -42,7 +27,7 @@ import Control.Arrow ((***))
 -- prop_hello s = stripPrefix "Hello " (hello s) == Just s
 
 -- Hello World
-exeMain = do
+main = do
     result <- runExceptionalT exeMain'
     case result of
         Exception e -> putStrLn (printf "\nError: %s" e)
@@ -101,8 +86,8 @@ testMain = undefined--do
 -- This is a clunky, but portable, way to use the same Main module file
 -- for both an application and for unit tests.
 -- MAIN_FUNCTION is preprocessor macro set to exeMain or testMain.
--- That way we can use the same file for both an application and for tests.
-#ifndef MAIN_FUNCTION
-#define MAIN_FUNCTION exeMain
-#endif
-main = MAIN_FUNCTION
+-- That wa y we can use the same file for both an application and for tests.
+-- #ifndef MAIN_FUNCTION
+-- #define MAIN_FUNCTION exeMain
+-- #endif
+--main = MAIN_FUNCTION

@@ -32,6 +32,7 @@ import qualified Data.HashSet as Set
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
 import Numeric (fromRat)
+import Data.Maybe (isJust)
 
 {-type Probability = Rational
 
@@ -78,3 +79,18 @@ instance (Hashable a, Hashable b) => Hashable (HashMap a b) where
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
+
+type MultiSet a = HashMap a Int
+
+msInsert :: (Eq a, Hashable a) => a -> MultiSet a -> MultiSet a
+msInsert x = Map.insertWith (+) x 1
+
+msDelete :: (Eq a, Hashable a) => a -> MultiSet a -> MultiSet a
+msDelete x map
+    | n == 1    = Map.delete x map
+    | otherwise = Map.insert x (n-1) map
+    where
+        n = Map.lookupDefault (error "multiset: deleted non-existing element") x  map
+
+msMember :: (Eq a, Hashable a) => a -> MultiSet a -> Bool
+msMember x map = isJust $ Map.lookup x map

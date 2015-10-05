@@ -3,29 +3,64 @@ version: 0.0.1
 cabal-version: >=1.2
 build-type: Simple
 license: AllRightsReserved
-license-file: ""
-data-dir: ""
 
 executable pclp
-    build-depends: QuickCheck -any, base -any, containers -any,
-                   explicit-exception -any, hashable -any, parsec -any,
-                   statistics -any, time -any, unordered-containers -any
     main-is: Main.hs
-    buildable: True
-    extensions: StandaloneDeriving GADTs
+    cpp-options: -DMAIN_FUNCTION=MainPCLP.main
+    build-depends:
+        --QuickCheck -any,
+        base -any,
+        containers -any,
+        explicit-exception -any,
+        hashable -any,
+        parsec -any,
+        statistics -any,
+        time -any,
+        unordered-containers -any
+    extensions: StandaloneDeriving GADTs DeriveGeneric
     hs-source-dirs: src
-    other-modules: GWMCExact Parser PST Formula GWMC AST BasicTypes
-                   Benchmarks Grounder Interval Exception
-    ghc-options: -rtsopts -XDeriveGeneric
+    other-modules:
+        MainPCLP
+        GWMCExact
+        Parser
+        PST
+        Formula
+        GWMC
+        AST
+        BasicTypes
+        Benchmarks
+        Grounder
+        Interval
+        Exception
+    ghc-options: -rtsopts
 
-test-suite test-pclp
-    build-depends: QuickCheck -any, base -any, containers -any,
-                   explicit-exception -any, hashable -any, parsec -any,
-                   statistics -any, time -any, unordered-containers -any
-    type: exitcode-stdio-1.0
+executable iphl
     main-is: Main.hs
-    buildable: True
-    cpp-options: -DMAIN_FUNCTION=testMain
-    extensions: StandaloneDeriving GADTs
+    cpp-options: -DMAIN_FUNCTION=MainIPHL.main
+    build-depends:
+        --QuickCheck -any,
+        base -any,
+        containers -any,
+        explicit-exception -any,
+        hashable -any,
+        parsec -any,
+        statistics -any,
+        time -any,
+        unordered-containers -any
+    extensions: StandaloneDeriving GADTs DeriveGeneric
     hs-source-dirs: src
-    ghc-options: -XDeriveGeneric
+    other-modules:
+        MainIPHL
+        GWMCExact
+        Parser
+        PST
+        Formula
+        GWMC
+        AST
+        BasicTypes
+        Benchmarks
+        Grounder
+        Interval
+        Exception
+    ghc-options: -rtsopts
+
