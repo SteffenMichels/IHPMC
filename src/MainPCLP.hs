@@ -39,7 +39,7 @@ main = do
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
-            (queries, mbEvidence, f) <- return $ groundPclp ast
+            ((queries, mbEvidence), f) <- return $ groundPclp ast
             --exportAsDot "/tmp/Formula.dot" Formula
             inferenceApprox queries mbEvidence ast f
 
@@ -55,8 +55,8 @@ main = do
                     let err      = (0.40522773712567817 - appr)^2
                     putStrLn $ printf "%f %f" (currentTime-startTime) ((u-l)/2)
                 )-}
-            return $ last $ take 5000000 bounds
-            --return . (probToDouble *** probToDouble) $ last bounds
+            --return $ last $ take 5000000 bounds
+            return . (probToDouble *** probToDouble) $ last bounds
 
         inferenceDebug queries Nothing ast f = do
             let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) f

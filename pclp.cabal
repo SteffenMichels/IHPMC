@@ -16,7 +16,8 @@ executable pclp
         parsec -any,
         statistics -any,
         time -any,
-        unordered-containers -any
+        unordered-containers -any,
+        mtl -any
     extensions: StandaloneDeriving GADTs DeriveGeneric
     hs-source-dirs: src
     other-modules:
@@ -46,7 +47,8 @@ executable iphl
         parsec -any,
         statistics -any,
         time -any,
-        unordered-containers -any
+        unordered-containers -any,
+        mtl -any
     extensions: StandaloneDeriving GADTs DeriveGeneric
     hs-source-dirs: src
     other-modules:
@@ -63,4 +65,3 @@ executable iphl
         Interval
         Exception
     ghc-options: -rtsopts
-

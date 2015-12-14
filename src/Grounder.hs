@@ -25,19 +25,49 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Data.Maybe (fromJust)
 import BasicTypes
-import Control.Arrow (first)
 import Text.Printf (printf)
+import Control.Monad.State.Strict
+import Control.Arrow (first, (***))
 
-groundPclp :: AST -> (HashSet Formula.NodeRef, Maybe Formula.NodeRef, Formula)
-groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} = case mbEvidence of
-    Nothing -> (groundedQueries, Nothing, groundedFormula)
-    Just ev -> let (groundedEvidence, groundedFormula') = groundRule ev groundedFormula
-               in  (groundedQueries, Just groundedEvidence, groundedFormula')
+type FState = State Formula
+
+groundPclp :: AST -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef), Formula)
+groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} =
+    runState (do groundedQueries <- execStateT (forM_ queries grQuery) Set.empty
+                 case mbEvidence of
+                    Nothing -> return (groundedQueries, Nothing)
+                    Just ev -> do groundedEvidence <- groundRule ev
+                                  return (groundedQueries, Just groundedEvidence)
+             ) Formula.empty
     where
-        (groundedQueries, groundedFormula) = Set.foldr (\q (refs,f) -> first (`Set.insert` refs) $ groundRule q f) (Set.empty, Formula.empty) queries
+        grQuery :: PredicateLabel -> StateT (HashSet Formula.NodeRef) FState ()
+        grQuery query = do ref <- lift (groundRule query)
+                           modify $ Set.insert ref
 
-        groundRule :: PredicateLabel -> Formula -> (Formula.NodeRef, Formula)
-        groundRule label f = case Formula.labelId fLabel f of
+        groundRule :: PredicateLabel -> FState Formula.NodeRef
+        groundRule label =
+            do mbNodeId <- Formula.labelId fLabel <$> get
+               case mbNodeId of
+                   Just nodeId      -> return $ Formula.RefComposed True nodeId
+                   _ | nBodies == 0 -> error "not implemented"
+                   _                -> evalStateT (do forM_ bodies grBody
+                                                      fBodies <- fst <$> get
+                                                      lift $ state (first Formula.entryRef . Formula.insert mbLabel True Formula.Or fBodies)
+                                                  ) (Set.empty, 0::Int)
+            where
+                fLabel = Formula.uncondNodeLabel label
+                mbLabel | Set.member label queries = Nothing
+                        | otherwise                = Just $ Formula.uncondNodeLabel label
+                bodies = Map.lookupDefault (error "rule not found") label rules
+                nBodies = Set.size bodies
+
+                grBody :: AST.RuleBody -> StateT (HashSet Formula.NodeRef, Int) FState ()
+                grBody body = do counter  <- snd <$> get
+                                 newChild <- lift . state $ groundBody (printf "%s%i" label counter) body
+                                 modify $ Set.insert newChild *** (+) 1
+
+        groundRule2 :: PredicateLabel -> Formula -> (Formula.NodeRef, Formula)
+        groundRule2 label f = case Formula.labelId fLabel f of
             Just nodeId        -> (Formula.RefComposed True nodeId, f)
             _ | nChildren == 0 -> error "not implemented"
             _                  -> let (fChildren,f',_) = Set.foldr
@@ -55,6 +85,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                 nChildren = Set.size children
                 fLabel = Formula.uncondNodeLabel label
 
+
         groundBody :: PredicateLabel -> AST.RuleBody -> Formula -> (Formula.NodeRef, Formula)
         groundBody label (AST.RuleBody elements) f = case elements of
             []              -> error "not implemented"
@@ -70,5 +101,5 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
 
         groundElement :: AST.RuleBodyElement -> Formula -> (Formula.NodeRef, Formula)
         groundElement (AST.UserPredicate label)   f = (ref, f') where
-            (ref, f') = groundRule label f
+            (ref, f') = groundRule2 label f
         groundElement (AST.BuildInPredicate pred) f = (Formula.RefBuildInPredicate pred, f)
