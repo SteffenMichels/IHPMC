@@ -28,7 +28,7 @@ import Data.Maybe (fromJust)
 import Data.Foldable (foldlM)
 import Text.Printf (printf)
 import Control.Monad.State.Strict
-import Control.Arrow (first, (***))
+import Control.Arrow (first)
 
 type FState = State Formula
 

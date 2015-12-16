@@ -37,6 +37,10 @@ import Numeric (fromRat)
 import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
 import Control.Applicative ((<$>))
+import Control.Monad.State.Strict
+import Data.Foldable (foldlM)
+
+type FState = State Formula
 
 gwmc :: Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
 gwmc query rfuncDefs f = fmap (\(pst,_) -> PST.bounds pst) results where
@@ -46,27 +50,29 @@ gwmcDebug :: Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> 
 gwmcDebug query rfuncDefs f = gwmc' f $ PST.initialNode query
     where
         gwmc' :: Formula -> PSTNode -> [(PST, Formula)]
-        gwmc' f pstNode = case GWMC.iterate f pstNode Map.empty 1.0 rfuncDefs of
-            (f', pst@(PST.Finished _))              -> [(pst,f')]
-            (f', pst@(PST.Unfinished pstNode' _ _)) -> let results = gwmc' f' pstNode'
-                                                         in  (pst,f') : results
+        gwmc' f pstNode = case runState (GWMC.iterate pstNode Map.empty 1.0 rfuncDefs) f of
+            (pst@(PST.Finished _), f')              -> [(pst,f')]
+            (pst@(PST.Unfinished pstNode' _ _), f') -> let results = gwmc' f' pstNode'
+                                                       in  (pst,f') : results
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
-gwmcEvidence query evidence rfuncDefs f = probBounds <$> gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence) f''
+gwmcEvidence query evidence rfuncDefs f = probBounds <$> evalState (gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence)) f''
     where
-        gwmc' :: PST -> PST -> Formula -> [(PST, PST, Formula)]
-        gwmc' (PST.Finished _) (PST.Finished _) _ = []
-        gwmc' qe nqe f
-            | PST.maxError qe > PST.maxError nqe =let (PST.Unfinished pstNode _ _) = qe
-                                                      (f', qe')  = GWMC.iterate f pstNode Map.empty 1.0 rfuncDefs
-                                                      rest = gwmc' qe' nqe f'
-                                                   in (qe', nqe, f') : rest
-            | otherwise                          = let (PST.Unfinished pstNode _ _) = nqe
-                                                       (f', nqe') = GWMC.iterate f pstNode Map.empty 1.0 rfuncDefs
-                                                       rest = gwmc' qe nqe' f'
-                                                   in  (qe, nqe', f') : rest
+        gwmc' :: PST -> PST -> FState [(PST, PST)]
+        gwmc' (PST.Finished _) (PST.Finished _) = return []
+        gwmc' qe nqe
+            | PST.maxError qe > PST.maxError nqe = do
+                let (PST.Unfinished pstNode _ _) = qe
+                qe'  <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+                rest <- gwmc' qe' nqe
+                return $ (qe', nqe) : rest
+            | otherwise = do
+                let (PST.Unfinished pstNode _ _) = nqe
+                nqe' <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+                rest <- gwmc' qe nqe'
+                return $ (qe, nqe') : rest
 
-        probBounds (qe, nqe, _) = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
+        probBounds (qe, nqe) = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
             (lqe,  uqe)  = PST.bounds qe
             (lnqe, unqe) = PST.bounds nqe
 
@@ -77,65 +83,61 @@ gwmcEvidence query evidence rfuncDefs f = probBounds <$> gwmc' (initPST queryAnd
             Formula.RefComposed qSign label  -> Formula.RefComposed (sign == qSign) label
             Formula.RefBuildInPredicate pred -> Formula.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
 
-iterate :: Formula -> PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> (Formula, PST)
-iterate f pstNode previousChoicesReal partChoiceProb rfuncDefs
-    | l == u    = (f', PST.Finished l)
-    | otherwise = (f', PST.Unfinished pstNode' bounds score)
+iterate :: PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> FState PST
+iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
+    (pstNode', bounds@(l,u), score) <- iterateNode pstNode previousChoicesReal partChoiceProb
+    return $ if l == u then PST.Finished l
+                       else PST.Unfinished pstNode' bounds score
     where
-        (f', pstNode', bounds@(l,u), score) = iterateNode f pstNode previousChoicesReal partChoiceProb
-
-        iterateNode :: Formula -> PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> (Formula, PSTNode, ProbabilityBounds, Double)
-        iterateNode f (PST.ChoiceBool rFuncLabel p left right) previousChoicesReal partChoiceProb =
-            (f', PST.ChoiceBool rFuncLabel p left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
+        iterateNode :: PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> FState (PSTNode, ProbabilityBounds, Double)
+        iterateNode (PST.ChoiceBool rFuncLabel p left right) previousChoicesReal partChoiceProb = do
+            (left, right) <- case (left, right) of
+                (PST.Unfinished pstNode _ _, _) | PST.score left > PST.score right ->
+                    (,right) <$> GWMC.iterate pstNode previousChoicesReal (probToDouble p * partChoiceProb) rfuncDefs
+                (_, PST.Unfinished pstNode _ _) ->
+                    (left,)  <$> GWMC.iterate pstNode previousChoicesReal (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                _ -> error "finished node should not be selected for iteration"
+            return (PST.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
+        iterateNode (PST.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb = do
+            (left, right) <- case (left, right) of
+                (PST.Unfinished pstNode _ _, _) | PST.score  left > PST.score  right ->
+                    (,right) <$> GWMC.iterate pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) (probToDouble p * partChoiceProb) rfuncDefs
+                (_, PST.Unfinished pstNode _ _) ->
+                    (left,)  <$> GWMC.iterate pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                _ -> error "finished node should not be selected for iteration"
+            return (PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
             where
-                (f', left', right') = case (left,right) of
-                        (PST.Unfinished pstNode _ _, _) | PST.score left > PST.score  right ->
-                            let (f'', left'') = GWMC.iterate f pstNode previousChoicesReal (probToDouble p * partChoiceProb) rfuncDefs
-                            in  (f'', left'', right)
-                        (_, PST.Unfinished pstNode _ _) ->
-                            let (f'', right'') = GWMC.iterate f pstNode previousChoicesReal (probToDouble (1-p) * partChoiceProb) rfuncDefs
-                            in  (f'', left, right'')
-                        _ -> error "finished node should not be selected for iteration"
-        iterateNode f (PST.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb =
-            (f', PST.ChoiceReal rf p splitPoint left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
-            where
-                (f', left', right') = case (left,right) of
-                        (PST.Unfinished pstNode _ _, _) | PST.score  left > PST.score  right ->
-                            let (f'', left'') = GWMC.iterate f pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) (probToDouble p * partChoiceProb) rfuncDefs
-                            in  (f'', left'', right)
-                        (_, PST.Unfinished pstNode _ _) ->
-                            let (f'', right'') = GWMC.iterate f pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) (probToDouble (1-p) * partChoiceProb) rfuncDefs
-                            in  (f'', left, right'')
-                        _ -> error "finished node should not be selected for iteration"
                 ((curLower, curUpper), curCount) = Map.lookupDefault ((Inf, Inf), 0) rf previousChoicesReal
-        iterateNode f (PST.Decomposition op dec) previousChoicesReal partChoiceProb =
-            (f', PST.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
+        iterateNode (PST.Decomposition op dec) previousChoicesReal partChoiceProb = do
+            selectedChild <- GWMC.iterate selectedChildNode previousChoicesReal partChoiceProb rfuncDefs
+            let dec' = selectedChild:tail sortedChildren
+            return (PST.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
             where
                 sortedChildren = sortWith (\c -> -PST.score  c) dec
-                selectedChild  = head sortedChildren
-                selectedChildNode = case selectedChild of
+                selectedChildNode = case head sortedChildren of
                     PST.Unfinished pstNode _ _ -> pstNode
                     _                          -> error "finished node should not be selected for iteration"
-                (f', selectedChild') = GWMC.iterate f selectedChildNode previousChoicesReal partChoiceProb rfuncDefs
-                dec' = selectedChild':tail sortedChildren
-        iterateNode f (PST.Leaf ref) previousChoicesReal partChoiceProb = case decompose ref f of
-            Nothing -> case Map.lookup rf rfuncDefs of
-                    Just (AST.Flip p:_) -> (f'', PST.ChoiceBool rf p left right, combineProbsChoice p left right, combineScoresChoice left right)
-                        where
-                            (leftEntry,  f')  = Formula.conditionBool fEntry rf True f
-                            (rightEntry, f'') = Formula.conditionBool fEntry rf False f'
-                            left  = toPSTNode p leftEntry
-                            right = toPSTNode (1-p) rightEntry
-                    Just (AST.RealDist cdf icdf:_) -> (f'', PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
+        iterateNode (PST.Leaf ref) previousChoicesReal partChoiceProb = do
+            f <- get
+            case decompose ref f of
+                Nothing -> case Map.lookup rf rfuncDefs of
+                    Just (AST.Flip p:_) -> do
+                        leftEntry  <- state $ Formula.conditionBool fEntry rf True
+                        rightEntry <- state $ Formula.conditionBool fEntry rf False
+                        let left  = toPSTNode p leftEntry
+                        let right = toPSTNode (1-p) rightEntry
+                        return (PST.ChoiceBool rf p left right, combineProbsChoice p left right, combineScoresChoice left right)
+                    Just (AST.RealDist cdf icdf:_) -> do
+                        leftEntry  <- state $ Formula.conditionReal fEntry rf (curLower, Open splitPoint) previousChoicesReal
+                        rightEntry <- state $ Formula.conditionReal fEntry rf (Open splitPoint, curUpper) previousChoicesReal
+                        let left  = toPSTNode p leftEntry
+                        let right = toPSTNode (1-p) rightEntry
+                        return (PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
                         where
                             p = (pUntilSplit-pUntilLower)/(pUntilUpper-pUntilLower)
                             pUntilLower = cdf' cdf True curLower
                             pUntilUpper = cdf' cdf False curUpper
                             pUntilSplit = cdf splitPoint
-                            (leftEntry,  f')  = Formula.conditionReal fEntry rf (curLower, Open splitPoint) previousChoicesReal f
-                            (rightEntry, f'') = Formula.conditionReal fEntry rf (Open splitPoint, curUpper) previousChoicesReal f'
-                            left  = toPSTNode p leftEntry
-                            right = toPSTNode (1-p) rightEntry
                             splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf previousChoicesReal fEntry f
                             curInterv@(curLower, curUpper) = fst $ Map.lookupDefault ((Inf, Inf), undefined) rf previousChoicesReal
                     _  -> error ("undefined rfunc " ++ rf)
@@ -150,27 +152,20 @@ iterate f pstNode previousChoicesReal partChoiceProb rfuncDefs
                         fEntry = Formula.augmentWithEntry ref f
                         toPSTNode p entry = case Formula.entryNode entry of
                             Formula.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
-                            _                     -> PST.Unfinished (PST.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
+                            _                         -> PST.Unfinished (PST.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
                         cdf' _ lower Inf      = if lower then 0.0 else 1.0
                         cdf' cdf _ (Open x)   = cdf x
                         cdf' cdf _ (Closed x) = cdf x
-            Just (origOp, decOp, sign, decomposition) -> (f', PST.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
-                where
-                    (psts, f') = Set.foldr
-                        (\dec (psts, f) ->
-                            let (fresh, f') = if Set.size dec > 1 then
-                                                    first Formula.entryRef $ Formula.insert Nothing sign origOp dec f
-                                                else
-                                                    let single = getFirst dec
-                                                    in  (if sign then single else negate single, f)
-                            in  (PST.Unfinished (PST.Leaf fresh) (0.0,1.0) partChoiceProb:psts, f')
-                        )
-                        ([], f)
-                        decomposition
-
-                    negate (Formula.RefComposed sign label)   = Formula.RefComposed (not sign) label
-                    negate (Formula.RefBuildInPredicate pred) = Formula.RefBuildInPredicate (AST.negatePred pred)
-                    negate (Formula.RefDeterministic val)     = Formula.RefDeterministic (not val)
+                Just (origOp, decOp, sign, decomposition) -> do
+                    psts <- foldlM (\psts dec -> do
+                            fresh <- if Set.size dec > 1 then
+                                    state $ \f -> first Formula.entryRef $ Formula.insert Nothing sign origOp dec f
+                                else
+                                    let single = getFirst dec in
+                                    return $ if sign then single else Formula.negate single
+                            return (PST.Unfinished (PST.Leaf fresh) (0.0,1.0) partChoiceProb:psts)
+                        ) [] decomposition
+                    return (PST.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
 
 combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
     (leftLower,  leftUpper)  = PST.bounds left

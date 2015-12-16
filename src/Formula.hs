@@ -26,6 +26,7 @@ module Formula
     , uncondNodeLabel
     , conditionBool
     , conditionReal
+    , Formula.negate
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -320,6 +321,11 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
 nodeChildren :: Node -> HashSet NodeRef
 nodeChildren (Composed _ children) = children
 nodeChildren _                     = Set.empty
+
+negate :: NodeRef -> NodeRef
+negate (Formula.RefComposed sign label)   = Formula.RefComposed (not sign) label
+negate (Formula.RefBuildInPredicate pred) = Formula.RefBuildInPredicate (AST.negatePred pred)
+negate (Formula.RefDeterministic val)     = Formula.RefDeterministic (not val)
 
 exportAsDot :: FilePath -> Formula -> ExceptionalT String IO ()
 exportAsDot path (Formula nodes _ _) = do
