@@ -58,22 +58,6 @@ main = do
             --return $ last $ take 5000000 bounds
             return . (probToDouble *** probToDouble) $ last bounds
 
-        inferenceDebug queries Nothing ast f = do
-            let results = gwmcDebug (getFirst queries) (AST.rFuncDefs ast) f
-            results <- return $ take 2000 results
-            startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
-            --currentTime <- fmap (\x -> round (x*1000)::Int) getPOSIXTime
-            --                                    appr <- return $ fromRat (u+l)/2::Float
-            --                                    err  <- return (0.4053876623346897 - appr)^2
-            --                                    putStrLn $ printf "%i %f" (currentTime-startTime) err
-                                        --putStrLn $ printf "%f %f" (fromRat l::Float) (fromRat u::Float)
-            --                            putStrLn $ printf "%i %f %f %f" (currentTime-startTime) (fromRat l::Float) (fromRat u::Float) (fromRat (u+l)/2::Float))
-            ----Formula.exportAsDot "/tmp/FormulaAfter.dot" $ snd $ last results
-            --PST.exportAsDot "/tmp/pst.dot" $ fst $ last results
-            --return ()
-            return . (probToDouble *** probToDouble) . PST.bounds $ fst $ last results
-            --return $ length results
-
         inferenceExact ast f = do
             (p, _) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) f
             return (probToDouble p)

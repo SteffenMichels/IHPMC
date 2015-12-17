@@ -15,7 +15,6 @@
 module GWMC
     ( gwmc
     , gwmcEvidence
-    , gwmcDebug
     ) where
 import Formula (Formula)
 import qualified Formula
@@ -43,20 +42,20 @@ import Data.Foldable (foldlM)
 type FState = State Formula
 
 gwmc :: Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
-gwmc query rfuncDefs f = fmap (\(pst,_) -> PST.bounds pst) results where
-    results = gwmcDebug query rfuncDefs f
-
-gwmcDebug :: Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [(PST, Formula)]
-gwmcDebug query rfuncDefs f = gwmc' f $ PST.initialNode query
-    where
-        gwmc' :: Formula -> PSTNode -> [(PST, Formula)]
-        gwmc' f pstNode = case runState (GWMC.iterate pstNode Map.empty 1.0 rfuncDefs) f of
-            (pst@(PST.Finished _), f')              -> [(pst,f')]
-            (pst@(PST.Unfinished pstNode' _ _), f') -> let results = gwmc' f' pstNode'
-                                                       in  (pst,f') : results
+gwmc query rfuncDefs f = PST.bounds <$> evalState (gwmc' $ PST.initialNode query) f where
+    gwmc' :: PSTNode -> FState [PST]
+    gwmc' pstNode = do
+        pst <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+        case pst of
+            pst@(PST.Finished _)              -> return [pst]
+            pst@(PST.Unfinished pstNode' _ _) -> (pst :) <$> gwmc' pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
-gwmcEvidence query evidence rfuncDefs f = probBounds <$> evalState (gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence)) f''
+gwmcEvidence query evidence rfuncDefs f = probBounds <$> evalState (do
+        queryAndEvidence    <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef True,  evidence])
+        negQueryAndEvidence <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef False, evidence])
+        gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence)
+    ) f
     where
         gwmc' :: PST -> PST -> FState [(PST, PST)]
         gwmc' (PST.Finished _) (PST.Finished _) = return []
@@ -77,8 +76,6 @@ gwmcEvidence query evidence rfuncDefs f = probBounds <$> evalState (gwmc' (initP
             (lnqe, unqe) = PST.bounds nqe
 
         initPST nwr = PST.Unfinished (PST.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
-        (queryAndEvidence,    f')  = Formula.insert Nothing True Formula.And (Set.fromList [queryRef True,  evidence]) f
-        (negQueryAndEvidence, f'') = Formula.insert Nothing True Formula.And (Set.fromList [queryRef False, evidence]) f'
         queryRef sign = case query of
             Formula.RefComposed qSign label  -> Formula.RefComposed (sign == qSign) label
             Formula.RefBuildInPredicate pred -> Formula.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
