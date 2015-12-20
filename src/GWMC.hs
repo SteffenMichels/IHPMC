@@ -42,13 +42,13 @@ import Data.Foldable (foldlM)
 type FState = State Formula
 
 gwmc :: Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
-gwmc query rfuncDefs f = PST.bounds <$> evalState (gwmc' $ PST.initialNode query) f where
-    gwmc' :: PSTNode -> FState [PST]
+gwmc query rfuncDefs f =  evalState (gwmc' $ PST.initialNode query) f where
+    gwmc' :: PSTNode -> FState [ProbabilityBounds]
     gwmc' pstNode = do
         pst <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
         case pst of
-            pst@(PST.Finished _)              -> return [pst]
-            pst@(PST.Unfinished pstNode' _ _) -> (pst :) <$> gwmc' pstNode'
+            pst@(PST.Finished _)              -> return [PST.bounds pst]
+            pst@(PST.Unfinished pstNode' _ _) -> (PST.bounds pst :) <$> gwmc' pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
 gwmcEvidence query evidence rfuncDefs f = probBounds <$> evalState (do
