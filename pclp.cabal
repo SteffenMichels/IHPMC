@@ -65,3 +65,33 @@ executable iphl
         Interval
         Exception
     ghc-options: -rtsopts
+
+executable benchmark
+    main-is: Main.hs
+    cpp-options: -DMAIN_FUNCTION=MainBenchmark.main
+    build-depends:
+        base -any,
+        containers -any,
+        explicit-exception -any,
+        hashable -any,
+        parsec -any,
+        statistics -any,
+        time -any,
+        unordered-containers -any,
+        mtl -any
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
+    hs-source-dirs: src
+    other-modules:
+        MainPCLP
+        GWMCExact
+        Parser
+        PST
+        Formula
+        GWMC
+        AST
+        BasicTypes
+        Benchmarks
+        Grounder
+        Interval
+        Exception
+    ghc-options: -rtsopts

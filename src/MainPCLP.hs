@@ -31,7 +31,7 @@ main = do
     result <- runExceptionalT exeMain'
     case result of
         Exception e -> putStrLn (printf "\nError: %s" e)
-        Success x   -> print x
+        --Success x   -> print x
     where
         exeMain' = do
             args <- return ["/tmp/tmp.pclp"]--doIO $ getArgs "/home/smichels/steffen/pclp/test.pclp"
@@ -40,13 +40,14 @@ main = do
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             ((queries, mbEvidence), f) <- return $ groundPclp ast
+            return undefined
             --exportAsDot "/tmp/Formula.dot" Formula
-            inferenceApprox queries mbEvidence ast f
+            --inferenceApprox queries mbEvidence ast f
 
         inferenceApprox queries mbEvidence ast f = do
             let bounds = case mbEvidence of
-                    Nothing -> gwmc (getFirst queries) (AST.rFuncDefs ast) f
-                    Just ev -> gwmcEvidence (getFirst queries) ev (AST.rFuncDefs ast) f
+                    Nothing -> gwmc (getFirst queries) untilFinished (AST.rFuncDefs ast) f
+                    --Just ev -> gwmcEvidence (getFirst queries) ev (AST.rFuncDefs ast) f
 
             startTime <- doIO $ fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
             {-doIO $ forM bounds (\(l,u) -> do
@@ -56,7 +57,7 @@ main = do
                     putStrLn $ printf "%f %f" (currentTime-startTime) ((u-l)/2)
                 )-}
             --return $ last $ take 5000000 bounds
-            return . (probToDouble *** probToDouble) $ last bounds
+            return undefined -- . (probToDouble *** probToDouble) $ last bounds
 
         inferenceExact ast f = do
             (p, _) <- return $ GWMCExact.gwmc (getFirst $ AST.queries ast) (AST.rFuncDefs ast) f

@@ -15,6 +15,7 @@
 module GWMC
     ( gwmc
     , gwmcEvidence
+    , untilFinished
     ) where
 import Formula (Formula)
 import qualified Formula
@@ -41,14 +42,20 @@ import Data.Foldable (foldlM)
 
 type FState = State Formula
 
-gwmc :: Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
-gwmc query rfuncDefs f =  evalState (gwmc' $ PST.initialNode query) f where
-    gwmc' :: PSTNode -> FState [ProbabilityBounds]
-    gwmc' pstNode = do
+untilFinished :: Int -> ProbabilityBounds -> Bool
+untilFinished _ _ = False
+
+gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> ProbabilityBounds
+gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ PST.initialNode query) where
+    gwmc' :: Int -> PSTNode -> FState ProbabilityBounds
+    gwmc' i pstNode = do
         pst <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
         case pst of
-            pst@(PST.Finished _)              -> return [PST.bounds pst]
-            pst@(PST.Unfinished pstNode' _ _) -> (PST.bounds pst :) <$> gwmc' pstNode'
+            pst@(PST.Finished _)              -> return $ PST.bounds pst
+            pst@(PST.Unfinished pstNode' _ _) -> let bounds = PST.bounds pst
+                                                 in if finishPred i $ PST.bounds pst
+                                                    then return bounds
+                                                    else gwmc' (i+1) pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
 gwmcEvidence query evidence rfuncDefs f = probBounds <$> evalState (do
