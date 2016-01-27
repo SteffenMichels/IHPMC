@@ -31,7 +31,7 @@ main = do
     result <- runExceptionalT exeMain'
     case result of
         Exception e -> putStrLn (printf "\nError: %s" e)
-        --Success x   -> print x
+        Success x   -> print x
     where
         exeMain' = do
             args <- return ["/tmp/tmp.pclp"]--doIO $ getArgs "/home/smichels/steffen/pclp/test.pclp"
@@ -40,7 +40,7 @@ main = do
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             ((queries, mbEvidence), f) <- return $ groundPclp ast
-            return undefined
+            return $ gwmc (getFirst queries) (\n (l,u) -> n == 1000) (AST.rFuncDefs ast) f
             --exportAsDot "/tmp/Formula.dot" Formula
             --inferenceApprox queries mbEvidence ast f
 

@@ -296,9 +296,9 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
             | otherwise = pred
             where
                 conditionPred'
-                    | all (== True)  checkedPreds = AST.Constant True
-                    | all (== False) checkedPreds = AST.Constant False
-                    | otherwise                   = pred
+                    |       and checkedPreds = AST.Constant True
+                    | not $ or  checkedPreds = AST.Constant False
+                    | otherwise              = pred
 
                 checkedPreds = [checkPred corner | corner <- corners]
 
@@ -312,6 +312,7 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
                         evalRight = eval right
                         eval (AST.UserRFunc rf)   = fromJust $ Map.lookup rf corner
                         eval (AST.RealConstant r) = Point r
+                        eval (AST.RealSum x y)    = eval x + eval y
 
                 conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = (rf, interv):[(rf',interv) | (rf',(interv, _)) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
                 corners = foldr (\(rf, (l,u)) corners -> [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners]) [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]] otherConditions

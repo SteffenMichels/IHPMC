@@ -104,9 +104,10 @@ instance Hashable IneqOp
 data RealN = RealN deriving (Eq, Ord)
 
 data Expr a where
-    BoolConstant :: Bool -> Expr Bool
-    RealConstant :: Rational -> Expr RealN
-    UserRFunc    :: RFuncLabel -> Expr a -- type depends on user input, has to be typechecked at runtime
+    BoolConstant :: Bool                     -> Expr Bool
+    RealConstant :: Rational                 -> Expr RealN
+    UserRFunc    :: RFuncLabel               -> Expr a -- type depends on user input, has to be typechecked at runtime
+    RealSum      :: Expr RealN -> Expr RealN -> Expr RealN
 
 deriving instance Eq (Expr a)
 instance Show (Expr a) where
@@ -118,6 +119,7 @@ instance Hashable (Expr a) where
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
     hashWithSalt salt (UserRFunc r)    = Hashable.hashWithSalt salt r
+    hashWithSalt salt (RealSum x y)    = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
 
 negatePred :: BuildInPredicate -> BuildInPredicate
 negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
@@ -145,3 +147,4 @@ predRandomFunctions (Constant _)            = Set.empty
 randomFunctions' (UserRFunc label) = Set.singleton label
 randomFunctions' (BoolConstant _)  = Set.empty
 randomFunctions' (RealConstant _)  = Set.empty
+randomFunctions' (RealSum x y)     = Set.union (randomFunctions' x) (randomFunctions' y)

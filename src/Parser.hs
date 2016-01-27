@@ -149,7 +149,7 @@ parseNorm = do
 -- expressions
 parseBoolExpr :: Parser (AST.Expr Bool)
 parseBoolExpr =   fmap AST.BoolConstant parseBoolConstant
-              <|> fmap AST.UserRFunc parseUserRFuncLabel
+              <|> fmap AST.UserRFunc    parseUserRFuncLabel
 
 parseBoolConstant :: Parser Bool
 parseBoolConstant =
@@ -161,8 +161,12 @@ parseBoolConstant =
         )
 
 parseRealExpr :: Parser (AST.Expr AST.RealN)
-parseRealExpr =   fmap AST.RealConstant parseRat
-              <|> fmap AST.UserRFunc parseUserRFuncLabel
+parseRealExpr = do
+    exprX <- fmap AST.RealConstant parseRat <|> fmap AST.UserRFunc parseUserRFuncLabel
+    try
+        (stringAndSpaces "+" >> parseRealExpr >>= \exprY -> return $ AST.RealSum exprX exprY)
+        <|>
+        return exprX
 
 parseRealIneqOp :: Parser AST.IneqOp
 parseRealIneqOp =   try (stringAndSpaces "<"  >> return AST.Lt)

@@ -51,6 +51,30 @@ subsetEq (lx, ux) (ly, uy) = toPoint Lower lx >= toPoint Lower ly && toPoint Upp
 disjoint :: Interval -> Interval -> Bool
 disjoint (lx, ux) (ly, uy) = toPoint Upper ux < toPoint Lower ly || toPoint Upper uy < toPoint Lower lx
 
+--TODO: more concise +? & complete definition
+instance Num IntervalLimitPoint where
+    x + y = case (pointRational x, pointRational y) of
+        (Just px, Just py) -> let sum = px+py in case (x,y) of
+            (PointPlus _,  PointMinus _) -> Point      sum
+            (PointPlus _,  _)            -> PointPlus  sum
+            (PointMinus _, PointPlus _)  -> Point      sum
+            (PointMinus _, _)            -> PointMinus sum
+            (_,            PointPlus _)  -> PointPlus  sum
+            (_,            PointMinus _) -> PointMinus sum
+            _                            -> Point      sum
+        _ -> case (x,y) of
+            (PosInf, NegInf) -> Point 0
+            (PosInf, _     ) -> PosInf
+            (NegInf, PosInf) -> Point 0
+            (NegInf, _     ) -> NegInf
+            _                -> y
+
+    x * y = undefined
+    abs x = undefined
+    signum x = undefined
+    fromInteger i = undefined
+    negate x = undefined
+
 instance Ord IntervalLimitPoint where
     x `compare` y | x == y = EQ
     NegInf `compare` _      = LT
