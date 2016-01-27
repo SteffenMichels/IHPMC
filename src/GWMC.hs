@@ -40,6 +40,9 @@ import Control.Applicative ((<$>))
 import Control.Monad.State.Strict
 import Data.Foldable (foldlM)
 
+import System.IO.Unsafe (unsafePerformIO)
+import Exception
+
 type FState = State Formula
 
 untilFinished :: Int -> ProbabilityBounds -> Bool
@@ -54,7 +57,7 @@ gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ PST.initialNode query) w
             pst@(PST.Finished _)              -> return $ PST.bounds pst
             pst@(PST.Unfinished pstNode' _ _) -> let bounds = PST.bounds pst
                                                  in if finishPred i $ PST.bounds pst
-                                                    then return bounds
+                                                    then return $ unsafePerformIO (runExceptionalT (PST.exportAsDot "/tmp/pst.dot" pst) >> return bounds)
                                                     else gwmc' (i+1) pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
@@ -104,7 +107,7 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
             return (PST.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
         iterateNode (PST.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb = do
             (left, right) <- case (left, right) of
-                (PST.Unfinished pstNode _ _, _) | PST.score  left > PST.score  right ->
+                (PST.Unfinished pstNode _ _, _) | PST.score left > PST.score right ->
                     (,right) <$> GWMC.iterate pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) (probToDouble p * partChoiceProb) rfuncDefs
                 (_, PST.Unfinished pstNode _ _) ->
                     (left,)  <$> GWMC.iterate pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) (probToDouble (1-p) * partChoiceProb) rfuncDefs
@@ -217,7 +220,6 @@ determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (
 determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesReal fEntry f = fst $ head list
     where
         list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore fEntry)
-        listTrace = trace (show list ++ show rf ++ show (Formula.entryRef fEntry)) list
         pointsWithScore entry
             | Set.member rf $ Formula.entryRFuncs entry = case Formula.entryNode entry of
                 Formula.Composed op children  -> foldr combine Map.empty [pointsWithScore $ Formula.augmentWithEntry c f | c <- Set.toList children]
@@ -231,22 +233,28 @@ determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesRea
                                             Open p   -> Just (p, 1.0)
                                             Closed p -> Just (p, 1.0)
                                         ) [l,u]
-        points pred = if Set.size (AST.predRandomFunctions pred) == 2 then points'' else error "determineSplitPoint: not implemented"
+        points pred@(AST.RealIneq _ exprX exprY) = points''
             where
-                otherRf = let [x,y] = Set.toList $ AST.predRandomFunctions pred in if x == rf then y else x
-                mbOtherInterv = Map.lookup otherRf prevChoicesReal
-                points' = case mbOtherInterv of
+                rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
+                mbOtherIntervs = mapM (\rf -> ((rf,) . fst) <$> Map.lookup rf prevChoicesReal) (filter (rf /=) $ Set.toList $ AST.predRandomFunctions pred)
+                points' = case mbOtherIntervs of
                     Nothing -> []
-                    Just ((otherLower, otherUpper), _) ->
-                        -- points must be in interval and not at boundary
-                        filter (\p -> Interval.PointPlus p > Interval.toPoint Lower lower && Interval.PointMinus p < Interval.toPoint Upper upper) rationalPoints
+                    Just otherIntervs -> filter (\p -> Interval.PointPlus p > Interval.toPoint Lower lower && Interval.PointMinus p < Interval.toPoint Upper upper) possibleSolutions
                         where
-                            -- can only split at rational points
-                            rationalPoints = mapMaybe Interval.pointRational [Interval.toPoint Lower otherLower, Interval.toPoint Upper otherUpper]
+                            possibleSolutions = [(if rfOnLeft then -1 else 1) * (sumExpr exprX c - sumExpr exprY c) | c <- partCorners]
+                            -- partial corners of all other RFs occurring in pred (can only split on finite points)
+                            partCorners = mapMaybe (mapM Interval.pointRational) $ Interval.corners otherIntervs
+
+                            sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational
+                            sumExpr (AST.RealConstant c) _  = c
+                            sumExpr (AST.UserRFunc rf') vals
+                                | rf' == rf = 0
+                                | otherwise = fromJust $ Map.lookup rf' vals
+                            sumExpr (AST.RealSum x y)  vals = sumExpr x vals + sumExpr y vals
 
                 -- split probability mass in two equal part if no other split is possible
                 points''
-                    | null points' = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/fromIntegral (Set.size $ AST.predRandomFunctions pred))]
+                    | null points' = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/fromIntegral (Set.size $ AST.predRandomFunctions pred))] -- penalty for higher-dimensional constraints
                     | otherwise    = [(p,1.0) | p <- points']
 
         combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double

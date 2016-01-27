@@ -21,9 +21,12 @@ module Interval
     , disjoint
     , toPoint
     , pointRational
+    , corners
     ) where
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
+import qualified Data.HashMap.Lazy as Map
+import Data.HashSet (HashSet)
 
 data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic, Show)
 data LowerUpper = Lower | Upper
@@ -102,3 +105,11 @@ instance Ord IntervalLimitPoint where
     (PointMinus x) `compare` (PointPlus y)
         | x <= y    = LT
         | otherwise = GT
+
+corners :: (Eq k, Hashable k) => [(k, (IntervalLimit, IntervalLimit))] -> [Map.HashMap k IntervalLimitPoint]
+corners choices = foldr
+            (\(rf, (l,u)) corners -> [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners])
+            [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]] otherConditions
+    where
+        conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = choices
+

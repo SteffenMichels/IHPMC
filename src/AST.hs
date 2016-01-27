@@ -23,6 +23,7 @@ module AST
     , IneqOp(..)
     , deterministicValue
     , predRandomFunctions
+    , exprRandomFunctions
     , negatePred
     ) where
 import BasicTypes
@@ -114,6 +115,7 @@ instance Show (Expr a) where
     show (BoolConstant const) = printf "#%s" (toLower <$> show const)
     show (RealConstant const) = printf "%f" (fromRat const::Float)
     show (UserRFunc label)    = printf "~%s" label
+    show (RealSum x y)        = printf "%s + %s" (show x) (show y)
 instance Hashable (Expr a) where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
@@ -139,12 +141,12 @@ deterministicValue (Constant val)                                               
 deterministicValue _                                                              = Nothing
 
 predRandomFunctions :: BuildInPredicate -> HashSet RFuncLabel
-predRandomFunctions (BoolEq _ left right)   = Set.union (randomFunctions' left) (randomFunctions' right)
-predRandomFunctions (RealIneq _ left right) = Set.union (randomFunctions' left) (randomFunctions' right)
+predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions (RealIn rf _)           = Set.singleton rf
 predRandomFunctions (Constant _)            = Set.empty
 
-randomFunctions' (UserRFunc label) = Set.singleton label
-randomFunctions' (BoolConstant _)  = Set.empty
-randomFunctions' (RealConstant _)  = Set.empty
-randomFunctions' (RealSum x y)     = Set.union (randomFunctions' x) (randomFunctions' y)
+exprRandomFunctions (UserRFunc label) = Set.singleton label
+exprRandomFunctions (BoolConstant _)  = Set.empty
+exprRandomFunctions (RealConstant _)  = Set.empty
+exprRandomFunctions (RealSum x y)     = Set.union (exprRandomFunctions x) (exprRandomFunctions y)

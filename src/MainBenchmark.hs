@@ -32,7 +32,7 @@ main = do
             src <- doIO $ readFile "/tmp/tmp.pclp"
             ast <- returnExceptional $ parsePclp src
             ((queries, mbEvidence), f) <- return $ groundPclp ast
-            doIO $ forM [1000,2000..25000] (\i -> do
+            doIO $ forM [1000,2000..10000] (\i -> do
                 begin <- curTime
                 (l,u) <- evaluate $ case mbEvidence of
                         Nothing -> gwmc (getFirst queries) (\j _ -> j >= i) (AST.rFuncDefs ast) f
