@@ -134,7 +134,7 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                         let left  = toPSTNode p leftEntry
                         let right = toPSTNode (1-p) rightEntry
                         return (PST.ChoiceBool rf p left right, combineProbsChoice p left right, combineScoresChoice left right)
-                    Just (AST.RealDist cdf icdf:_) -> do
+                    Just (AST.RealDist cdf _:_) -> do
                         leftEntry  <- state $ Formula.conditionReal fEntry rf (curLower, Open splitPoint) previousChoicesReal
                         rightEntry <- state $ Formula.conditionReal fEntry rf (Open splitPoint, curUpper) previousChoicesReal
                         let left  = toPSTNode p leftEntry
@@ -145,7 +145,7 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                             pUntilLower = cdf' cdf True curLower
                             pUntilUpper = cdf' cdf False curUpper
                             pUntilSplit = cdf splitPoint
-                            splitPoint = determineSplitPoint rf curInterv pUntilLower pUntilUpper icdf previousChoicesReal fEntry f
+                            splitPoint = determineSplitPoint rf curInterv rfuncDefs previousChoicesReal fEntry f
                             curInterv@(curLower, curUpper) = fst $ Map.lookupDefault ((Inf, Inf), undefined) rf previousChoicesReal
                     _  -> error ("undefined rfunc " ++ rf)
                     where
@@ -160,9 +160,6 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                         toPSTNode p entry = case Formula.entryNode entry of
                             Formula.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
                             _                         -> PST.Unfinished (PST.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
-                        cdf' _ lower Inf      = if lower then 0.0 else 1.0
-                        cdf' cdf _ (Open x)   = cdf x
-                        cdf' cdf _ (Closed x) = cdf x
                 Just (origOp, decOp, sign, decomposition) -> do
                     psts <- foldlM (\psts dec -> do
                             fresh <- if Set.size dec > 1 then
@@ -216,8 +213,8 @@ decompose ref f = Nothing{-case Formula.entryNode $ Formula.augmentWithEntry ref
             Formula.RefComposed sign _ -> sign
             _                      -> error "nodes other than composed ones have to sign"-}
 
-determineSplitPoint :: RFuncLabel -> Interval -> Probability -> Probability -> (Probability -> Rational) -> HashMap RFuncLabel (Interval, Int) -> Formula.RefWithNode -> Formula -> Rational
-determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesReal fEntry f = fst $ head list
+determineSplitPoint :: RFuncLabel -> Interval -> HashMap RFuncLabel [AST.RFuncDef] -> HashMap RFuncLabel (Interval, Int) -> Formula.RefWithNode -> Formula -> Rational
+determineSplitPoint rf (lower,upper) rfuncDefs prevChoicesReal fEntry f = fst $ head list
     where
         list = sortWith (\(point,score) -> -score) (Map.toList $ pointsWithScore fEntry)
         pointsWithScore entry
@@ -245,17 +242,32 @@ determineSplitPoint rf (lower,upper) pUntilLower pUntilUpper icdf prevChoicesRea
                             -- partial corners of all other RFs occurring in pred (can only split on finite points)
                             partCorners = mapMaybe (mapM Interval.pointRational) $ Interval.corners otherIntervs
 
-                            sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational
-                            sumExpr (AST.RealConstant c) _  = c
-                            sumExpr (AST.UserRFunc rf') vals
-                                | rf' == rf = 0
-                                | otherwise = fromJust $ Map.lookup rf' vals
-                            sumExpr (AST.RealSum x y)  vals = sumExpr x vals + sumExpr y vals
-
-                -- split probability mass in two equal part if no other split is possible
+                -- split probability mass in some smart way if no other split is possible
                 points''
-                    | null points' = [(icdf ((pUntilLower + pUntilUpper)/2), 1.0/fromIntegral (Set.size $ AST.predRandomFunctions pred))] -- penalty for higher-dimensional constraints
+                    | null points' = [((2*equalSplit rf + (if rfOnLeft then 1 else -1) * (sumExpr exprY prefSplitPs - sumExpr exprX prefSplitPs))/fromIntegral (Set.size rfs), 1.0/fromIntegral (Set.size rfs))] -- penalty for higher-dimensional constraints
                     | otherwise    = [(p,1.0) | p <- points']
+
+                prefSplitPs = Set.foldr (\rf ps -> Map.insert rf (equalSplit rf) ps) Map.empty rfs
+                rfs = AST.predRandomFunctions pred
+
+                equalSplit rf = case Map.lookup rf rfuncDefs of
+                    Just (AST.RealDist cdf icdf:_) -> icdf ((pUntilLower + pUntilUpper)/2)
+                        where
+                            pUntilLower = cdf' cdf True  curLower
+                            pUntilUpper = cdf' cdf False curUpper
+                            (curLower, curUpper) = fst $ Map.lookupDefault ((Inf, Inf), undefined) rf prevChoicesReal
+                    _ -> error "GWMC.equalSplit failed"
+
+                sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational
+                sumExpr (AST.RealConstant c) _ = c
+                sumExpr (AST.UserRFunc rf') vals
+                    | rf' == rf = 0
+                    | otherwise = fromJust $ Map.lookup rf' vals
+                sumExpr (AST.RealSum x y)  vals = sumExpr x vals + sumExpr y vals
 
         combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
         combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x
+
+cdf' _ lower Inf      = if lower then 0.0 else 1.0
+cdf' cdf _ (Open x)   = cdf x
+cdf' cdf _ (Closed x) = cdf x
