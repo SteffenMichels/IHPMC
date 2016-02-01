@@ -40,7 +40,7 @@ main = do
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             ((queries, mbEvidence), f) <- return $ groundPclp ast
-            return $ gwmc (getFirst queries) (\n (l,u) -> n == 5) (AST.rFuncDefs ast) f
+            return $ gwmc (getFirst queries) (\n (l,u) -> n == 21) (AST.rFuncDefs ast) f
             --exportAsDot "/tmp/Formula.dot" Formula
             --inferenceApprox queries mbEvidence ast f
 

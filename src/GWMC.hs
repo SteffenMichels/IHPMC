@@ -60,35 +60,35 @@ gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ PST.initialNode query) w
                                                     then return $ unsafePerformIO (runExceptionalT (PST.exportAsDot "/tmp/pst.dot" pst) >> return bounds)
                                                     else gwmc' (i+1) pstNode'
 
-gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> [ProbabilityBounds]
-gwmcEvidence query evidence rfuncDefs f = probBounds <$> evalState (do
+gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> ProbabilityBounds
+gwmcEvidence query evidence finishPred rfuncDefs =  evalState (do
         queryAndEvidence    <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef True,  evidence])
         negQueryAndEvidence <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef False, evidence])
-        gwmc' (initPST queryAndEvidence) (initPST negQueryAndEvidence)
-    ) f
-    where
-        gwmc' :: PST -> PST -> FState [(PST, PST)]
-        gwmc' (PST.Finished _) (PST.Finished _) = return []
-        gwmc' qe nqe
-            | PST.maxError qe > PST.maxError nqe = do
-                let (PST.Unfinished pstNode _ _) = qe
-                qe'  <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
-                rest <- gwmc' qe' nqe
-                return $ (qe', nqe) : rest
-            | otherwise = do
-                let (PST.Unfinished pstNode _ _) = nqe
-                nqe' <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
-                rest <- gwmc' qe nqe'
-                return $ (qe, nqe') : rest
+        gwmc' 1 (initPST queryAndEvidence) (initPST negQueryAndEvidence)
+    ) where
+    queryRef sign = case query of
+        Formula.RefComposed qSign label  -> Formula.RefComposed (sign == qSign) label
+        Formula.RefBuildInPredicate pred -> Formula.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
+    initPST nwr = PST.Unfinished (PST.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
 
-        probBounds (qe, nqe) = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
-            (lqe,  uqe)  = PST.bounds qe
-            (lnqe, unqe) = PST.bounds nqe
+    gwmc' :: Int -> PST -> PST -> FState ProbabilityBounds
+    gwmc' i qe nqe = case (qe, nqe) of
+        _ | finishPred i bounds          -> return bounds
+        (PST.Finished _, PST.Finished _) -> return bounds
+        _ | PST.maxError qe > PST.maxError nqe -> do
+            let (PST.Unfinished pstNode _ _) = qe
+            qe'  <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+            gwmc' (i+1) qe' nqe
+        _ -> do
+            let (PST.Unfinished pstNode _ _) = nqe
+            nqe' <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+            gwmc' (i+1) qe nqe'
+        where
+            bounds = probBounds qe nqe
 
-        initPST nwr = PST.Unfinished (PST.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
-        queryRef sign = case query of
-            Formula.RefComposed qSign label  -> Formula.RefComposed (sign == qSign) label
-            Formula.RefBuildInPredicate pred -> Formula.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
+    probBounds qe nqe = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
+        (lqe,  uqe)  = PST.bounds qe
+        (lnqe, unqe) = PST.bounds nqe
 
 iterate :: PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> FState PST
 iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
@@ -244,11 +244,12 @@ determineSplitPoint rf (lower,upper) rfuncDefs prevChoicesReal fEntry f = fst $ 
 
                 -- split probability mass in some smart way if no other split is possible
                 points''
-                    | null points' = [((2*equalSplit rf + (if rfOnLeft then 1 else -1) * (sumExpr exprY prefSplitPs - sumExpr exprX prefSplitPs))/fromIntegral (Set.size rfs), 1.0/fromIntegral (Set.size rfs))] -- penalty for higher-dimensional constraints
+                    | null points' = [(((fromIntegral nRfs-1)*equalSplit rf + (if rfOnLeft then 1 else -1) * (sumExpr exprY prefSplitPs - sumExpr exprX prefSplitPs))/fromIntegral nRfs, 1.0/fromIntegral nRfs)] -- penalty for higher-dimensional constraints
                     | otherwise    = [(p,1.0) | p <- points']
 
                 prefSplitPs = Set.foldr (\rf ps -> Map.insert rf (equalSplit rf) ps) Map.empty rfs
                 rfs = AST.predRandomFunctions pred
+                nRfs = Set.size rfs
 
                 equalSplit rf = case Map.lookup rf rfuncDefs of
                     Just (AST.RealDist cdf icdf:_) -> icdf ((pUntilLower + pUntilUpper)/2)

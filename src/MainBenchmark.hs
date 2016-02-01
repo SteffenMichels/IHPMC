@@ -35,8 +35,8 @@ main = do
             doIO $ forM [1000,2000..10000] (\i -> do
                 begin <- curTime
                 (l,u) <- evaluate $ case mbEvidence of
-                        Nothing -> gwmc (getFirst queries) (\j _ -> j >= i) (AST.rFuncDefs ast) f
-                        --Just ev -> gwmcEvidence (getFirst queries) (\j _ -> j <= i) ev (AST.rFuncDefs ast) f
+                        Nothing -> gwmc         (getFirst queries)    (\j _ -> j >= i) (AST.rFuncDefs ast) f
+                        Just ev -> gwmcEvidence (getFirst queries) ev (\j _ -> j >= i) (AST.rFuncDefs ast) f
                 --err <- evaluate $ probToDouble (u-l)/2
                 now <- curTime
                 putStrLn $ printf "%f %f %f" (now-begin) (probToDouble l) (probToDouble u) )
