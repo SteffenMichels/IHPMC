@@ -112,7 +112,7 @@ data Expr a where
 
 deriving instance Eq (Expr a)
 instance Show (Expr a) where
-    show (BoolConstant const) = printf "#%s" (toLower <$> show const)
+    show (BoolConstant const) = printf "%s" (toLower <$> show const)
     show (RealConstant const) = printf "%f" (fromRat const::Float)
     show (UserRFunc label)    = printf "~%s" label
     show (RealSum x y)        = printf "%s + %s" (show x) (show y)

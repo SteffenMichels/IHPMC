@@ -20,6 +20,9 @@ import qualified AST
 import qualified Data.HashMap.Lazy as Map
 import qualified Data.HashSet as Set
 import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec.Expr
+import Text.ParserCombinators.Parsec.Language
+import qualified Text.ParserCombinators.Parsec.Token as Token
 import Exception
 import Numeric
 import Text.Printf (printf)
@@ -29,6 +32,62 @@ import qualified Statistics.Distribution as Dist
 import qualified Statistics.Distribution.Normal as Norm
 import Interval (Interval, IntervalLimit(..))
 
+-- LEXER
+languageDef =
+    emptyDef { Token.commentStart    = "/*"
+             , Token.commentEnd      = "*/"
+             , Token.commentLine     = "//"
+             , Token.identStart      = letter
+             , Token.identLetter     = alphaNum
+             , Token.reservedNames   = [ "query", "evidence", "flip"
+                                       , "norm", "true", "false"
+                                       ]
+             , Token.reservedOpNames = [ "~", "+", "<", "<=", ">", ">="
+                                       ]
+             }
+
+lexer = Token.makeTokenParser languageDef
+identifier = Token.identifier lexer
+reserved   = Token.reserved   lexer
+reservedOp = Token.reservedOp lexer
+parens     = Token.parens     lexer
+rational   = Token.lexeme     lexer parseRat
+realIneqOp = Token.lexeme     lexer parseRealIneqOp
+userRFuncL = Token.lexeme     lexer parseUserRFuncLabel
+decimal    = Token.decimal    lexer
+integer    = Token.integer    lexer
+dot        = Token.dot        lexer
+comma      = Token.comma      lexer
+whiteSpace = Token.whiteSpace lexer
+
+parseRat :: Parser Rational
+parseRat = do
+    neg <- (string "-" >> return True) <|> return False
+    rat <- try parseDecimal <|> parseFraction
+    spaces
+    return $ if neg then -rat else rat
+    where
+        parseDecimal = do
+            before <- decimal
+            string "."
+            after <- decimal
+            return $ (fst . head . readFloat) (printf "%i.%i" before after)
+        parseFraction = do
+            before <- integer
+            string "/"
+            after <- integer
+            return $ before % after
+
+parseRealIneqOp :: Parser AST.IneqOp
+parseRealIneqOp =   try (reservedOp "<"  >> return AST.Lt)
+                <|>     (reservedOp "<=" >> return AST.LtEq)
+                <|> try (reservedOp ">"  >> return AST.Gt)
+                <|>     (reservedOp ">=" >> return AST.GtEq)
+
+parseUserRFuncLabel :: Parser RFuncLabel
+parseUserRFuncLabel = string "~" >> identifier
+
+-- PARSER
 parsePclp :: String -> Exceptional String AST
 parsePclp src =
     let initialState = AST.AST
@@ -40,43 +99,43 @@ parsePclp src =
     in mapException show (fromEither (parse (parseTheory initialState) "PCLP theory" src))
 
 parseTheory :: AST -> Parser AST
-parseTheory ast = spaces >>
-                (     try ( do -- query
-                        query <- parseQuery
-                        let ast' = ast {AST.queries = Set.insert query $ AST.queries ast}
-                        parseTheory ast'
-                      )
-                  <|> try (do --evidence
-                        evidence <- parseEvidence
-                        -- TODO: handle multiple evidence statements
-                        let ast' = ast {AST.evidence = Just evidence}
-                        parseTheory ast'
-                      )
-                  <|> ( do -- random function definition
-                        (signature, def) <- parseRFuncDef
-                        -- put together defs with same signature
-                        let ast' = ast {AST.rFuncDefs = Map.insertWith (++) signature [def] (AST.rFuncDefs ast)}
-                        parseTheory ast'
-                      )
-                  <|> ( do -- rule
-                        (label, body) <- parseRule
-                        -- put together rules with same head
-                        let ast' = ast {AST.rules = Map.insertWith Set.union label (Set.singleton body) (AST.rules ast)}
-                        parseTheory ast'
-                      )
-                  <|> ( do -- end of input
-                            eof
-                            return ast
-                      )
-                )
+parseTheory ast = whiteSpace >>
+    (     try ( do -- query
+            query <- parseQuery
+            let ast' = ast {AST.queries = Set.insert query $ AST.queries ast}
+            parseTheory ast'
+          )
+      <|> try (do --evidence
+            evidence <- parseEvidence
+            -- TODO: handle multiple evidence statements
+            let ast' = ast {AST.evidence = Just evidence}
+            parseTheory ast'
+          )
+      <|> ( do -- random function definition
+            (signature, def) <- parseRFuncDef
+            -- put together defs with same signature
+            let ast' = ast {AST.rFuncDefs = Map.insertWith (++) signature [def] (AST.rFuncDefs ast)}
+            parseTheory ast'
+          )
+      <|> ( do -- rule
+            (label, body) <- parseRule
+            -- put together rules with same head
+            let ast' = ast {AST.rules = Map.insertWith Set.union label (Set.singleton body) (AST.rules ast)}
+            parseTheory ast'
+          )
+      <|> ( do -- end of input
+                eof
+                return ast
+          )
+    )
 
 -- rules
 parseRule :: Parser (PredicateLabel, AST.RuleBody)
 parseRule = do
     label <- parsePredicateLabel
-    stringAndSpaces "<-"
-    body <- sepBy parseBodyElement (stringAndSpaces ",")
-    stringAndSpaces "."
+    reservedOp "<-"
+    body <- sepBy parseBodyElement comma
+    dot
     return (label, AST.RuleBody body)
 
 parseBodyElement :: Parser AST.RuleBodyElement
@@ -97,16 +156,16 @@ parseBuildInPredicate = try parseBoolPredicate <|> parseRealPredicate
 
 parseBoolPredicate :: Parser AST.BuildInPredicate
 parseBoolPredicate = do
-    exprX <- parseBoolExpr
-    stringAndSpaces "="
-    exprY <- parseBoolExpr
+    exprX <- bExpression
+    reservedOp "="
+    exprY <- bExpression
     return (AST.BoolEq True exprX exprY)
 
 parseRealPredicate :: Parser AST.BuildInPredicate
 parseRealPredicate = do
-    exprX <- parseRealExpr
+    exprX <- rExpression
     op    <- parseRealIneqOp
-    exprY <- parseRealExpr
+    exprY <- rExpression
     return $ case (exprX, op, exprY) of
         (AST.UserRFunc rf, AST.Lt,   AST.RealConstant c) -> AST.RealIn rf (Inf, Open c)
         (AST.UserRFunc rf, AST.LtEq, AST.RealConstant c) -> AST.RealIn rf (Inf, Closed c)
@@ -122,101 +181,60 @@ parseRealPredicate = do
 parseRFuncDef :: Parser (RFuncLabel, AST.RFuncDef)
 parseRFuncDef = do
     label <- parseUserRFuncLabel
-    stringAndSpaces "~"
-    def <- try parseFlip <|> parseNorm
+    reservedOp "~"
+    def <- parseFlip <|> parseNorm
     return (label, def)
 
 parseFlip :: Parser AST.RFuncDef
 parseFlip = do
-    stringAndSpaces "flip("
-    prob <- ratToProb <$> parseRat
-    stringAndSpaces ")"
-    stringAndSpaces "."
+    reserved "flip"
+    prob <- parens $ ratToProb <$> rational
+    dot
     return $ AST.Flip prob
 
 parseNorm :: Parser AST.RFuncDef
 parseNorm = do
-    stringAndSpaces "norm("
-    m <- parseRat
-    stringAndSpaces ","
-    d <- parseRat
-    stringAndSpaces ")"
-    stringAndSpaces "."
+    reserved "norm"
+    (m, d) <- parens $ do
+         m <- rational
+         comma
+         d <- rational
+         return (m, d)
+    dot
     return $ AST.RealDist
         (doubleToProb . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
         (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
 
 -- expressions
-parseBoolExpr :: Parser (AST.Expr Bool)
-parseBoolExpr =   fmap AST.BoolConstant parseBoolConstant
-              <|> fmap AST.UserRFunc    parseUserRFuncLabel
+bExpression :: Parser (AST.Expr Bool)
+bExpression = buildExpressionParser bOperators bTerm
 
-parseBoolConstant :: Parser Bool
-parseBoolConstant =
-        string "#"
-    >>
-        (   (stringAndSpaces "true"  >> return True)
-        <|>
-            (stringAndSpaces "false" >> return False)
-        )
+bOperators = []
 
-parseRealExpr :: Parser (AST.Expr AST.RealN)
-parseRealExpr = do
-    exprX <- fmap AST.RealConstant parseRat <|> fmap AST.UserRFunc parseUserRFuncLabel
-    try
-        (stringAndSpaces "+" >> parseRealExpr >>= \exprY -> return $ AST.RealSum exprX exprY)
-        <|>
-        return exprX
+bTerm =  (reserved "true"  >> return (AST.BoolConstant True))
+     <|> (reserved "false" >> return (AST.BoolConstant False))
+     <|> fmap AST.UserRFunc parseUserRFuncLabel
 
-parseRealIneqOp :: Parser AST.IneqOp
-parseRealIneqOp =   try (stringAndSpaces "<"  >> return AST.Lt)
-                <|> try (stringAndSpaces "<=" >> return AST.LtEq)
-                <|> try (stringAndSpaces ">"  >> return AST.Gt)
-                <|> try (stringAndSpaces ">=" >> return AST.GtEq)
+rExpression :: Parser (AST.Expr AST.RealN)
+rExpression = buildExpressionParser rOperators rTerm
 
-parseUserRFuncLabel :: Parser RFuncLabel
-parseUserRFuncLabel = do
-    string "~"
-    first <- lower
-    rest  <- many alphaNum
-    spaces
-    return (first:rest)
+rOperators = [ [Infix  (reservedOp "+"   >> return AST.RealSum) AssocLeft] ]
+
+rTerm =  fmap AST.RealConstant rational
+     <|> fmap AST.UserRFunc parseUserRFuncLabel
 
 -- queries
 parseQuery :: Parser PredicateLabel
 parseQuery = do
-    stringAndSpaces "query"
+    reserved "query"
     query <- parsePredicateLabel
-    stringAndSpaces "."
+    dot
     return query
 
 -- evidence
 parseEvidence :: Parser PredicateLabel
 parseEvidence = do
-    stringAndSpaces "evidence"
+    reserved "evidence"
     evidence <- parsePredicateLabel
-    stringAndSpaces "."
+    dot
     return evidence
-
--- common
-
-parseRat :: Parser Rational
-parseRat = do
-    neg <- try (string "-" >> return True) <|> return False
-    rat <- try parseDecimal <|> parseFraction
-    spaces
-    return $ if neg then -rat else rat
-    where
-        parseDecimal = do
-            before <- many digit
-            string "."
-            after <- many1 digit
-            return $ (fst . head . readFloat) (printf "%s.%s" before after)
-        parseFraction = do
-            before <- many digit
-            string "/"
-            after <- many1 digit
-            return $ read before % read after
-
-stringAndSpaces :: String -> Parser ()
-stringAndSpaces str = string str >> spaces
