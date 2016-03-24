@@ -264,7 +264,7 @@ determineSplitPoint rf (lower,upper) rfuncDefs prevChoicesReal fEntry f = fst $ 
                 sumExpr (AST.UserRFunc rf') vals
                     | rf' == rf = 0
                     | otherwise = fromJust $ Map.lookup rf' vals
-                sumExpr (AST.RealSum x y)  vals = sumExpr x vals + sumExpr y vals
+                sumExpr (AST.RealSum x y) vals = sumExpr x vals + sumExpr y vals
 
         combine :: HashMap Rational Double -> HashMap Rational Double -> HashMap Rational Double
         combine x y = foldr (\(p,score) map -> Map.insert p (score + Map.lookupDefault 0.0 p map) map) y $ Map.toList x

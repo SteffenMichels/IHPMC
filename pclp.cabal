@@ -18,7 +18,7 @@ executable pclp
         time -any,
         unordered-containers -any,
         mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls
     hs-source-dirs: src
     other-modules:
         MainPCLP
@@ -49,7 +49,7 @@ executable iphl
         time -any,
         unordered-containers -any,
         mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls
     hs-source-dirs: src
     other-modules:
         MainIPHL
@@ -79,7 +79,7 @@ executable benchmark
         time -any,
         unordered-containers -any,
         mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls
     hs-source-dirs: src
     other-modules:
         MainPCLP

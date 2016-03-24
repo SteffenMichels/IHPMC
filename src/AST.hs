@@ -102,7 +102,7 @@ instance Show IneqOp where
     show Gt   = ">"
     show GtEq = ">="
 instance Hashable IneqOp
-data RealN = RealN deriving (Eq, Ord)
+data RealN --deriving (Eq, Ord)
 
 data Expr a where
     BoolConstant :: Bool                     -> Expr Bool

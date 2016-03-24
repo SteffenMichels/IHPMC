@@ -69,8 +69,12 @@ instance Hashable RefWithNode where
 data NodeRef = RefComposed Bool ComposedId
              | RefBuildInPredicate AST.BuildInPredicate
              | RefDeterministic Bool
-             deriving (Eq, Show, Generic)
+             deriving (Eq, Generic)
 instance Hashable NodeRef
+instance Show NodeRef where
+    show (RefComposed sign cid)     = printf "composed %s %i" (show sign) cid
+    show (RefBuildInPredicate pred) = show pred
+    show (RefDeterministic val)     = show val
 
 -- last element is stored hash to avoid recomputation
 data ComposedLabel = ComposedLabel String (HashMap RFuncLabel Bool) (HashMap RFuncLabel Interval) Int
