@@ -84,7 +84,7 @@ instance Show RuleBodyElement where
 instance Hashable RuleBodyElement
 
 data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
-                      | RealIneq IneqOp (Expr RealN) -- 'RealIneq op expr' represents expr op 0
+                      | RealIneq IneqOp (Expr RealN) (Expr RealN)
                       | Constant Bool
                       deriving (Eq, Generic)
 
@@ -93,8 +93,10 @@ instance Show BuildInPredicate where
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
 instance Hashable BuildInPredicate
 
-data IneqOp = Gt | GtEq deriving (Eq, Generic)
+data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
 instance Show IneqOp where
+    show Lt   = "<"
+    show LtEq = "<="
     show Gt   = ">"
     show GtEq = ">="
 instance Hashable IneqOp
@@ -123,12 +125,11 @@ negatePred :: BuildInPredicate -> BuildInPredicate
 negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
 negatePred (RealIneq op exprX exprY) = RealIneq (negateOp op) exprX exprY
 
-switchOp :: IneqOp -> IneqOp
-switchOp Gt   = GtEq
-switchOp GtEq = Gt
-
-negateRealExpr :: Expr RealN -> Expr RealN
-negateRealExpr = undefined
+negateOp :: IneqOp -> IneqOp
+negateOp Lt   = GtEq
+negateOp LtEq = Gt
+negateOp Gt   = LtEq
+negateOp GtEq = Lt
 
 deterministicValue :: BuildInPredicate -> Maybe Bool
 deterministicValue (BoolEq eq (BoolConstant left) (BoolConstant right))           = Just $ (if eq then (==) else (/=)) left right
