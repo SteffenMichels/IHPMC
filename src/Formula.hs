@@ -311,7 +311,7 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
                         evalLeft  = eval left
                         evalRight = eval right
                         eval (AST.UserRFunc rf)   = fromJust $ Map.lookup rf corner
-                        eval (AST.RealConstant r) = Point r
+                        eval (AST.RealConstant r) = Interval.rat2IntervLimPoint r
                         eval (AST.RealSum x y)    = eval x + eval y
 
                 conditions = (rf, interv):[(rf',interv) | (rf',(interv, _)) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]

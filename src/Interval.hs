@@ -15,11 +15,13 @@
 module Interval
     ( IntervalLimit(..)
     , IntervalLimitPoint(..)
+    , Infinitesimal(..)
     , LowerUpper(..)
     , Interval
     , toPoint
     , pointRational
     , corners
+    , rat2IntervLimPoint
     , (~>), (~>=), (~<), (~<=)
     ) where
 import Data.Hashable (Hashable)
@@ -29,79 +31,71 @@ import Data.HashSet (HashSet)
 
 data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic, Show)
 data LowerUpper = Lower | Upper
-data IntervalLimitPoint = PosInf | NegInf | Ind
-                        | Point Rational | PointPlus Rational | PointMinus Rational deriving (Eq, Show)
+data IntervalLimitPoint = PosInf | NegInf | Indet
+                        | Point Rational Infinitesimal
+                        deriving (Eq, Show)
+
+data Infinitesimal = InfteNull | InftePlus | InfteMinus | InfteIndet deriving (Eq, Show)
 instance Hashable IntervalLimit
 type Interval = (IntervalLimit, IntervalLimit)
 
 toPoint :: LowerUpper -> IntervalLimit -> IntervalLimitPoint
-toPoint _     (Closed p) = Point p
-toPoint Lower (Open p)   = PointPlus p
-toPoint Upper (Open p)   = PointMinus p
+toPoint _     (Closed p) = Point p InfteNull
+toPoint Lower (Open p)   = Point p InftePlus
+toPoint Upper (Open p)   = Point p InfteMinus
 toPoint Lower Inf        = NegInf
 toPoint Upper Inf        = PosInf
 
 pointRational :: IntervalLimitPoint -> Maybe Rational
-pointRational (Point r)      = Just r
-pointRational (PointPlus r)  = Just r
-pointRational (PointMinus r) = Just r
-pointRational _              = Nothing
+pointRational (Point r _) = Just r
+pointRational _           = Nothing
 
---TODO: more concise +? & complete definition
+--TODO: complete definition
 instance Num IntervalLimitPoint where
-    x + y = case (pointRational x, pointRational y) of
-        (Just px, Just py) -> let sum = px+py in case (x,y) of
-            (PointPlus _,  PointMinus _) -> Point      sum
-            (PointPlus _,  _)            -> PointPlus  sum
-            (PointMinus _, PointPlus _)  -> Point      sum
-            (PointMinus _, _)            -> PointMinus sum
-            (_,            PointPlus _)  -> PointPlus  sum
-            (_,            PointMinus _) -> PointMinus sum
-            _                            -> Point      sum
-        _ -> case (x,y) of
-            (Ind,    _     ) -> Ind
-            (_,      Ind   ) -> Ind
-            (PosInf, NegInf) -> Ind
-            (PosInf, _     ) -> PosInf
-            (NegInf, PosInf) -> Ind
-            (NegInf, _     ) -> NegInf
-            _                -> y+x
+    x + y = case (x, y) of
+        (Point x ix, Point y iy) -> Point (x+y) $ case (ix, iy) of
+            (InfteIndet, _         ) -> InfteIndet
+            (_,          InfteIndet) -> InfteIndet
+            (InfteNull,  iy        ) -> iy
+            (ix,         InfteNull ) -> ix
+            _ | ix == iy             -> ix
+            _                        -> InfteIndet
+        (Indet,  _     )             -> Indet
+        (_,      Indet )             -> Indet
+        (PosInf, NegInf)             -> Indet
+        (NegInf, PosInf)             -> Indet
+        (PosInf, _     )             -> PosInf
+        (_,      PosInf)             -> PosInf
+        (NegInf, _     )             -> NegInf
+        (_,      NegInf)             -> NegInf
 
     x * y = undefined
     abs x = undefined
     signum x = undefined
-    fromInteger = Point . fromInteger
+    fromInteger i = Point (fromInteger i) InfteNull
     negate x = undefined
 
-data IntervalLimitPointOrd = Lt | Gt | Eq | IndOrd deriving (Eq, Ord)
+data IntervalLimitPointOrd = Lt | Gt | Eq | IndetOrd deriving (Eq, Ord)
 
 compareIntervalPoints :: IntervalLimitPoint -> IntervalLimitPoint -> IntervalLimitPointOrd
 compareIntervalPoints x y = case (x,y) of
-    (Ind, _)        -> IndOrd
-    (_, Ind)        -> IndOrd
-    (x, y) | x == y -> Eq
-    (NegInf, _)     -> Lt
-    (PosInf, _)     -> Gt
-    (_, NegInf)     -> Gt
-    (_, PosInf)     -> Lt
-    (Point x, Point y) -> ordRat x y
-    (Point x, PointPlus y)
-        | x <= y    -> Lt
-        | otherwise -> Gt
-    (PointPlus x, PointPlus y) -> ordRat x y
-    (PointPlus x, Point y)
-        | x < y     -> Lt
-        | otherwise -> Gt
-    (PointPlus x, PointMinus y)
-        | x < y     -> Lt
-        | otherwise -> Gt
-    (PointMinus x, PointMinus y) -> ordRat x y
-    (PointMinus x, Point y)
-        | x <= y    -> Lt
-        | otherwise -> Gt
-    (PointMinus x, PointPlus y)
-        | x <= y    -> Lt
-        | otherwise -> Gt
+    (Indet,  _     ) -> IndetOrd
+    (_,      Indet ) -> IndetOrd
+    (x, y) | x == y  -> Eq
+    (NegInf, _     ) -> Lt
+    (PosInf, _     ) -> Gt
+    (_,      NegInf) -> Gt
+    (_,      PosInf) -> Lt
+    (Point x ix, Point y iy)
+        | o /= Eq                  -> o
+        | otherwise -> case (ix, iy) of
+            (InfteIndet, _         ) -> IndetOrd
+            (_,          InfteIndet) -> IndetOrd
+            _ | ix == iy             -> Eq
+            (InfteMinus, _         ) -> Lt
+            (InfteNull,  InftePlus ) -> Lt
+            _                        -> Gt
+        where o = ordRat x y
     where
         ordRat x y = case compare x y of
             LT -> Lt
@@ -129,9 +123,9 @@ x ~>= y
     | oneArgIndet x y = Nothing
     | otherwise       = let c = compareIntervalPoints x y in Just $ c == Gt || c == Eq
 
-oneArgIndet Ind _ = True
-oneArgIndet _ Ind = True
-oneArgIndet _ _   = False
+oneArgIndet Indet _     = True
+oneArgIndet _     Indet = True
+oneArgIndet _     _     = False
 
 corners :: (Eq k, Hashable k) => [(k, (IntervalLimit, IntervalLimit))] -> [Map.HashMap k IntervalLimitPoint]
 corners choices = foldr
@@ -140,3 +134,5 @@ corners choices = foldr
     where
         ((firstRf, (firstLower,firstUpper)):otherConditions) = choices
 
+rat2IntervLimPoint :: Rational -> IntervalLimitPoint
+rat2IntervLimPoint r = Point r InfteNull
