@@ -85,14 +85,12 @@ instance Hashable RuleBodyElement
 
 data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
                       | RealIneq IneqOp (Expr RealN) -- 'RealIneq op expr' represents expr op 0
-                      | RealIn RFuncLabel Interval
                       | Constant Bool
                       deriving (Eq, Generic)
 
 instance Show BuildInPredicate where
-    show (BoolEq eq exprX exprY) = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
-    show (RealIneq op expr)      = printf "%s %s 0" (show expr) (show op)
-    show (RealIn rf interv)      = printf "%s in %s" rf (show interv)
+    show (BoolEq eq exprX exprY)   = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
+    show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
 instance Hashable BuildInPredicate
 
 data IneqOp = Gt | GtEq deriving (Eq, Generic)
@@ -122,9 +120,8 @@ instance Hashable (Expr a) where
     hashWithSalt salt (RealSum x y)    = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
 
 negatePred :: BuildInPredicate -> BuildInPredicate
-negatePred (BoolEq eq exprX exprY) = BoolEq (not eq) exprX exprY
-negatePred (RealIneq op expr)      = RealIneq (switchOp op) $ negateRealExpr expr
-negatePred (RealIn _ _)            = error "not implemented: negation for real interval inclusion"
+negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
+negatePred (RealIneq op exprX exprY) = RealIneq (negateOp op) exprX exprY
 
 switchOp :: IneqOp -> IneqOp
 switchOp Gt   = GtEq
@@ -140,10 +137,9 @@ deterministicValue (Constant val)                                               
 deterministicValue _                                                              = Nothing
 
 predRandomFunctions :: BuildInPredicate -> HashSet RFuncLabel
-predRandomFunctions (BoolEq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions (RealIneq _ expr)     = exprRandomFunctions expr
-predRandomFunctions (RealIn rf _)         = Set.singleton rf
-predRandomFunctions (Constant _)          = Set.empty
+predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions (Constant _)            = Set.empty
 
 exprRandomFunctions (UserRFunc label) = Set.singleton label
 exprRandomFunctions (BoolConstant _)  = Set.empty

@@ -166,16 +166,7 @@ parseRealPredicate = do
     exprX <- rExpression
     op    <- parseRealIneqOp
     exprY <- rExpression
-    return $ case (exprX, op, exprY) of
-        (AST.UserRFunc rf, AST.Lt,   AST.RealConstant c) -> AST.RealIn rf (Inf, Open c)
-        (AST.UserRFunc rf, AST.LtEq, AST.RealConstant c) -> AST.RealIn rf (Inf, Closed c)
-        (AST.UserRFunc rf, AST.Gt,   AST.RealConstant c) -> AST.RealIn rf (Open c, Inf)
-        (AST.UserRFunc rf, AST.GtEq, AST.RealConstant c) -> AST.RealIn rf (Closed c, Inf)
-        (AST.RealConstant c, AST.Lt,   AST.UserRFunc rf) -> AST.RealIn rf (Open c, Inf)
-        (AST.RealConstant c, AST.LtEq, AST.UserRFunc rf) -> AST.RealIn rf (Closed c, Inf)
-        (AST.RealConstant c, AST.Gt,   AST.UserRFunc rf) -> AST.RealIn rf (Inf, Open c)
-        (AST.RealConstant c, AST.GtEq, AST.UserRFunc rf) -> AST.RealIn rf (Inf, Closed c)
-        _                                                -> AST.RealIneq op exprX exprY
+    return $ AST.RealIneq op exprX exprY
 
 -- rfunc defs
 parseRFuncDef :: Parser (RFuncLabel, AST.RFuncDef)

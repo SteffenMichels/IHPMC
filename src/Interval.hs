@@ -17,8 +17,6 @@ module Interval
     , IntervalLimitPoint(..)
     , LowerUpper(..)
     , Interval
-    , certainlSubsetEq
-    , certainlDisjoint
     , toPoint
     , pointRational
     , corners
@@ -48,12 +46,6 @@ pointRational (Point r)      = Just r
 pointRational (PointPlus r)  = Just r
 pointRational (PointMinus r) = Just r
 pointRational _              = Nothing
-
-certainlSubsetEq :: Interval -> Interval -> Bool
-certainlSubsetEq (lx, ux) (ly, uy) = (toPoint Lower lx ~>= toPoint Lower ly) == Just True && (toPoint Upper ux ~<= toPoint Upper uy) == Just True
-
-certainlDisjoint :: Interval -> Interval -> Bool
-certainlDisjoint (lx, ux) (ly, uy) = (toPoint Upper ux ~< toPoint Lower ly) == Just True || (toPoint Upper uy ~< toPoint Lower lx) == Just False
 
 --TODO: more concise +? & complete definition
 instance Num IntervalLimitPoint where
@@ -146,5 +138,5 @@ corners choices = foldr
             (\(rf, (l,u)) corners -> [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners])
             [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]] otherConditions
     where
-        conditions@((firstRf, (firstLower,firstUpper)):otherConditions) = choices
+        ((firstRf, (firstLower,firstUpper)):otherConditions) = choices
 

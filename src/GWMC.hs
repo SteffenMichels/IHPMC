@@ -224,12 +224,6 @@ determineSplitPoint rf (lower,upper) rfuncDefs prevChoicesReal fEntry f = fst $ 
                 _                         -> Map.empty
             | otherwise = Map.empty
 
-        points (AST.RealIn _ (l,u)) = mapMaybe
-                                        (\x -> case x of
-                                            Inf      -> Nothing
-                                            Open p   -> Just (p, 1.0)
-                                            Closed p -> Just (p, 1.0)
-                                        ) [l,u]
         points pred@(AST.RealIneq _ exprX exprY) = points''
             where
                 rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
@@ -240,7 +234,9 @@ determineSplitPoint rf (lower,upper) rfuncDefs prevChoicesReal fEntry f = fst $ 
                         where
                             possibleSolutions = [(if rfOnLeft then -1 else 1) * (sumExpr exprX c - sumExpr exprY c) | c <- partCorners]
                             -- partial corners of all other RFs occurring in pred (can only split on finite points)
-                            partCorners = mapMaybe (mapM Interval.pointRational) $ Interval.corners otherIntervs
+                            partCorners
+                                | null otherIntervs = [undefined] -- only single empty (not evaluated) corner needed in case of no other rf
+                                | otherwise         = mapMaybe (mapM Interval.pointRational) $ Interval.corners otherIntervs
 
                 -- split probability mass in some smart way if no other split is possible
                 points''

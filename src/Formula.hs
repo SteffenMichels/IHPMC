@@ -290,11 +290,6 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
         RefDeterministic _       -> error "should not happen as deterministic nodes contains no rfunctions"
     where
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
-        conditionPred pred@(AST.RealIn predRf predInterv)
-            -- TODO: if remove: check if certainlSubsetEq & certainlDisjoint necessary
-            | predRf == rf && Interval.certainlSubsetEq interv predInterv = AST.Constant True
-            | predRf == rf && Interval.certainlDisjoint interv predInterv = AST.Constant False
-            | otherwise                                           = pred
         conditionPred pred@(AST.RealIneq op left right)
             -- check if choice is made for all rFuncs in pred
             | length conditions == Set.size predRFuncs = conditionPred'
