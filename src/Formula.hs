@@ -44,7 +44,7 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import qualified Data.List as List
-import Interval (Interval, IntervalLimit, IntervalLimitPoint(..), LowerUpper(..))
+import Interval (Interval, IntervalLimit, IntervalLimitPoint(..), LowerUpper(..), (~<), (~<=), (~>), (~>=))
 import qualified Interval
 import Data.Foldable (forM_)
 import Debug.Trace (trace)
@@ -291,8 +291,9 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
     where
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred pred@(AST.RealIn predRf predInterv)
-            | predRf == rf && Interval.subsetEq interv predInterv = AST.Constant True
-            | predRf == rf && Interval.disjoint interv predInterv = AST.Constant False
+            -- TODO: if remove: check if certainlSubsetEq & certainlDisjoint necessary
+            | predRf == rf && Interval.certainlSubsetEq interv predInterv = AST.Constant True
+            | predRf == rf && Interval.certainlDisjoint interv predInterv = AST.Constant False
             | otherwise                                           = pred
         conditionPred pred@(AST.RealIneq op left right)
             -- check if choice is made for all rFuncs in pred
@@ -300,17 +301,17 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
             | otherwise = pred
             where
                 conditionPred'
-                    |       and checkedPreds = AST.Constant True
-                    | not $ or  checkedPreds = AST.Constant False
-                    | otherwise              = pred
+                    | all ((==) $ Just True)  checkedPreds = AST.Constant True
+                    | all ((==) $ Just False) checkedPreds = AST.Constant False
+                    | otherwise                            = pred
 
                 checkedPreds = [checkPred corner | corner <- crns]
 
                 checkPred corner = case op of
-                    AST.Lt   -> evalLeft <  evalRight
-                    AST.LtEq -> evalLeft <= evalRight
-                    AST.Gt   -> evalLeft >  evalRight
-                    AST.GtEq -> evalLeft >= evalRight
+                    AST.Lt   -> evalLeft ~<  evalRight
+                    AST.LtEq -> evalLeft ~<= evalRight
+                    AST.Gt   -> evalLeft ~>  evalRight
+                    AST.GtEq -> evalLeft ~>= evalRight
                     where
                         evalLeft  = eval left
                         evalRight = eval right

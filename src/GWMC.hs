@@ -31,7 +31,7 @@ import Text.Printf (printf)
 import GHC.Exts (sortWith)
 import Debug.Trace (trace)
 import qualified Data.List as List
-import Interval (Interval, IntervalLimit(..), LowerUpper(..))
+import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~<), (~>))
 import qualified Interval
 import Numeric (fromRat)
 import Data.Maybe (mapMaybe, fromJust)
@@ -236,7 +236,7 @@ determineSplitPoint rf (lower,upper) rfuncDefs prevChoicesReal fEntry f = fst $ 
                 mbOtherIntervs = mapM (\rf -> ((rf,) . fst) <$> Map.lookup rf prevChoicesReal) (filter (rf /=) $ Set.toList $ AST.predRandomFunctions pred)
                 points' = case mbOtherIntervs of
                     Nothing -> []
-                    Just otherIntervs -> filter (\p -> Interval.PointPlus p > Interval.toPoint Lower lower && Interval.PointMinus p < Interval.toPoint Upper upper) possibleSolutions
+                    Just otherIntervs -> filter (\p -> (Interval.PointPlus p ~> Interval.toPoint Lower lower) == Just True && (Interval.PointMinus p ~< Interval.toPoint Upper upper) == Just True) possibleSolutions
                         where
                             possibleSolutions = [(if rfOnLeft then -1 else 1) * (sumExpr exprX c - sumExpr exprY c) | c <- partCorners]
                             -- partial corners of all other RFs occurring in pred (can only split on finite points)

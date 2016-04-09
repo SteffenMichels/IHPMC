@@ -69,13 +69,5 @@ type ProbabilityBounds = (Probability, Probability)
 type PredicateLabel  = String
 type RFuncLabel      = String
 
-instance Hashable a => Hashable (HashSet a) where
-    hash = Hashable.hashWithSalt 0
-    hashWithSalt = Set.foldr (flip Hashable.hashWithSalt)
-
-instance (Hashable a, Hashable b) => Hashable (HashMap a b) where
-    hash = Hashable.hashWithSalt 0
-    hashWithSalt salt map = foldr (flip Hashable.hashWithSalt) salt $ Map.toList map
-
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
