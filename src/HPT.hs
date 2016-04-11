@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 --
--- Module      :  PST
+-- Module      :  HPT
 -- Copyright   :
 -- License     :  AllRightsReserved
 --
@@ -12,9 +12,9 @@
 --
 -----------------------------------------------------------------------------
 
-module PST
-    ( PST(..)
-    , PSTNode(..)
+module HPT
+    ( HPT(..)
+    , HPTNode(..)
     , initialNode
     , bounds
     , score
@@ -36,34 +36,34 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.List as List
 
--- Probabilistic Sematic Tree
-data PST     = Unfinished PSTNode ProbabilityBounds Double
+-- Hybrid Probability Tree
+data HPT     = Unfinished HPTNode ProbabilityBounds Double
              | Finished Probability
              deriving (Show, Eq, Generic)
-instance Hashable PST
-data PSTNode = Leaf Formula.NodeRef
-             | ChoiceBool RFuncLabel Probability PST PST
-             | ChoiceReal RFuncLabel Probability Rational PST PST
-             | Decomposition Formula.NodeType [PST]
+instance Hashable HPT
+data HPTNode = Leaf Formula.NodeRef
+             | ChoiceBool RFuncLabel Probability HPT HPT
+             | ChoiceReal RFuncLabel Probability Rational HPT HPT
+             | Decomposition Formula.NodeType [HPT]
              deriving (Show, Eq, Generic)
-instance Hashable PSTNode
+instance Hashable HPTNode
 
-initialNode :: Formula.NodeRef -> PSTNode
+initialNode :: Formula.NodeRef -> HPTNode
 initialNode = Leaf
 
-bounds :: PST -> ProbabilityBounds
+bounds :: HPT -> ProbabilityBounds
 bounds (Unfinished _ b _) = b
 bounds (Finished p)       = (p, p)
 
-score :: PST -> Double
+score :: HPT -> Double
 score (Unfinished _ _ s) = s
 score _                  = 0.0
 
-maxError :: PST -> Probability
+maxError :: HPT -> Probability
 maxError (Unfinished _ (l,u) _) = u-l
 maxError _                      = 0.0
 
-exportAsDot :: FilePath -> PST -> ExceptionalT String IO ()
+exportAsDot :: FilePath -> HPT -> ExceptionalT String IO ()
 exportAsDot path pst = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
@@ -71,7 +71,7 @@ exportAsDot path pst = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Maybe String -> Maybe String-> PST -> Int -> Handle -> ExceptionalT String IO Int
+        printNode :: Maybe String -> Maybe String-> HPT -> Int -> Handle -> ExceptionalT String IO Int
         printNode mbParent mbEdgeLabel pst counter file = case pst of
             Finished prob -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
@@ -103,8 +103,8 @@ exportAsDot path pst = do
                             Just el -> printf "[label=\"%s\"]" el
                         )))
 
-                printBounds :: PST -> String
-                printBounds pst = let (l,u) = PST.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
+                printBounds :: HPT -> String
+                printBounds pst = let (l,u) = HPT.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
 
                 nodeRefToReadableString :: Formula.NodeRef -> String
                 nodeRefToReadableString (Formula.RefComposed sign id) = printf

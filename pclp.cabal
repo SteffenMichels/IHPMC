@@ -24,7 +24,7 @@ executable pclp
         MainPCLP
         GWMCExact
         Parser
-        PST
+        HPT
         Formula
         GWMC
         AST
@@ -55,7 +55,7 @@ executable iphl
         MainIPHL
         GWMCExact
         Parser
-        PST
+        HPT
         Formula
         GWMC
         AST
@@ -85,7 +85,7 @@ executable benchmark
         MainPCLP
         GWMCExact
         Parser
-        PST
+        HPT
         Formula
         GWMC
         AST

@@ -9,7 +9,6 @@ import Parser
 import Grounder
 import Exception
 import Formula
-import qualified PST
 import Text.Printf (printf)
 import GWMC
 import qualified GWMCExact

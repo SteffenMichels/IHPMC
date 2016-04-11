@@ -19,8 +19,8 @@ module GWMC
     ) where
 import Formula (Formula)
 import qualified Formula
-import PST (PST, PSTNode)
-import qualified PST
+import HPT (HPT, HPTNode)
+import qualified HPT
 import BasicTypes
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
@@ -49,97 +49,97 @@ untilFinished :: Int -> ProbabilityBounds -> Bool
 untilFinished _ _ = False
 
 gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> ProbabilityBounds
-gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ PST.initialNode query) where
-    gwmc' :: Int -> PSTNode -> FState ProbabilityBounds
+gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ HPT.initialNode query) where
+    gwmc' :: Int -> HPTNode -> FState ProbabilityBounds
     gwmc' i pstNode = do
         pst <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
         case pst of
-            pst@(PST.Finished _)              -> return $ PST.bounds pst
-            pst@(PST.Unfinished pstNode' _ _) -> let bounds = PST.bounds pst
-                                                 in if finishPred i $ PST.bounds pst
-                                                    then return $ unsafePerformIO (runExceptionalT (PST.exportAsDot "/tmp/pst.dot" pst) >> return bounds)
+            pst@(HPT.Finished _)              -> return $ HPT.bounds pst
+            pst@(HPT.Unfinished pstNode' _ _) -> let bounds = HPT.bounds pst
+                                                 in if finishPred i $ HPT.bounds pst
+                                                    then return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/pst.dot" pst) >> return bounds)
                                                     else gwmc' (i+1) pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> ProbabilityBounds
 gwmcEvidence query evidence finishPred rfuncDefs =  evalState (do
         queryAndEvidence    <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef True,  evidence])
         negQueryAndEvidence <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef False, evidence])
-        gwmc' 1 (initPST queryAndEvidence) (initPST negQueryAndEvidence)
+        gwmc' 1 (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
     ) where
     queryRef sign = case query of
         Formula.RefComposed qSign label  -> Formula.RefComposed (sign == qSign) label
         Formula.RefBuildInPredicate pred -> Formula.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
-    initPST nwr = PST.Unfinished (PST.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
+    initHPT nwr = HPT.Unfinished (HPT.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
 
-    gwmc' :: Int -> PST -> PST -> FState ProbabilityBounds
+    gwmc' :: Int -> HPT -> HPT -> FState ProbabilityBounds
     gwmc' i qe nqe = case (qe, nqe) of
         _ | finishPred i bounds          -> return bounds
-        (PST.Finished _, PST.Finished _) -> return bounds
-        _ | PST.maxError qe > PST.maxError nqe -> do
-            let (PST.Unfinished pstNode _ _) = qe
+        (HPT.Finished _, HPT.Finished _) -> return bounds
+        _ | HPT.maxError qe > HPT.maxError nqe -> do
+            let (HPT.Unfinished pstNode _ _) = qe
             qe'  <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
             gwmc' (i+1) qe' nqe
         _ -> do
-            let (PST.Unfinished pstNode _ _) = nqe
+            let (HPT.Unfinished pstNode _ _) = nqe
             nqe' <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
             gwmc' (i+1) qe nqe'
         where
             bounds = probBounds qe nqe
 
     probBounds qe nqe = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
-        (lqe,  uqe)  = PST.bounds qe
-        (lnqe, unqe) = PST.bounds nqe
+        (lqe,  uqe)  = HPT.bounds qe
+        (lnqe, unqe) = HPT.bounds nqe
 
-iterate :: PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> FState PST
+iterate :: HPTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> FState HPT
 iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
     (pstNode', bounds@(l,u), score) <- iterateNode pstNode previousChoicesReal partChoiceProb
-    return $ if l == u then PST.Finished l
-                       else PST.Unfinished pstNode' bounds score
+    return $ if l == u then HPT.Finished l
+                       else HPT.Unfinished pstNode' bounds score
     where
-        iterateNode :: PSTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> FState (PSTNode, ProbabilityBounds, Double)
-        iterateNode (PST.ChoiceBool rFuncLabel p left right) previousChoicesReal partChoiceProb = do
+        iterateNode :: HPTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> FState (HPTNode, ProbabilityBounds, Double)
+        iterateNode (HPT.ChoiceBool rFuncLabel p left right) previousChoicesReal partChoiceProb = do
             (left, right) <- case (left, right) of
-                (PST.Unfinished pstNode _ _, _) | PST.score left > PST.score right ->
+                (HPT.Unfinished pstNode _ _, _) | HPT.score left > HPT.score right ->
                     (,right) <$> GWMC.iterate pstNode previousChoicesReal (probToDouble p * partChoiceProb) rfuncDefs
-                (_, PST.Unfinished pstNode _ _) ->
+                (_, HPT.Unfinished pstNode _ _) ->
                     (left,)  <$> GWMC.iterate pstNode previousChoicesReal (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
-            return (PST.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
-        iterateNode (PST.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb = do
+            return (HPT.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
+        iterateNode (HPT.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb = do
             (left, right) <- case (left, right) of
-                (PST.Unfinished pstNode _ _, _) | PST.score left > PST.score right ->
+                (HPT.Unfinished pstNode _ _, _) | HPT.score left > HPT.score right ->
                     (,right) <$> GWMC.iterate pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) (probToDouble p * partChoiceProb) rfuncDefs
-                (_, PST.Unfinished pstNode _ _) ->
+                (_, HPT.Unfinished pstNode _ _) ->
                     (left,)  <$> GWMC.iterate pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
-            return (PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
+            return (HPT.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
             where
                 ((curLower, curUpper), curCount) = Map.lookupDefault ((Inf, Inf), 0) rf previousChoicesReal
-        iterateNode (PST.Decomposition op dec) previousChoicesReal partChoiceProb = do
+        iterateNode (HPT.Decomposition op dec) previousChoicesReal partChoiceProb = do
             selectedChild <- GWMC.iterate selectedChildNode previousChoicesReal partChoiceProb rfuncDefs
             let dec' = selectedChild:tail sortedChildren
-            return (PST.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
+            return (HPT.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
             where
-                sortedChildren = sortWith (\c -> -PST.score  c) dec
+                sortedChildren = sortWith (\c -> -HPT.score  c) dec
                 selectedChildNode = case head sortedChildren of
-                    PST.Unfinished pstNode _ _ -> pstNode
+                    HPT.Unfinished pstNode _ _ -> pstNode
                     _                          -> error "finished node should not be selected for iteration"
-        iterateNode (PST.Leaf ref) previousChoicesReal partChoiceProb = do
+        iterateNode (HPT.Leaf ref) previousChoicesReal partChoiceProb = do
             f <- get
             case decompose ref f of
                 Nothing -> case Map.lookup rf rfuncDefs of
                     Just (AST.Flip p:_) -> do
                         leftEntry  <- state $ Formula.conditionBool fEntry rf True
                         rightEntry <- state $ Formula.conditionBool fEntry rf False
-                        let left  = toPSTNode p leftEntry
-                        let right = toPSTNode (1-p) rightEntry
-                        return (PST.ChoiceBool rf p left right, combineProbsChoice p left right, combineScoresChoice left right)
+                        let left  = toHPTNode p leftEntry
+                        let right = toHPTNode (1-p) rightEntry
+                        return (HPT.ChoiceBool rf p left right, combineProbsChoice p left right, combineScoresChoice left right)
                     Just (AST.RealDist cdf _:_) -> do
                         leftEntry  <- state $ Formula.conditionReal fEntry rf (curLower, Open splitPoint) previousChoicesReal
                         rightEntry <- state $ Formula.conditionReal fEntry rf (Open splitPoint, curUpper) previousChoicesReal
-                        let left  = toPSTNode p leftEntry
-                        let right = toPSTNode (1-p) rightEntry
-                        return (PST.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
+                        let left  = toHPTNode p leftEntry
+                        let right = toHPTNode (1-p) rightEntry
+                        return (HPT.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
                         where
                             p = (pUntilSplit-pUntilLower)/(pUntilUpper-pUntilLower)
                             pUntilLower = cdf' cdf True curLower
@@ -157,9 +157,9 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                             _               -> (case Map.lookup rf rfuncDefs of Just (AST.Flip p:_) -> -1; _ -> 0, -s)
 
                         fEntry = Formula.augmentWithEntry ref f
-                        toPSTNode p entry = case Formula.entryNode entry of
-                            Formula.Deterministic val -> PST.Finished $ if val then 1.0 else 0.0
-                            _                         -> PST.Unfinished (PST.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
+                        toHPTNode p entry = case Formula.entryNode entry of
+                            Formula.Deterministic val -> HPT.Finished $ if val then 1.0 else 0.0
+                            _                         -> HPT.Unfinished (HPT.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
                 Just (origOp, decOp, sign, decomposition) -> do
                     psts <- foldlM (\psts dec -> do
                             fresh <- if Set.size dec > 1 then
@@ -167,19 +167,19 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                                 else
                                     let single = getFirst dec in
                                     return $ if sign then single else Formula.negate single
-                            return (PST.Unfinished (PST.Leaf fresh) (0.0,1.0) partChoiceProb:psts)
+                            return (HPT.Unfinished (HPT.Leaf fresh) (0.0,1.0) partChoiceProb:psts)
                         ) [] decomposition
-                    return (PST.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
+                    return (HPT.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
 
 combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
-    (leftLower,  leftUpper)  = PST.bounds left
-    (rightLower, rightUpper) = PST.bounds right
-combineProbsDecomp Formula.And dec = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
+    (leftLower,  leftUpper)  = HPT.bounds left
+    (rightLower, rightUpper) = HPT.bounds right
+combineProbsDecomp Formula.And dec = foldr (\pst (l,u) -> let (l',u') = HPT.bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
 combineProbsDecomp Formula.Or dec  = (1-nl, 1-nu) where
-    (nl, nu) = foldr (\pst (l,u) -> let (l',u') = PST.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
+    (nl, nu) = foldr (\pst (l,u) -> let (l',u') = HPT.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
-combineScoresChoice left right = max (PST.score left) (PST.score right)
-combineScoresDecomp            = foldr (\pst score -> max score $ PST.score pst) 0.0
+combineScoresChoice left right = max (HPT.score left) (HPT.score right)
+combineScoresDecomp            = foldr (\pst score -> max score $ HPT.score pst) 0.0
 
 decompose :: Formula.NodeRef -> Formula -> Maybe (Formula.NodeType, Formula.NodeType, Bool, HashSet (HashSet Formula.NodeRef))
 decompose ref f = Nothing{-case Formula.entryNode $ Formula.augmentWithEntry ref f of
