@@ -18,7 +18,7 @@ module Grounder
 import BasicTypes
 import AST (AST)
 import qualified AST
-import Formula (Formula)
+import Formula (Formula, CacheComputations(..))
 import qualified Formula
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
@@ -30,9 +30,9 @@ import Text.Printf (printf)
 import Control.Monad.State.Strict
 import Control.Arrow (first)
 
-type FState = State Formula
+type FState = State (Formula ())
 
-groundPclp :: AST -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef), Formula)
+groundPclp :: AST -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef), Formula ())
 groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} =
     runState (do groundedQueries <- foldlM (\gQueries query -> do ref <- groundRule query
                                                                   return $ Set.insert ref gQueries
@@ -41,7 +41,11 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                     Nothing -> return (groundedQueries, Nothing)
                     Just ev -> do groundedEvidence <- groundRule ev
                                   return (groundedQueries, Just groundedEvidence)
-             ) Formula.empty
+             ) (Formula.empty CacheComputations -- cached info not used in grounder
+                { cachedInfoComposed      = undefined
+                , cachedInfoBuildInPred   = undefined
+                , cachedInfoDeterministic = undefined
+                })
     where
         groundRule :: PredicateLabel -> FState Formula.NodeRef
         groundRule label =

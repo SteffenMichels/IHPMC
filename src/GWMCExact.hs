@@ -23,7 +23,7 @@ import qualified Data.HashMap.Lazy as Map
 import GHC.Exts (sortWith)
 import qualified AST
 
-gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> Formula -> (Probability, Formula)
+gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> Formula () -> (Probability, Formula ())
 gwmc query rfuncDefs f = undefined--gwmc' (Formula.augmentWithEntry (Formula.RefComposed True $ Formula.uncondNodeLabel query) Formula) Formula
     where
         gwmc' entry f = case Formula.entryNode entry of
@@ -32,12 +32,12 @@ gwmc query rfuncDefs f = undefined--gwmc' (Formula.augmentWithEntry (Formula.Ref
             _ -> case Map.lookup rf rfuncDefs of
                 Just (AST.Flip p:_) -> (p*pLeft + (1-p)*pRight, f'''')
                     where
-                        (leftEntry,  f')   = Formula.conditionBool entry rf True f
+                        (leftEntry,  f')   = error "GWMC exact"--Formula.conditionBool entry rf True f
                         (pLeft, f'')       = gwmc' leftEntry f'
-                        (rightEntry, f''') = Formula.conditionBool entry rf False f''
+                        (rightEntry, f''') = error "GWMC exact"--Formula.conditionBool entry rf False f''
                         (pRight, f'''')    = gwmc' rightEntry f'''
                 Just (AST.RealDist cdf icdf:_) -> error "not implemented"
                 where
-                    xxx = sortWith (\(rf, s) -> s) $ Map.toList $ snd $ Formula.entryScores entry
+                    xxx = error "GWMC exact"--sortWith (\(rf, s) -> s) $ Map.toList $ snd $ error "GWMC exact"--Formula.entryScores entry
                     --xxxy = trace (foldl (\str (rf,(p,n)) -> str ++ "\n" ++ (show (p+n)) ++ " " ++ rf) ("\n" ++ show FormulaLabel) xxx) xxx
                     rf = fst $ head xxx
