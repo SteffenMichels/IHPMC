@@ -53,7 +53,7 @@ gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLa
 gwmc query finishPred rfuncDefs f =  evalState (gwmc' 1 $ HPT.initialNode query) $ error "convert f" f where
     gwmc' :: Int -> HPTNode -> FState ProbabilityBounds
     gwmc' i pstNode = do
-        pst <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+        pst <- GWMC.iterate pstNode 1.0 rfuncDefs
         case pst of
             pst@(HPT.Finished _)              -> return $ HPT.bounds pst
             pst@(HPT.Unfinished pstNode' _ _) -> let bounds = HPT.bounds pst
@@ -78,11 +78,11 @@ gwmcEvidence query evidence finishPred rfuncDefs f =  evalState (do
         (HPT.Finished _, HPT.Finished _) -> return bounds
         _ | HPT.maxError qe > HPT.maxError nqe -> do
             let (HPT.Unfinished pstNode _ _) = qe
-            qe'  <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+            qe'  <- GWMC.iterate pstNode 1.0 rfuncDefs
             gwmc' (i+1) qe' nqe
         _ -> do
             let (HPT.Unfinished pstNode _ _) = nqe
-            nqe' <- GWMC.iterate pstNode Map.empty 1.0 rfuncDefs
+            nqe' <- GWMC.iterate pstNode 1.0 rfuncDefs
             gwmc' (i+1) qe nqe'
         where
             bounds = probBounds qe nqe
@@ -91,33 +91,31 @@ gwmcEvidence query evidence finishPred rfuncDefs f =  evalState (do
         (lqe,  uqe)  = HPT.bounds qe
         (lnqe, unqe) = HPT.bounds nqe
 
-iterate :: HPTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> FState HPT
-iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
-    (pstNode', bounds@(l,u), score) <- iterateNode pstNode previousChoicesReal partChoiceProb
+iterate :: HPTNode -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> FState HPT
+iterate pstNode partChoiceProb rfuncDefs = do
+    (pstNode', bounds@(l,u), score) <- iterateNode pstNode partChoiceProb
     return $ if l == u then HPT.Finished l
                        else HPT.Unfinished pstNode' bounds score
     where
-        iterateNode :: HPTNode -> HashMap RFuncLabel (Interval, Int) -> Double -> FState (HPTNode, ProbabilityBounds, Double)
-        iterateNode (HPT.ChoiceBool rFuncLabel p left right) previousChoicesReal partChoiceProb = do
+        iterateNode :: HPTNode -> Double -> FState (HPTNode, ProbabilityBounds, Double)
+        iterateNode (HPT.ChoiceBool rFuncLabel p left right) partChoiceProb = do
             (left, right) <- case (left, right) of
                 (HPT.Unfinished pstNode _ _, _) | HPT.score left > HPT.score right ->
-                    (,right) <$> GWMC.iterate pstNode previousChoicesReal (probToDouble p * partChoiceProb) rfuncDefs
+                    (,right) <$> GWMC.iterate pstNode (probToDouble p * partChoiceProb) rfuncDefs
                 (_, HPT.Unfinished pstNode _ _) ->
-                    (left,)  <$> GWMC.iterate pstNode previousChoicesReal (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                    (left,)  <$> GWMC.iterate pstNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
             return (HPT.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
-        iterateNode (HPT.ChoiceReal rf p splitPoint left right) previousChoicesReal partChoiceProb = do
+        iterateNode (HPT.ChoiceReal rf p splitPoint left right) partChoiceProb = do
             (left, right) <- case (left, right) of
                 (HPT.Unfinished pstNode _ _, _) | HPT.score left > HPT.score right ->
-                    (,right) <$> GWMC.iterate pstNode (Map.insert rf ((curLower, Open splitPoint), curCount+1) previousChoicesReal) (probToDouble p * partChoiceProb) rfuncDefs
+                    (,right) <$> GWMC.iterate pstNode (probToDouble p * partChoiceProb) rfuncDefs
                 (_, HPT.Unfinished pstNode _ _) ->
-                    (left,)  <$> GWMC.iterate pstNode (Map.insert rf ((Open splitPoint, curUpper), curCount+1) previousChoicesReal) (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                    (left,)  <$> GWMC.iterate pstNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
             return (HPT.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
-            where
-                ((curLower, curUpper), curCount) = Map.lookupDefault ((Inf, Inf), 0) rf previousChoicesReal
-        iterateNode (HPT.Decomposition op dec) previousChoicesReal partChoiceProb = do
-            selectedChild <- GWMC.iterate selectedChildNode previousChoicesReal partChoiceProb rfuncDefs
+        iterateNode (HPT.Decomposition op dec) partChoiceProb = do
+            selectedChild <- GWMC.iterate selectedChildNode partChoiceProb rfuncDefs
             let dec' = selectedChild:tail sortedChildren
             return (HPT.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
             where
@@ -125,7 +123,7 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                 selectedChildNode = case head sortedChildren of
                     HPT.Unfinished pstNode _ _ -> pstNode
                     _                          -> error "finished node should not be selected for iteration"
-        iterateNode (HPT.Leaf ref) previousChoicesReal partChoiceProb = do
+        iterateNode (HPT.Leaf ref) partChoiceProb = do
             f <- get
             case decompose ref f of
                 Nothing -> case splitPoint of
@@ -139,8 +137,8 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                         _ -> error ("undefined rfunc " ++ splitRF)
                     ContinuousSplit splitPoint -> case Map.lookup splitRF rfuncDefs of
                         Just (AST.RealDist cdf _:_) -> do
-                            leftEntry  <- state $ Formula.conditionReal fEntry splitRF (curLower, Open splitPoint) previousChoicesReal
-                            rightEntry <- state $ Formula.conditionReal fEntry splitRF (Open splitPoint, curUpper) previousChoicesReal
+                            leftEntry  <- state $ Formula.conditionReal fEntry splitRF (curLower, Open splitPoint)
+                            rightEntry <- state $ Formula.conditionReal fEntry splitRF (Open splitPoint, curUpper)
                             let left  = toHPTNode p leftEntry
                             let right = toHPTNode (1-p) rightEntry
                             return (HPT.ChoiceReal splitRF p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
@@ -149,7 +147,7 @@ iterate pstNode previousChoicesReal partChoiceProb rfuncDefs = do
                                 pUntilLower = cdf' cdf True curLower
                                 pUntilUpper = cdf' cdf False curUpper
                                 pUntilSplit = cdf splitPoint
-                                curInterv@(curLower, curUpper) = fst $ Map.lookupDefault ((Inf, Inf), undefined) splitRF previousChoicesReal
+                                (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ Formula.entryPrevChoicesReal fEntry
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
                         (splitRF, splitPoint, _) = (error "some map function?") (head sortedCandidateSplitPoints)

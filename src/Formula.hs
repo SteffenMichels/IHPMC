@@ -29,6 +29,7 @@ module Formula
     , conditionBool
     , conditionReal
     , Formula.negate
+    , entryPrevChoicesReal
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -68,7 +69,7 @@ instance Hashable (RefWithNode cachedInfo) where
         ref                 -> Hashable.hashWithSalt salt ref
 
 data NodeRef = RefComposed Bool ComposedId
-             | RefBuildInPredicate AST.BuildInPredicate (HashMap RFuncLabel Interval)
+             | RefBuildInPredicate AST.BuildInPredicate (HashMap RFuncLabel Interval) -- store only real choices, as bool choices eliminate rfs
              | RefDeterministic Bool
              deriving (Eq, Generic)
 instance Hashable NodeRef
@@ -106,9 +107,9 @@ data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed      :: HashSet cachedInfo   -> cachedInfo
+    { cachedInfoComposed      :: HashSet cachedInfo                                  -> cachedInfo
     , cachedInfoBuildInPred   :: HashMap RFuncLabel Interval -> AST.BuildInPredicate -> cachedInfo
-    , cachedInfoDeterministic :: Bool                 -> cachedInfo
+    , cachedInfoDeterministic :: Bool                                                -> cachedInfo
     }
 
 uncondNodeLabel :: PredicateLabel -> ComposedLabel
@@ -128,7 +129,9 @@ empty :: CacheComputations cachedInfo -> Formula cachedInfo
 empty = Formula Map.empty 0 Map.empty
 
 rebuildCache :: CacheComputations b -> Formula a -> Formula b
-rebuildCache = error "rebuildCache"
+rebuildCache cInfoComps (Formula nodes freshCounter labels2ids _) = undefined--Formula (Map.map mapCache nodes) freshCounter labels2ids cInfoComps
+    --where
+        --mapCache (mbComposedLabel, FormulaEntry nt children rfs _) = (mbComposedLabel, FormulaEntry nt children rfs $ cInfoComps)
 
 insert :: (Hashable cachedInfo, Eq cachedInfo) => Maybe ComposedLabel -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 insert mbLabel sign op children f@(Formula nodes freshCounter labels2ids cInfoComps) = (refWithNode, f')
@@ -230,6 +233,13 @@ deterministicRefWithNode val cachedInfo = RefWithNode
     , entryCachedInfo = cachedInfo
     }
 
+entryPrevChoicesReal :: RefWithNode cachedInfo -> HashMap RFuncLabel Interval
+entryPrevChoicesReal entry = case entryRef entry of
+    RefBuildInPredicate _ choices -> choices
+    _ -> case entryLabel entry of
+        Just (ComposedLabel _ _ choices _) -> choices
+        _ -> Map.empty
+
 conditionBool :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Bool -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 conditionBool origNodeEntry rf val f@(Formula nodes _ labels2ids cInfoComps)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
@@ -262,8 +272,8 @@ conditionBool origNodeEntry rf val f@(Formula nodes _ labels2ids cInfoComps)
                 conditionExpr expr = expr
         conditionPred pred = pred
 
-conditionReal :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Interval -> HashMap RFuncLabel (Interval, Int) -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
-conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels2ids cInfoComps)
+conditionReal :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Interval -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+conditionReal origNodeEntry rf interv f@(Formula nodes _ labels2ids cInfoComps)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
     | otherwise = case entryRef origNodeEntry of
         RefComposed sign origLabel -> case maybe Nothing (`Map.lookup` labels2ids) newLabel of
@@ -271,7 +281,7 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
                                         _ -> let (mbLabel, FormulaEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
                                                  (condChildren, f') = Set.foldr
                                                     (\child (children, f) ->
-                                                        let (condChild, f') = conditionReal (Formula.augmentWithEntry child f) rf interv otherRealChoices f
+                                                        let (condChild, f') = conditionReal (Formula.augmentWithEntry child f) rf interv f
                                                         in (Set.insert condChild children, f')
                                                     )
                                                     (Set.empty, f)
@@ -279,15 +289,15 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
                                              in insert newLabel sign op (Set.map entryRef condChildren) f'
             where
                 newLabel = condNodeLabelReal rf interv <$> entryLabel origNodeEntry
-        RefBuildInPredicate pred prevChoicesReal -> let condPred = conditionPred pred
+        RefBuildInPredicate pred prevChoicesReal -> let condPred = conditionPred pred prevChoicesReal
                                     in case AST.deterministicValue condPred of
                                         Just val -> (deterministicRefWithNode val $ cachedInfoDeterministic cInfoComps val, f)
                                         Nothing  -> let prevChoices = Map.insert rf interv prevChoicesReal
                                                     in (predRefWithNode condPred prevChoices $ cachedInfoBuildInPred cInfoComps prevChoices condPred,  f)
         RefDeterministic _ -> error "should not happen as deterministic nodes contains no rfunctions"
     where
-        conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
-        conditionPred pred@(AST.RealIneq op left right)
+        conditionPred :: AST.BuildInPredicate -> HashMap RFuncLabel Interval -> AST.BuildInPredicate
+        conditionPred pred@(AST.RealIneq op left right) otherRealChoices
             -- check if choice is made for all rFuncs in pred
             | length conditions == Set.size predRFuncs = conditionPred'
             | otherwise = pred
@@ -311,10 +321,10 @@ conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels
                         eval (AST.RealConstant r) = Interval.rat2IntervLimPoint r
                         eval (AST.RealSum x y)    = eval x + eval y
 
-                conditions = (rf, interv):[(rf',interv) | (rf',(interv, _)) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
+                conditions = (rf, interv):[(rf',interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
                 crns       = Interval.corners conditions
                 predRFuncs = AST.predRandomFunctions pred
-        conditionPred pred = pred
+        conditionPred pred _ = pred
 
 nodeChildren :: Node -> HashSet NodeRef
 nodeChildren (Composed _ children) = children
