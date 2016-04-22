@@ -68,8 +68,8 @@ gwmcEvidence query evidence finishPred rfuncDefs f =  evalState (do
         gwmc' 1 (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
     ) (Formula.rebuildCache (heuristicsCacheComputations rfuncDefs) f) where
     queryRef sign = case query of
-        Formula.RefComposed qSign label  -> Formula.RefComposed (sign == qSign) label
-        Formula.RefBuildInPredicate pred -> Formula.RefBuildInPredicate $ if sign then pred else AST.negatePred pred
+        Formula.RefComposed qSign label                  -> Formula.RefComposed (sign == qSign) label
+        Formula.RefBuildInPredicate pred prevChoicesReal -> Formula.RefBuildInPredicate (if sign then pred else AST.negatePred pred) prevChoicesReal
     initHPT nwr = HPT.Unfinished (HPT.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
 
     gwmc' :: Int -> HPT -> HPT -> FState ProbabilityBounds
@@ -273,8 +273,8 @@ heuristicsCacheComputations rfDefs = Formula.CacheComputations
 heuristicDeterministic :: Bool -> CachedSplitPoints
 heuristicDeterministic = const (0, Map.empty)
 
-heuristicBuildInPred :: HashMap RFuncLabel (Interval, Int) -> HashMap RFuncLabel [AST.RFuncDef] -> AST.BuildInPredicate -> CachedSplitPoints
-heuristicBuildInPred prevChoicesReal rfDefs pred = (nRfs, Set.foldr splitPoint Map.empty predRfs)
+heuristicBuildInPred :: HashMap RFuncLabel [AST.RFuncDef] -> HashMap RFuncLabel Interval -> AST.BuildInPredicate -> CachedSplitPoints
+heuristicBuildInPred rfDefs prevChoicesReal pred = (nRfs, Set.foldr splitPoint Map.empty predRfs)
     where
         predRfs = AST.predRandomFunctions pred
         nRfs    = Set.size predRfs
@@ -302,7 +302,7 @@ heuristicBuildInPred prevChoicesReal rfDefs pred = (nRfs, Set.foldr splitPoint M
                                     where
                                         pUntilLower = cdf' cdf True  curLower
                                         pUntilUpper = cdf' cdf False curUpper
-                                        (curLower, curUpper) = fst $ Map.lookupDefault ((Inf, Inf), undefined) rf prevChoicesReal
+                                        (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf prevChoicesReal
                                 _ -> error "GWMC.equalSplit failed"
 
                             sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational

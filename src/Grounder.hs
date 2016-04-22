@@ -73,4 +73,4 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
 
         groundElement :: AST.RuleBodyElement -> FState Formula.NodeRef
         groundElement (AST.UserPredicate label)   = groundRule label
-        groundElement (AST.BuildInPredicate pred) = return $ Formula.RefBuildInPredicate pred
+        groundElement (AST.BuildInPredicate pred) = return $ Formula.RefBuildInPredicate pred Map.empty
