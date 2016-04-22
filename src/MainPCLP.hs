@@ -1,25 +1,14 @@
 module MainPCLP where
 import BasicTypes
-import Control.Monad (unless, forM)
-import Data.List (stripPrefix)
-import System.Exit (exitFailure)
---import Test.QuickCheck.All (quickCheckAll)
-import System.IO (readFile)
-import System.Environment (getArgs)
 import Parser
 import Grounder
 import Exception
-import Formula
 import Text.Printf (printf)
 import GWMC
 import qualified GWMCExact
 import qualified AST
-import qualified Data.HashSet as Set
-import Benchmarks
-import Numeric (fromRat)
 import Control.Monad.Exception.Synchronous -- TODO: remove, should be included by Exception
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Control.Arrow ((***))
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).

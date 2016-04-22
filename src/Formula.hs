@@ -20,6 +20,7 @@ module Formula
     , RefWithNode(entryRef,entryNode,entryRFuncs,entryCachedInfo)
     , CacheComputations(..)
     , empty
+    , rebuildCache
     , insert
     , augmentWithEntry
     , labelId
@@ -45,10 +46,9 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import qualified Data.List as List
-import Interval (Interval, IntervalLimit, IntervalLimitPoint(..), LowerUpper(..), (~<), (~<=), (~>), (~>=))
+import Interval (Interval, (~<), (~<=), (~>), (~>=))
 import qualified Interval
 import Data.Foldable (forM_)
-import Debug.Trace (trace)
 
 -- Formula nodes "counter for fresh nodes"
 data Formula cachedInfo = Formula (HashMap ComposedId (Maybe ComposedLabel, FormulaEntry cachedInfo)) Int (HashMap ComposedLabel ComposedId) (CacheComputations cachedInfo)
@@ -106,9 +106,9 @@ data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed      :: () -> cachedInfo
-    , cachedInfoBuildInPred   :: AST.BuildInPredicate    -> cachedInfo
-    , cachedInfoDeterministic :: Bool                    -> cachedInfo
+    { cachedInfoComposed      :: HashSet cachedInfo   -> cachedInfo
+    , cachedInfoBuildInPred   :: HashMap RFuncLabel Interval -> AST.BuildInPredicate -> cachedInfo
+    , cachedInfoDeterministic :: Bool                 -> cachedInfo
     }
 
 uncondNodeLabel :: PredicateLabel -> ComposedLabel
@@ -127,10 +127,13 @@ condNodeLabelReal rf interv (ComposedLabel name bConds rConds hash) = ComposedLa
 empty :: CacheComputations cachedInfo -> Formula cachedInfo
 empty = Formula Map.empty 0 Map.empty
 
-insert :: Eq cachedInfo => Maybe ComposedLabel -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+rebuildCache :: CacheComputations b -> Formula a -> Formula b
+rebuildCache = error "rebuildCache"
+
+insert :: (Hashable cachedInfo, Eq cachedInfo) => Maybe ComposedLabel -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 insert mbLabel sign op children f@(Formula nodes freshCounter labels2ids cInfoComps) = (refWithNode, f')
     where
-        (refWithNode, f') = let cachedInfo = cachedInfoComposed cInfoComps (error "what to provide to composed cache func?") in case simplifiedNode of
+        (refWithNode, f') = let cachedInfo = cachedInfoComposed cInfoComps (Set.map entryCachedInfo children') in case simplifiedNode of
             Composed nType nChildren -> ( RefWithNode { entryRef        = RefComposed (sign == simplifiedSign) freshCounter
                                                       , entryNode       = simplifiedNode
                                                       , entryLabel      = mbLabel
@@ -227,7 +230,7 @@ deterministicRefWithNode val cachedInfo = RefWithNode
     , entryCachedInfo = cachedInfo
     }
 
-conditionBool :: Eq cachedInfo => RefWithNode cachedInfo -> RFuncLabel -> Bool -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+conditionBool :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Bool -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 conditionBool origNodeEntry rf val f@(Formula nodes _ labels2ids cInfoComps)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
     | otherwise = case entryRef origNodeEntry of
@@ -259,7 +262,7 @@ conditionBool origNodeEntry rf val f@(Formula nodes _ labels2ids cInfoComps)
                 conditionExpr expr = expr
         conditionPred pred = pred
 
-conditionReal :: Eq cachedInfo => RefWithNode cachedInfo -> RFuncLabel -> Interval -> HashMap RFuncLabel (Interval, Int) -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+conditionReal :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Interval -> HashMap RFuncLabel (Interval, Int) -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 conditionReal origNodeEntry rf interv otherRealChoices f@(Formula nodes _ labels2ids cInfoComps)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
     | otherwise = case entryRef origNodeEntry of

@@ -18,11 +18,11 @@ import qualified AST
 import System.IO
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.HashMap.Lazy (HashMap)
+--import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
 import Text.Printf (printf)
 import Data.List (intercalate)
-import Numeric (fromRat)
+--import Numeric (fromRat)
 import BasicTypes
 
 exe = do

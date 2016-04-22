@@ -23,10 +23,6 @@ module HPT
     ) where
 import BasicTypes
 import qualified Formula
-import qualified AST
-import Data.HashSet (HashSet)
-import qualified Data.HashSet as Set
-import qualified Data.HashMap.Lazy as Map
 import Exception
 import System.IO
 import Text.Printf (printf)
@@ -34,7 +30,6 @@ import Control.Monad (foldM)
 import Numeric (fromRat)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
-import qualified Data.List as List
 
 -- Hybrid Probability Tree
 data HPT     = Unfinished HPTNode ProbabilityBounds Double

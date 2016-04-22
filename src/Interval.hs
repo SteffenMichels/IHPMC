@@ -27,7 +27,6 @@ module Interval
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import qualified Data.HashMap.Lazy as Map
-import Data.HashSet (HashSet)
 
 data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic, Show)
 data LowerUpper = Lower | Upper

@@ -30,7 +30,7 @@ import BasicTypes
 import Data.Ratio ((%))
 import qualified Statistics.Distribution as Dist
 import qualified Statistics.Distribution.Normal as Norm
-import Interval (Interval, IntervalLimit(..))
+--import Interval (Interval, IntervalLimit(..))
 
 -- LEXER
 languageDef =

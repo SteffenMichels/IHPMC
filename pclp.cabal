@@ -6,7 +6,7 @@ license: AllRightsReserved
 
 executable pclp
     main-is: Main.hs
-    cpp-options: -DMAIN_FUNCTION=MainPCLP.main
+    cpp-options: -DMAIN_FUNCTION=MainPCLP.main -DMAIN_INCLUDE=MainPCLP
     build-depends:
         --QuickCheck -any,
         base -any,
@@ -33,11 +33,11 @@ executable pclp
         Grounder
         Interval
         Exception
-    ghc-options: -rtsopts
+    ghc-options: -Werror -rtsopts -fwarn-unused-imports
 
 executable iphl
     main-is: Main.hs
-    cpp-options: -DMAIN_FUNCTION=MainIPHL.main
+    cpp-options: -DMAIN_FUNCTION=MainIPHL.main -DMAIN_INCLUDE=MainIPHL
     build-depends:
         --QuickCheck -any,
         base -any,
@@ -64,11 +64,11 @@ executable iphl
         Grounder
         Interval
         Exception
-    ghc-options: -rtsopts
+    ghc-options: -Werror -rtsopts -fwarn-unused-imports
 
 executable benchmark
     main-is: Main.hs
-    cpp-options: -DMAIN_FUNCTION=MainBenchmark.main
+    cpp-options: -DMAIN_FUNCTION=MainBenchmark.main -DMAIN_INCLUDE=MainBenchmark
     build-depends:
         base -any,
         containers -any,
@@ -94,4 +94,4 @@ executable benchmark
         Grounder
         Interval
         Exception
-    ghc-options: -rtsopts
+    ghc-options: -Werror -rtsopts -fwarn-unused-imports

@@ -38,8 +38,6 @@ import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
 import Numeric (fromRat)
-import Interval(Interval)
-import Control.Applicative ((<$>))
 
 data AST = AST
     { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches

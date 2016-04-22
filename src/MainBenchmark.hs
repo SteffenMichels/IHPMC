@@ -1,24 +1,14 @@
 module MainBenchmark where
 import BasicTypes
-import Control.Monad (unless, forM)
-import Data.List (stripPrefix)
-import System.Exit (exitFailure)
-import System.IO (readFile)
-import System.Environment (getArgs)
+import Control.Monad (forM)
 import Parser
 import Grounder
 import Exception
-import Formula
 import Text.Printf (printf)
 import GWMC
-import qualified GWMCExact
 import qualified AST
-import qualified Data.HashSet as Set
-import Benchmarks
-import Numeric (fromRat)
 import Control.Monad.Exception.Synchronous -- TODO: remove, should be included by Exception
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Control.Arrow ((***))
 import Control.Exception.Base (evaluate)
 
 main = do

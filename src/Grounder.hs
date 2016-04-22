@@ -20,11 +20,9 @@ import AST (AST)
 import qualified AST
 import Formula (Formula, CacheComputations(..))
 import qualified Formula
-import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.Maybe (fromJust)
 import Data.Foldable (foldlM)
 import Text.Printf (printf)
 import Control.Monad.State.Strict

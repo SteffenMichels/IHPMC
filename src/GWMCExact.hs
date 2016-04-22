@@ -20,7 +20,6 @@ import Formula (Formula)
 import qualified Formula
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
-import GHC.Exts (sortWith)
 import qualified AST
 
 gwmc :: PredicateLabel -> HashMap RFuncLabel [AST.RFuncDef] -> Formula () -> (Probability, Formula ())

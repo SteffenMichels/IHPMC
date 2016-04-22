@@ -23,16 +23,9 @@ module BasicTypes
     , probToDouble
     , getFirst
     ) where
-import Data.Ratio (numerator, denominator)
-import Text.Printf (printf)
-import Data.Hashable (Hashable)
-import qualified Data.Hashable as Hashable
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.HashMap.Lazy (HashMap)
-import qualified Data.HashMap.Lazy as Map
 import Numeric (fromRat)
-import Data.Maybe (isJust)
 
 {-type Probability = Rational
 
