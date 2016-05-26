@@ -22,17 +22,32 @@ module Interval
     , pointRational
     , corners
     , rat2IntervLimPoint
+    , nullInfte
     , (~>), (~>=), (~<), (~<=)
     ) where
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import qualified Data.HashMap.Lazy as Map
+import Text.Printf (printf)
+import Numeric (fromRat)
 
-data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic, Show)
+data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic)
+
+instance Show IntervalLimit where
+    show Inf        = "inf"
+    show (Open r)   = printf "Open %f" (fromRat r :: Float)
+    show (Closed r) = printf "Closed %f" (fromRat r :: Float)
+
 data LowerUpper = Lower | Upper
 data IntervalLimitPoint = PosInf | NegInf | Indet
                         | Point Rational Infinitesimal
-                        deriving (Eq, Show)
+                        deriving (Eq)
+
+instance Show IntervalLimitPoint where
+    show PosInf          = "+inf"
+    show NegInf          = "-inf"
+    show Indet           = "?"
+    show (Point r infte) = printf "%f^%s" (fromRat r :: Float) (show infte)
 
 data Infinitesimal = InfteNull | InftePlus | InfteMinus | InfteIndet deriving (Eq, Show)
 instance Hashable IntervalLimit
@@ -68,11 +83,42 @@ instance Num IntervalLimitPoint where
         (NegInf, _     )             -> NegInf
         (_,      NegInf)             -> NegInf
 
-    x * y = undefined
-    abs x = undefined
-    signum x = undefined
+    x * y = error "undefined: * for IntervalLimitPoint"
+    abs x = error "undefined: abs for IntervalLimitPoint"
+    signum x = error "undefined: signum for IntervalLimitPoint"
     fromInteger i = Point (fromInteger i) InfteNull
-    negate x = undefined
+
+    negate Indet           = Indet
+    negate PosInf          = NegInf
+    negate NegInf          = PosInf
+    negate (Point x infte) = Point (-x) $ negInfte infte where
+        negInfte InfteMinus = InftePlus
+        negInfte InftePlus  = InfteMinus
+        negInfte infte      = infte
+
+instance Ord IntervalLimitPoint where
+    Indet  <= _      = error "Ord IntervalLimitPoint: undefined for Indet"
+    _      <= Indet  = error "Ord IntervalLimitPoint: undefined for Indet"
+    NegInf <= _      = True
+    _      <= NegInf = False
+    _      <= PosInf = True
+    PosInf <= _      = False
+    Point x infteX <= Point y infteY
+        | x == y    = infteX <= infteY
+        | otherwise = x <= y
+
+instance Ord Infinitesimal where
+    InfteIndet <= _          = error "Ord Infinitesimal: undefined for InfteIndet"
+    _          <= InfteIndet = error "Ord Infinitesimal: undefined for InfteIndet"
+    InfteMinus <= _          = True
+    InfteNull  <= InfteNull  = True
+    InfteNull  <= InftePlus  = True
+    InftePlus  <= InftePlus  = True
+    _          <= _          = False
+
+nullInfte :: IntervalLimitPoint -> IntervalLimitPoint
+nullInfte (Point p _) = Point p InfteNull
+nullInfte p           = p
 
 data IntervalLimitPointOrd = Lt | Gt | Eq | IndetOrd deriving (Eq, Ord)
 

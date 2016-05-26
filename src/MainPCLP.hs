@@ -9,6 +9,7 @@ import qualified GWMCExact
 import qualified AST
 import Control.Monad.Exception.Synchronous -- TODO: remove, should be included by Exception
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Control.Arrow ((***))
 
 -- Tell QuickCheck that if you strip "Hello " from the start of
 -- hello s you will be left with s (for any s).
@@ -27,8 +28,8 @@ main = do
             src <- doIO $ readFile firstArg
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
-            ((queries, mbEvidence), f) <- return $ groundPclp ast
-            return $ gwmc (getFirst queries) (\n (l,u) -> n == 200) (AST.rFuncDefs ast) f
+            ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
+            return $ (probToDouble *** probToDouble) $ gwmc (getFirst queries) (\n (l,u) -> n == 1000) (AST.rFuncDefs ast) f
             --exportAsDot "/tmp/Formula.dot" Formula
             --inferenceApprox queries mbEvidence ast f
 

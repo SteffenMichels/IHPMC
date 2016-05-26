@@ -1,7 +1,7 @@
 Version of workspace file format:
                2
 Time of storage:
-               "Wed Dec 23 19:37:30 CET 2015"
+               "Fri Apr 22 20:27:36 CEST 2016"
 Name of the workspace:
                "pclp"
 File paths of contained packages:
@@ -9,6 +9,6 @@ File paths of contained packages:
 Maybe file path of an active package:
                Just "pclp.cabal"
 Maybe name of an active executable:
-               Just "benchmark"
+               Just "pclp"
 Version Control System configurations for packages:
                fromList []

@@ -103,12 +103,9 @@ exportAsDot path pst = do
 
                 nodeRefToReadableString :: Formula.NodeRef -> String
                 nodeRefToReadableString (Formula.RefComposed sign id) = printf
-                        "%s%s\n"
-                        (if sign then "" else "-")
-                        (show id)
-                        where
-                            showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
-                            showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
+                    "%s%s\n"
+                    (if sign then "" else "-")
+                    (show id)
                 nodeRefToReadableString ref = show ref
                 {-nodeLabelToReadableString :: Formula.NodeRef -> String
                 nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf

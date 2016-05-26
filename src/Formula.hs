@@ -20,7 +20,6 @@ module Formula
     , RefWithNode(entryRef,entryNode,entryRFuncs,entryCachedInfo)
     , CacheComputations(..)
     , empty
-    , rebuildCache
     , insert
     , augmentWithEntry
     , labelId
@@ -47,7 +46,7 @@ import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import qualified Data.List as List
-import Interval (Interval, (~<), (~<=), (~>), (~>=))
+import Interval (Interval)
 import qualified Interval
 import Data.Foldable (forM_)
 
@@ -74,9 +73,12 @@ data NodeRef = RefComposed Bool ComposedId
              deriving (Eq, Generic)
 instance Hashable NodeRef
 instance Show NodeRef where
-    show (RefComposed sign cid)       = printf "composed %s %i" (show sign) cid
-    show (RefBuildInPredicate pred _) = show pred
-    show (RefDeterministic val)       = show val
+    show (RefComposed sign cid)            = printf "composed %s %i" (show sign) cid
+    show (RefBuildInPredicate pred rConds) = show pred{-printf
+                                                "%s|\n%s"
+                                                (show pred)
+                                                (List.intercalate ",\n" (fmap showCondReal (Map.toList rConds)))-}
+    show (RefDeterministic val)            = show val
 
 -- last element is stored hash to avoid recomputation
 data ComposedLabel = ComposedLabel String (HashMap RFuncLabel Bool) (HashMap RFuncLabel Interval) Int
@@ -89,7 +91,8 @@ instance Show ComposedLabel where
         (List.intercalate "," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))
         where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
-            showCondReal (rf, interv) = printf "%s in %s" rf $ show interv
+
+showCondReal (rf, (l,r)) = printf "%s in (%s,%s)" rf (show l) (show r)
 
 instance Hashable ComposedLabel where
     hash              (ComposedLabel _ _ _ hash) = hash
@@ -128,11 +131,6 @@ condNodeLabelReal rf interv (ComposedLabel name bConds rConds hash) = ComposedLa
 empty :: CacheComputations cachedInfo -> Formula cachedInfo
 empty = Formula Map.empty 0 Map.empty
 
-rebuildCache :: CacheComputations b -> Formula a -> Formula b
-rebuildCache cInfoComps (Formula nodes freshCounter labels2ids _) = undefined--Formula (Map.map mapCache nodes) freshCounter labels2ids cInfoComps
-    --where
-        --mapCache (mbComposedLabel, FormulaEntry nt children rfs _) = (mbComposedLabel, FormulaEntry nt children rfs $ cInfoComps)
-
 insert :: (Hashable cachedInfo, Eq cachedInfo) => Maybe ComposedLabel -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 insert mbLabel sign op children f@(Formula nodes freshCounter labels2ids cInfoComps) = (refWithNode, f')
     where
@@ -148,7 +146,7 @@ insert mbLabel sign op children f@(Formula nodes freshCounter labels2ids cInfoCo
                                                   (maybe labels2ids (\l -> Map.insert l freshCounter labels2ids) mbLabel)
                                                   cInfoComps
                                         )
-            BuildInPredicate pred -> (predRefWithNode (if sign then pred else AST.negatePred pred) (error "???") cachedInfo, f)
+            BuildInPredicate pred -> (predRefWithNode (if sign then pred else AST.negatePred pred) Map.empty cachedInfo, f)
             Deterministic val     -> (deterministicRefWithNode (val == sign) cachedInfo, f)
 
         (simplifiedNode, simplifiedSign) = simplify (Composed op children) f
@@ -213,7 +211,7 @@ entryRefWithNode sign id (FormulaEntry op children rFuncs cachedInfo) = RefWithN
     , entryCachedInfo = cachedInfo
     }
 
-predRefWithNode :: AST.BuildInPredicate -> HashMap RFuncLabel Interval ->cachedInfo -> RefWithNode cachedInfo
+predRefWithNode :: AST.BuildInPredicate -> HashMap RFuncLabel Interval -> cachedInfo -> RefWithNode cachedInfo
 predRefWithNode pred prevChoicesReal cachedInfo = RefWithNode
     { entryRef        = RefBuildInPredicate pred prevChoicesReal
     , entryNode       = BuildInPredicate pred
@@ -307,23 +305,10 @@ conditionReal origNodeEntry rf interv f@(Formula nodes _ labels2ids cInfoComps)
                     | all ((==) $ Just False) checkedPreds = AST.Constant False
                     | otherwise                            = pred
 
-                checkedPreds = [checkPred corner | corner <- crns]
-
-                checkPred corner = case op of
-                    AST.Lt   -> evalLeft ~<  evalRight
-                    AST.LtEq -> evalLeft ~<= evalRight
-                    AST.Gt   -> evalLeft ~>  evalRight
-                    AST.GtEq -> evalLeft ~>= evalRight
-                    where
-                        evalLeft  = eval left
-                        evalRight = eval right
-                        eval (AST.UserRFunc rf)   = fromJust $ Map.lookup rf corner
-                        eval (AST.RealConstant r) = Interval.rat2IntervLimPoint r
-                        eval (AST.RealSum x y)    = eval x + eval y
-
-                conditions = (rf, interv):[(rf',interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
-                crns       = Interval.corners conditions
-                predRFuncs = AST.predRandomFunctions pred
+                checkedPreds = map (AST.checkRealIneqPred op left right) crns
+                conditions   = (rf, interv):[(rf',interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
+                crns         = Interval.corners conditions
+                predRFuncs   = AST.predRandomFunctions pred
         conditionPred pred _ = pred
 
 nodeChildren :: Node -> HashSet NodeRef
@@ -339,6 +324,7 @@ exportAsDot :: FilePath -> Formula cachedInfo -> ExceptionalT String IO ()
 exportAsDot path (Formula nodes _ _ _) = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
+    doIO (hPutStrLn file $ printf "%i" $ Map.size nodes)
     forM_ (Map.toList nodes) (printNode file)
     doIO (hPutStrLn file "}")
     doIO (hClose file)

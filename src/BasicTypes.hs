@@ -26,8 +26,10 @@ module BasicTypes
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Numeric (fromRat)
+import Data.Ratio (numerator, denominator)
+import Text.Printf (printf)
 
-{-type Probability = Rational
+type Probability = Rational
 
 printProb :: Probability -> String
 printProb p = printf "%i/%i" n d where
@@ -41,9 +43,9 @@ doubleToProb :: Double -> Probability
 doubleToProb = toRational
 
 probToDouble :: Probability -> Double
-probToDouble = fromRat-}
+probToDouble = fromRat
 
-type Probability = Double
+{-type Probability = Double
 
 printProb :: Probability -> String
 printProb = show
@@ -55,7 +57,7 @@ doubleToProb :: Double -> Probability
 doubleToProb = id
 
 probToDouble :: Probability -> Double
-probToDouble = id
+probToDouble = id-}
 
 type ProbabilityBounds = (Probability, Probability)
 

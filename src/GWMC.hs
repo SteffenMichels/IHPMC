@@ -16,6 +16,7 @@ module GWMC
     ( gwmc
     , gwmcEvidence
     , untilFinished
+    , heuristicsCacheComputations
     ) where
 import Formula (Formula)
 import qualified Formula
@@ -30,15 +31,16 @@ import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as Map
 import qualified AST
 import GHC.Exts (sortWith)
-import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~<), (~>))
+import Interval (Interval, IntervalLimit(..), IntervalLimitPoint(..), LowerUpper(..), (~<), (~>))
 import qualified Interval
 import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
 import Control.Monad.State.Strict
 import Data.Foldable (foldlM)
-
 import System.IO.Unsafe (unsafePerformIO)
 import Exception
+import Data.List (sort, find)
+import Debug.Trace (trace)
 
 type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) Double) -- number of rfs in primitives, split points + scores
 type FState = State (Formula CachedSplitPoints)
@@ -49,24 +51,25 @@ instance Hashable SplitPoint
 untilFinished :: Int -> ProbabilityBounds -> Bool
 untilFinished _ _ = False
 
-gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula () -> ProbabilityBounds
-gwmc query finishPred rfuncDefs f =  evalState (gwmc' 1 $ HPT.initialNode query) $ error "convert f" f where
+gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds
+gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ HPT.initialNode query) where
     gwmc' :: Int -> HPTNode -> FState ProbabilityBounds
     gwmc' i pstNode = do
+        f <- get
         pst <- GWMC.iterate pstNode 1.0 rfuncDefs
         case pst of
             pst@(HPT.Finished _)              -> return $ HPT.bounds pst
             pst@(HPT.Unfinished pstNode' _ _) -> let bounds = HPT.bounds pst
                                                  in if finishPred i $ HPT.bounds pst
-                                                    then return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/pst.dot" pst) >> return bounds)
+                                                    then get >>= \f -> return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
                                                     else gwmc' (i+1) pstNode'
 
-gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula () -> ProbabilityBounds
-gwmcEvidence query evidence finishPred rfuncDefs f =  evalState (do
+gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds
+gwmcEvidence query evidence finishPred rfuncDefs =  evalState (do
         queryAndEvidence    <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef True,  evidence])
         negQueryAndEvidence <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef False, evidence])
         gwmc' 1 (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
-    ) (Formula.rebuildCache (heuristicsCacheComputations rfuncDefs) f) where
+    ) where
     queryRef sign = case query of
         Formula.RefComposed qSign label                  -> Formula.RefComposed (sign == qSign) label
         Formula.RefBuildInPredicate pred prevChoicesReal -> Formula.RefBuildInPredicate (if sign then pred else AST.negatePred pred) prevChoicesReal
@@ -150,8 +153,8 @@ iterate pstNode partChoiceProb rfuncDefs = do
                                 (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ Formula.entryPrevChoicesReal fEntry
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
-                        (splitRF, splitPoint, _) = (error "some map function?") (head sortedCandidateSplitPoints)
-                        sortedCandidateSplitPoints = error "sorted cands"--sortWith (error "some map function2?") $ Map.toList $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
+                        ((splitRF, splitPoint), _) = head sortedCandidateSplitPoints
+                        sortedCandidateSplitPoints = sortWith (negate . snd) $ Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
 
                         fEntry = Formula.augmentWithEntry ref f
                         toHPTNode p entry = case Formula.entryNode entry of
@@ -272,43 +275,89 @@ heuristicDeterministic :: Bool -> CachedSplitPoints
 heuristicDeterministic = const (0, Map.empty)
 
 heuristicBuildInPred :: HashMap RFuncLabel [AST.RFuncDef] -> HashMap RFuncLabel Interval -> AST.BuildInPredicate -> CachedSplitPoints
-heuristicBuildInPred rfDefs prevChoicesReal pred = (nRfs, Set.foldr splitPoint Map.empty predRfs)
-    where
-        predRfs = AST.predRandomFunctions pred
-        nRfs    = Set.size predRfs
-
-        splitPoint :: RFuncLabel -> HashMap (RFuncLabel, SplitPoint) Double -> HashMap (RFuncLabel, SplitPoint) Double
-        splitPoint rf = case Map.lookup rf rfDefs of
-            Just (AST.Flip _:_)       -> Map.insert (rf, DiscreteSplit) 1.0 -- TODO: weight for constraint with 2 boolean vars
-            Just (AST.RealDist _ _:_) -> realSplitPoint
-            _  -> error ("undefined rfunc " ++ rf)
+heuristicBuildInPred rfDefs prevChoicesReal pred =
+        let predRfs = AST.predRandomFunctions pred
+            nRfs    = Set.size predRfs
+        in case pred of
+        (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
+        (AST.Constant _)              -> (nRfs, Map.empty)
+        (AST.RealIneq op exprX exprY) -> (nRfs, Map.singleton (splitRf, splitPoint) splitScore)
             where
-                realSplitPoint
-                    | privileged = undefined
-                    | otherwise = let (AST.RealIneq _ exprX exprY) = pred
-                                      rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
-                                      prefSplitPs = Set.foldr (\rf ps -> Map.insert rf (equalSplit rf) ps) Map.empty predRfs
-                                      sppoint = ( (fromIntegral nRfs-1)*equalSplit rf +
-                                                  (if rfOnLeft then 1 else -1) * (sumExpr exprY prefSplitPs - sumExpr exprX prefSplitPs)
-                                                )/fromIntegral nRfs
-                                  in Map.insert (rf, ContinuousSplit sppoint) (1.0/fromIntegral nRfs)-- penalty for higher-dimensional constraints
-                        where
-                            privileged = False
+                (fstRf:restRfs) = sort $ Set.toList predRfs
+                splitRf = maybe fstRf fst $ find (\(rf,n) -> score rf >= 2^n) [(rf,n) | rf <- reverse restRfs | n <- [nRfs-1, nRfs-2..]]
 
-                            equalSplit rf = case Map.lookup rf rfDefs of
-                                Just (AST.RealDist cdf icdf:_) -> icdf ((pUntilLower + pUntilUpper)/2)
-                                    where
-                                        pUntilLower = cdf' cdf True  curLower
-                                        pUntilUpper = cdf' cdf False curUpper
-                                        (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf prevChoicesReal
-                                _ -> error "GWMC.equalSplit failed"
+                score rf = let s = score2 rf in trace (rf ++ show s) s
+                score2 rf = maximum [ length $ filter (== Just True)  checkL
+                                   , length $ filter (== Just False) checkL
+                                   , length $ filter (== Just True)  checkR
+                                   , length $ filter (== Just False) checkR
+                                   ]
+                    where
+                        checkL = check lp
+                        checkR = check rp
+                        check p = map (\corner -> let corner' = Map.insert rf p corner
+                                                  in  if   AST.onBoundary exprX exprY corner'
+                                                      then Nothing
+                                                      else AST.checkRealIneqPred op exprX exprY corner'
+                                      ) otherCorners
 
-                            sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational
-                            sumExpr (AST.RealConstant c) _ = c
-                            sumExpr (AST.UserRFunc rf') vals
-                                | rf' == rf = 0
-                                | otherwise = fromJust $ Map.lookup rf' vals
-                            sumExpr (AST.RealSum x y) vals = sumExpr x vals + sumExpr y vals
+                        otherExtremePoints = Set.map (\rf' -> (rf', Map.lookupDefault (Inf,Inf) rf' prevChoicesReal)) (Set.filter (rf /=) predRfs)
+                        otherCorners = Interval.corners $ Set.toList otherExtremePoints-- corners not including current RF
+
+                        (l,u) = Map.lookupDefault (Inf,Inf) rf prevChoicesReal
+                        lp    = Interval.toPoint Lower l
+                        rp    = Interval.toPoint Upper u
+
+                (splitPoint, splitScore) = case Map.lookup splitRf rfDefs of
+                    Just (AST.RealDist _ _:_) -> realSplitPoint
+                    _  -> error ("undefined rfunc " ++ splitRf)
+                    where
+                        realSplitPoint = let (AST.RealIneq _ exprX exprY) = pred
+                                             sppoint = splitPoint splitRf
+                                         in (ContinuousSplit sppoint, 1.0/fromIntegral nRfs)-- penalty for higher-dimensional constraints
+                                where
+                                    splitPoint rf
+                                        | trace (rf ++ show points') $ null points' = equalSplit
+                                        | otherwise    = head points'
+                                        where
+                                            equalSplit = case Map.lookup rf rfDefs of
+                                                Just (AST.RealDist cdf icdf:_) -> icdf ((pUntilLower + pUntilUpper)/2)
+                                                    where
+                                                        pUntilLower = cdf' cdf True  curLower
+                                                        pUntilUpper = cdf' cdf False curUpper
+                                                        (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf prevChoicesReal
+                                                _ -> error "GWMC.equalSplit failed"
+
+                                            {-sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational
+                                            sumExpr (AST.RealConstant c) _ = c
+                                            sumExpr (AST.UserRFunc rf') vals
+                                                | rf' == rf = 0
+                                                | otherwise = fromJust $ Map.lookup rf' vals
+                                            sumExpr (AST.RealSum x y) vals = sumExpr x vals + sumExpr y vals-}
+
+                                            (lower, upper) = Map.lookupDefault (Inf,Inf) rf prevChoicesReal
+                                            rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
+                                            mbOtherIntervs = mapM (\rf -> (rf,) <$> Map.lookup rf prevChoicesReal) (filter (rf /=) $ Set.toList $ AST.predRandomFunctions pred)
+                                            points' = case mbOtherIntervs of
+                                                Nothing -> []
+                                                Just otherIntervs -> mapMaybe Interval.pointRational possibleSolutions -- only points with rational component (non-infinite) are valid split points
+                                                    where
+                                                        -- only min and max which are in current interval are valid solutions
+                                                        possibleSolutions = filter
+                                                                                (\p -> (p ~> Interval.toPoint Lower lower) == Just True && (p ~< Interval.toPoint Upper upper) == Just True)
+                                                                                [minimum boundaryPoints, maximum boundaryPoints]
+                                                        -- boundary points (with Indet filtered out)
+                                                        boundaryPoints = filter (/= Indet) [let x = sumExpr exprX c - sumExpr exprY c in if rfOnLeft then -x else x | c <- partCorners]
+                                                        -- partial corners of all other RFs occurring in pred
+                                                        partCorners
+                                                            | null otherIntervs = [undefined] -- only single empty (not evaluated) corner needed in case of no other rf
+                                                            | otherwise         = Interval.corners otherIntervs
+                                            sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel IntervalLimitPoint-> IntervalLimitPoint
+                                            sumExpr (AST.RealConstant c) _ = Point c Interval.InfteNull
+                                            sumExpr (AST.UserRFunc rf') vals
+                                                | rf' == rf = Point 0 Interval.InfteNull
+                                                | otherwise = fromJust $ Map.lookup rf' vals
+                                            sumExpr (AST.RealSum x y) vals = sumExpr x vals + sumExpr y vals
 
 heuristicComposed :: HashSet CachedSplitPoints -> CachedSplitPoints
 heuristicComposed = Set.foldr

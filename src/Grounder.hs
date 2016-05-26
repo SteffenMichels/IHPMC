@@ -18,7 +18,7 @@ module Grounder
 import BasicTypes
 import AST (AST)
 import qualified AST
-import Formula (Formula, CacheComputations(..))
+import Formula (Formula)
 import qualified Formula
 import qualified Data.HashMap.Lazy as Map
 import Data.HashSet (HashSet)
@@ -27,11 +27,12 @@ import Data.Foldable (foldlM)
 import Text.Printf (printf)
 import Control.Monad.State.Strict
 import Control.Arrow (first)
+import Data.Hashable (Hashable)
 
-type FState = State (Formula ())
+type FState cachedInfo = State (Formula cachedInfo)
 
-groundPclp :: AST -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef), Formula ())
-groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} =
+groundPclp :: (Eq cachedInfo, Hashable cachedInfo) => AST -> Formula.CacheComputations cachedInfo -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef), Formula cachedInfo)
+groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules} cachedInfoComps =
     runState (do groundedQueries <- foldlM (\gQueries query -> do ref <- groundRule query
                                                                   return $ Set.insert ref gQueries
                                            ) Set.empty queries
@@ -39,13 +40,9 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                     Nothing -> return (groundedQueries, Nothing)
                     Just ev -> do groundedEvidence <- groundRule ev
                                   return (groundedQueries, Just groundedEvidence)
-             ) (Formula.empty CacheComputations -- cached info not used in grounder
-                { cachedInfoComposed      = undefined
-                , cachedInfoBuildInPred   = undefined
-                , cachedInfoDeterministic = undefined
-                })
+             ) (Formula.empty cachedInfoComps)
     where
-        groundRule :: PredicateLabel -> FState Formula.NodeRef
+        groundRule :: (Eq cachedInfo, Hashable cachedInfo) => PredicateLabel -> FState cachedInfo Formula.NodeRef
         groundRule label =
             do mbNodeId <- Formula.labelId fLabel <$> get
                case mbNodeId of
@@ -62,7 +59,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                 bodies = Map.lookupDefault (error "rule not found") label rules
                 nBodies = Set.size bodies
 
-        groundBody :: PredicateLabel -> AST.RuleBody -> FState Formula.NodeRef
+        groundBody :: (Eq cachedInfo, Hashable cachedInfo) => PredicateLabel -> AST.RuleBody -> FState cachedInfo Formula.NodeRef
         groundBody label (AST.RuleBody elements) = case elements of
             []              -> error "not implemented"
             [singleElement] -> groundElement singleElement
@@ -71,6 +68,6 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                                ) Set.empty elements
                            state $ first Formula.entryRef . Formula.insert (Just $ Formula.uncondNodeLabel label) True Formula.And fChildren
 
-        groundElement :: AST.RuleBodyElement -> FState Formula.NodeRef
+        groundElement :: (Eq cachedInfo, Hashable cachedInfo) => AST.RuleBodyElement -> FState cachedInfo Formula.NodeRef
         groundElement (AST.UserPredicate label)   = groundRule label
         groundElement (AST.BuildInPredicate pred) = return $ Formula.RefBuildInPredicate pred Map.empty

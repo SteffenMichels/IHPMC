@@ -25,6 +25,8 @@ module AST
     , predRandomFunctions
     , exprRandomFunctions
     , negatePred
+    , checkRealIneqPred
+    , onBoundary
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -38,6 +40,8 @@ import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
 import Numeric (fromRat)
+import Interval ((~<), (~>), (~<=), (~>=))
+import qualified Interval
 
 data AST = AST
     { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches
@@ -98,7 +102,7 @@ instance Show IneqOp where
     show Gt   = ">"
     show GtEq = ">="
 instance Hashable IneqOp
-data RealN --deriving (Eq, Ord)
+data RealN
 
 data Expr a where
     BoolConstant :: Bool                     -> Expr Bool
@@ -144,3 +148,24 @@ exprRandomFunctions (UserRFunc label) = Set.singleton label
 exprRandomFunctions (BoolConstant _)  = Set.empty
 exprRandomFunctions (RealConstant _)  = Set.empty
 exprRandomFunctions (RealSum x y)     = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
+
+checkRealIneqPred :: IneqOp -> Expr RealN -> Expr RealN -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint -> Maybe Bool -- result may be undetermined -> Nothing
+checkRealIneqPred op left right point = case op of
+    AST.Lt   -> evalLeft ~<  evalRight
+    AST.LtEq -> evalLeft ~<= evalRight
+    AST.Gt   -> evalLeft ~>  evalRight
+    AST.GtEq -> evalLeft ~>= evalRight
+    where
+        evalLeft  = eval left  point
+        evalRight = eval right point
+
+onBoundary :: Expr RealN -> Expr RealN -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint -> Bool
+onBoundary left right point = Interval.nullInfte evalLeft == Interval.nullInfte evalRight
+    where
+        evalLeft  = eval left  point
+        evalRight = eval right point
+
+eval :: Expr t -> HashMap RFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
+eval (AST.UserRFunc rf)   point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rf) rf point
+eval (AST.RealConstant r) point = Interval.rat2IntervLimPoint r
+eval (AST.RealSum x y)    point = eval x point + eval y point
