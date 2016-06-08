@@ -108,8 +108,8 @@ instance Ord IntervalLimitPoint where
         | otherwise = x <= y
 
 instance Ord Infinitesimal where
-    InfteIndet <= _          = error "Ord Infinitesimal: undefined for InfteIndet"
-    _          <= InfteIndet = error "Ord Infinitesimal: undefined for InfteIndet"
+    InfteIndet <= _          = True--error "Ord Infinitesimal: undefined for InfteIndet"
+    _          <= InfteIndet = True--error "Ord Infinitesimal: undefined for InfteIndet"
     InfteMinus <= _          = True
     InfteNull  <= InfteNull  = True
     InfteNull  <= InftePlus  = True

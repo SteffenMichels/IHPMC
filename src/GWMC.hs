@@ -37,10 +37,9 @@ import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
 import Control.Monad.State.Strict
 import Data.Foldable (foldlM)
-import System.IO.Unsafe (unsafePerformIO)
-import Exception
+--import System.IO.Unsafe (unsafePerformIO)
+--import Exception
 import Data.List (maximumBy)
-import Debug.Trace (trace)
 
 type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) Double) -- number of rfs in primitives, split points + scores
 type FState = State (Formula CachedSplitPoints)
@@ -61,7 +60,7 @@ gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ HPT.initialNode query) w
             pst@(HPT.Finished _)              -> return $ HPT.bounds pst
             pst@(HPT.Unfinished pstNode' _ _) -> let bounds = HPT.bounds pst
                                                  in if finishPred i $ HPT.bounds pst
-                                                    then get >>= \f -> return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
+                                                    then return bounds--get >>= \f -> return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
                                                     else gwmc' (i+1) pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds
@@ -153,7 +152,7 @@ iterate pstNode partChoiceProb rfuncDefs = do
                                 (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ Formula.entryPrevChoicesReal fEntry
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
-                        ((splitRF, splitPoint), _) = trace (show sortedCandidateSplitPoints) $ head sortedCandidateSplitPoints
+                        ((splitRF, splitPoint), _) = head sortedCandidateSplitPoints--trace (show sortedCandidateSplitPoints) $
                         sortedCandidateSplitPoints = sortWith (negate . snd) $ Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
 
                         fEntry = Formula.augmentWithEntry ref f
@@ -220,7 +219,7 @@ determineSplitPoint rf (lower,upper) rfuncDefs prevChoicesReal fEntry f = fst $ 
         pointsWithScore entry
             | Set.member rf $ Formula.entryRFuncs entry = case Formula.entryNode entry of
                 Formula.Composed op children  -> foldr combine Map.empty [pointsWithScore $ Formula.augmentWithEntry c f | c <- Set.toList children]
-                Formula.BuildInPredicate pred -> Map.fromList $ points pred
+                Formula.BuildInPredicate pred _ -> Map.fromList $ points pred
                 _                         -> Map.empty
             | otherwise = Map.empty
 
@@ -283,7 +282,7 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
         (AST.Constant _)              -> (nRfs, Map.empty)
         (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList [((rf, splitPoint rf), probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal) | rf <- Set.toList predRfs])
             where
-                errorReduction rf remRfs choices = pDiff where
+                errorReduction2 rf remRfs choices = pDiff where
                     (curLower',curUpper') = Map.lookupDefault (Inf,Inf) rf choices
                     pUntilLower = cdf' cdf True  curLower'
                     pUntilUpper = cdf' cdf False curUpper'
@@ -291,7 +290,7 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                     (cdf, icdf) = case Map.lookup rf rfDefs of
                             Just (AST.RealDist cdf icdf:_) -> (cdf, icdf)
                 bestReduction rfs choices = maximumBy (\(_,r) (_,s) -> compare r s) [(rf, errorReduction rf (Set.filter (/= rf) rfs) choices) | rf <- Set.toList rfs]
-                errorReduction2 rf remRfs choices = leftRed + rightRed
+                errorReduction rf remRfs choices = leftRed + rightRed
                     where
                         leftRed  = errorRed' (Map.insert rf (curLower, Open splitP) choices)
                         rightRed = errorRed' (Map.insert rf (Open splitP, curUpper) choices)

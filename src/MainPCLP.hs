@@ -29,7 +29,7 @@ main = do
             ast <- returnExceptional $ parsePclp src
             --doIO (putStrLn $ show ast)
             ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
-            return $ (probToDouble *** probToDouble) $ gwmc (getFirst queries) (\n (l,u) -> n == 1000) (AST.rFuncDefs ast) f
+            return $ (probToDouble *** probToDouble) $ gwmc (getFirst queries) (\n (l,u) -> n == 200000) (AST.rFuncDefs ast) f
             --exportAsDot "/tmp/Formula.dot" Formula
             --inferenceApprox queries mbEvidence ast f
 

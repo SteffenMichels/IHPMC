@@ -53,9 +53,9 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                                 ) (Set.empty, 0::Int) bodies
                            state $ first Formula.entryRef . Formula.insert mbLabel True Formula.Or fBodies
             where
-                fLabel = Formula.uncondNodeLabel label
+                fLabel = Formula.uncondComposedLabel label
                 mbLabel | Set.member label queries = Nothing
-                        | otherwise                = Just $ Formula.uncondNodeLabel label
+                        | otherwise                = Just $ Formula.uncondComposedLabel label
                 bodies = Map.lookupDefault (error "rule not found") label rules
                 nBodies = Set.size bodies
 
@@ -66,7 +66,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
             elements -> do fChildren <- foldlM (\fChildren el -> do newChild <- groundElement el
                                                                     return $ Set.insert newChild fChildren
                                                ) Set.empty elements
-                           state $ first Formula.entryRef . Formula.insert (Just $ Formula.uncondNodeLabel label) True Formula.And fChildren
+                           state $ first Formula.entryRef . Formula.insert (Just $ Formula.uncondComposedLabel label) True Formula.And fChildren
 
         groundElement :: (Eq cachedInfo, Hashable cachedInfo) => AST.RuleBodyElement -> FState cachedInfo Formula.NodeRef
         groundElement (AST.UserPredicate label)   = groundRule label
