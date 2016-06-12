@@ -28,7 +28,6 @@ module Formula
     , conditionBool
     , conditionReal
     , Formula.negate
-    , entryPrevChoicesReal
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -167,13 +166,6 @@ deterministicRefWithNode val cachedInfo = RefWithNode
     , entryRFuncs     = Set.empty
     , entryCachedInfo = cachedInfo
     }
-
-entryPrevChoicesReal :: RefWithNode cachedInfo -> HashMap RFuncLabel Interval
-entryPrevChoicesReal entry = case entryRef entry of
-    RefBuildInPredicate _ choices -> choices
-    _ -> case entryLabel entry of
-        Just (ComposedLabel _ _ choices _) -> choices
-        _ -> Map.empty
 
 conditionBool :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Bool -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 conditionBool origNodeEntry rf val f@(Formula nodes _ labels2ids cInfoComps)

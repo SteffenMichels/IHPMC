@@ -125,7 +125,7 @@ iterate pstNode partChoiceProb rfuncDefs = do
                 selectedChildNode = case head sortedChildren of
                     HPT.Unfinished pstNode _ _ -> pstNode
                     _                          -> error "finished node should not be selected for iteration"
-        iterateNode (HPT.Leaf ref) partChoiceProb = do
+        iterateNode (HPT.Leaf ref choicesReal) partChoiceProb = do
             f <- get
             case decompose ref f of
                 Nothing -> case splitPoint of
@@ -133,32 +133,34 @@ iterate pstNode partChoiceProb rfuncDefs = do
                         Just (AST.Flip p:_) -> do
                             leftEntry  <- state $ Formula.conditionBool fEntry splitRF True
                             rightEntry <- state $ Formula.conditionBool fEntry splitRF False
-                            let left  = toHPTNode p leftEntry
-                            let right = toHPTNode (1-p) rightEntry
+                            let left  = toHPTNode p     leftEntry  choicesReal
+                            let right = toHPTNode (1-p) rightEntry choicesReal
                             return (HPT.ChoiceBool splitRF p left right, combineProbsChoice p left right, combineScoresChoice left right)
                         _ -> error ("undefined rfunc " ++ splitRF)
                     ContinuousSplit splitPoint -> case Map.lookup splitRF rfuncDefs of
                         Just (AST.RealDist cdf _:_) -> do
+                            let choicesLeft  = Map.insert splitRF (curLower, Open splitPoint) choicesReal
+                            let choicesRight = Map.insert splitRF (Open splitPoint, curUpper) choicesReal
                             leftEntry  <- state $ Formula.conditionReal fEntry splitRF (curLower, Open splitPoint)
                             rightEntry <- state $ Formula.conditionReal fEntry splitRF (Open splitPoint, curUpper)
-                            let left  = toHPTNode p leftEntry
-                            let right = toHPTNode (1-p) rightEntry
+                            let left  = toHPTNode p     leftEntry  choicesLeft
+                            let right = toHPTNode (1-p) rightEntry choicesRight
                             return (HPT.ChoiceReal splitRF p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
                             where
                                 p = (pUntilSplit-pUntilLower)/(pUntilUpper-pUntilLower)
-                                pUntilLower = cdf' cdf True curLower
+                                pUntilLower = cdf' cdf True  curLower
                                 pUntilUpper = cdf' cdf False curUpper
                                 pUntilSplit = cdf splitPoint
-                                (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ Formula.entryPrevChoicesReal fEntry
+                                (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF choicesReal
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
                         ((splitRF, splitPoint), _) = head sortedCandidateSplitPoints--trace (show sortedCandidateSplitPoints) $
                         sortedCandidateSplitPoints = sortWith (negate . snd) $ Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
 
                         fEntry = Formula.augmentWithEntry ref f
-                        toHPTNode p entry = case Formula.entryNode entry of
+                        toHPTNode p entry choicesReal = case Formula.entryNode entry of
                             Formula.Deterministic val -> HPT.Finished $ if val then 1.0 else 0.0
-                            _                         -> HPT.Unfinished (HPT.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
+                            _                         -> HPT.Unfinished (HPT.Leaf (Formula.entryRef entry) choicesReal) (0.0,1.0) (probToDouble p * partChoiceProb)
                 Just (origOp, decOp, sign, decomposition) -> do
                     psts <- foldlM (\psts dec -> do
                             fresh <- if Set.size dec > 1 then
@@ -166,7 +168,7 @@ iterate pstNode partChoiceProb rfuncDefs = do
                                 else
                                     let single = getFirst dec in
                                     return $ if sign then single else Formula.negate single
-                            return (HPT.Unfinished (HPT.Leaf fresh) (0.0,1.0) partChoiceProb:psts)
+                            return (HPT.Unfinished (HPT.Leaf fresh choicesReal) (0.0,1.0) partChoiceProb:psts)
                         ) [] decomposition
                     return (HPT.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
 
@@ -278,7 +280,7 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
         let predRfs = AST.predRandomFunctions pred
             nRfs    = Set.size predRfs
         in case pred of
-        (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
+        AST.BoolEq{}                  -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
         (AST.Constant _)              -> (nRfs, Map.empty)
         (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList [((rf, splitPoint rf), probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal) | rf <- Set.toList predRfs])
             where

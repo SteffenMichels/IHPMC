@@ -30,13 +30,16 @@ import Control.Monad (foldM)
 import Numeric (fromRat)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as Map
+import Interval (Interval)
 
 -- Hybrid Probability Tree
 data HPT     = Unfinished HPTNode ProbabilityBounds Double
              | Finished Probability
              deriving (Show, Eq, Generic)
 instance Hashable HPT
-data HPTNode = Leaf Formula.NodeRef
+data HPTNode = Leaf Formula.NodeRef (HashMap RFuncLabel Interval)
              | ChoiceBool RFuncLabel Probability HPT HPT
              | ChoiceReal RFuncLabel Probability Rational HPT HPT
              | Decomposition Formula.NodeType [HPT]
@@ -44,7 +47,7 @@ data HPTNode = Leaf Formula.NodeRef
 instance Hashable HPTNode
 
 initialNode :: Formula.NodeRef -> HPTNode
-initialNode = Leaf
+initialNode ref = Leaf ref Map.empty
 
 bounds :: HPT -> ProbabilityBounds
 bounds (Unfinished _ b _) = b
@@ -86,7 +89,7 @@ exportAsDot path pst = do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds pst) score)
                 print mbParent (show counter) mbEdgeLabel
                 foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
-            Unfinished (Leaf label) _ score -> do
+            Unfinished (Leaf label _) _ score -> do
                 doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (nodeRefToReadableString label) score)
                 print mbParent (show counter) mbEdgeLabel
                 return (counter+1)
