@@ -37,8 +37,8 @@ import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
 import Control.Monad.State.Strict
 import Data.Foldable (foldlM)
---import System.IO.Unsafe (unsafePerformIO)
---import Exception
+import System.IO.Unsafe (unsafePerformIO)
+import Exception
 import Data.List (maximumBy)
 
 type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) Double) -- number of rfs in primitives, split points + scores
@@ -51,16 +51,15 @@ untilFinished :: Int -> ProbabilityBounds -> Bool
 untilFinished _ _ = False
 
 gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds
-gwmc query finishPred rfuncDefs =  evalState (gwmc' 1 $ HPT.initialNode query) where
+gwmc query finishPred rfuncDefs f =  evalState (gwmc' 1 $ HPT.initialNode query) $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
     gwmc' :: Int -> HPTNode -> FState ProbabilityBounds
     gwmc' i pstNode = do
-        f <- get
         pst <- GWMC.iterate pstNode 1.0 rfuncDefs
         case pst of
             pst@(HPT.Finished _)              -> return $ HPT.bounds pst
             pst@(HPT.Unfinished pstNode' _ _) -> let bounds = HPT.bounds pst
                                                  in if finishPred i $ HPT.bounds pst
-                                                    then return bounds--get >>= \f -> return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
+                                                    then get >>= \f -> return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
                                                     else gwmc' (i+1) pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds

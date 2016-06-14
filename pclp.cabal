@@ -4,9 +4,9 @@ cabal-version: >=1.4
 build-type: Simple
 license: AllRightsReserved
 
-executable pclp
+executable pclp_float
     main-is: Main.hs
-    cpp-options: -DMAIN_FUNCTION=MainPCLP.main -DMAIN_INCLUDE=MainPCLP
+    cpp-options: -DFLOAT_PROBS
     build-depends:
         --QuickCheck -any,
         base -any,
@@ -35,9 +35,8 @@ executable pclp
         Exception
     ghc-options: -Werror -rtsopts -fwarn-unused-imports
 
-executable iphl
+executable pclp_exact
     main-is: Main.hs
-    cpp-options: -DMAIN_FUNCTION=MainIPHL.main -DMAIN_INCLUDE=MainIPHL
     build-depends:
         --QuickCheck -any,
         base -any,
@@ -49,37 +48,7 @@ executable iphl
         time -any,
         unordered-containers -any,
         mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls  ParallelListComp
-    hs-source-dirs: src
-    other-modules:
-        MainIPHL
-        GWMCExact
-        Parser
-        HPT
-        Formula
-        GWMC
-        AST
-        BasicTypes
-        Benchmarks
-        Grounder
-        Interval
-        Exception
-    ghc-options: -Werror -rtsopts -fwarn-unused-imports
-
-executable benchmark
-    main-is: Main.hs
-    cpp-options: -DMAIN_FUNCTION=MainBenchmark.main -DMAIN_INCLUDE=MainBenchmark
-    build-depends:
-        base -any,
-        containers -any,
-        explicit-exception -any,
-        hashable >=1.2.4.0,
-        parsec -any,
-        statistics -any,
-        time -any,
-        unordered-containers -any,
-        mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls  ParallelListComp
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp
     hs-source-dirs: src
     other-modules:
         MainPCLP

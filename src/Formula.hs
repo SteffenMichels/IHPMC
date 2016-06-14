@@ -272,7 +272,7 @@ exportAsDot path (Formula nodes _ _ _) = do
 
                 childStr :: NodeRef -> String
                 childStr (RefComposed sign childId)   = printf "%i[label=\"%s\"]" childId (show sign)
-                childStr (RefBuildInPredicate pred rconds) = let h = Hashable.hashWithSalt id pred in printf "%i;\n%i[label=\"%s %s\"]" h h (show pred) $ show rconds
+                childStr (RefBuildInPredicate pred rconds) = let h = Hashable.hashWithSalt id pred in printf "%i;\n%i[label=\"%s\"]" h h $ show pred
                 childStr (RefDeterministic _)         = error "Formula export: should this happen?"
 
 -- FORMULA STORAGE

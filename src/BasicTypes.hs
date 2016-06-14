@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  BasicTypes
@@ -26,9 +27,26 @@ module BasicTypes
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Numeric (fromRat)
+#ifndef FLOAT_PROBS
 import Data.Ratio (numerator, denominator)
 import Text.Printf (printf)
+#endif
 
+#ifdef FLOAT_PROBS
+type Probability = Double
+
+printProb :: Probability -> String
+printProb = show
+
+ratToProb :: Rational -> Probability
+ratToProb = fromRat
+
+doubleToProb :: Double -> Probability
+doubleToProb = id
+
+probToDouble :: Probability -> Double
+probToDouble = id
+#else
 type Probability = Rational
 
 printProb :: Probability -> String
@@ -44,20 +62,7 @@ doubleToProb = toRational
 
 probToDouble :: Probability -> Double
 probToDouble = fromRat
-
-{-type Probability = Double
-
-printProb :: Probability -> String
-printProb = show
-
-ratToProb :: Rational -> Probability
-ratToProb = fromRat
-
-doubleToProb :: Double -> Probability
-doubleToProb = id
-
-probToDouble :: Probability -> Double
-probToDouble = id-}
+#endif
 
 type ProbabilityBounds = (Probability, Probability)
 
