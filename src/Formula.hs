@@ -28,7 +28,7 @@ module Formula
     , conditionBool
     , conditionReal
     , Formula.negate
-    , entryPrevChoicesReal
+    , entryChoices
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -69,22 +69,25 @@ instance Hashable (RefWithNode cachedInfo) where
         RefComposed sign id -> Hashable.hashWithSalt (Hashable.hashWithSalt salt sign) id
         ref                 -> Hashable.hashWithSalt salt ref
 
-insert :: (Hashable cachedInfo, Eq cachedInfo) => Maybe ComposedLabel -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
-insert mbLabel sign op children f@(Formula nodes freshCounter labels2ids cInfoComps) = case simplifiedNode of
+insert :: (Hashable cachedInfo, Eq cachedInfo) => Either ComposedLabel Conditions -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+insert labelOrConds sign op children f@(Formula nodes freshCounter labels2ids cInfoComps) = case simplifiedNode of
     Composed nType nChildren -> ( RefWithNode { entryRef        = RefComposed (sign == simplifiedSign) freshCounter
                                               , entryNode       = simplifiedNode
-                                              , entryLabel      = mbLabel
+                                              , entryLabel      = Just label
                                               , entryRFuncs     = rFuncs
                                               , entryCachedInfo = cachedInfo
                                               }
-                                , Formula (Map.insert freshCounter (mbLabel, FormulaEntry nType nChildren rFuncs cachedInfo) nodes)
+                                , Formula (Map.insert freshCounter (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes)
                                           (freshCounter+1)
-                                          (maybe labels2ids (\l -> Map.insert l freshCounter labels2ids) mbLabel)
+                                          (Map.insert label freshCounter labels2ids)
                                           cInfoComps
                                 )
     BuildInPredicate pred rConds -> (predRefWithNode (if sign then pred else AST.negatePred pred) rConds cachedInfo, f)
     Deterministic val            -> (deterministicRefWithNode (val == sign) cachedInfo, f)
     where
+        label = case labelOrConds of
+            Left label  -> label
+            Right conds -> ComposedLabel (show freshCounter) conds $ Hashable.hashWithSalt freshCounter conds
         (simplifiedNode, simplifiedSign) = simplify (Composed op children) f
         children' = Set.map (`augmentWithEntry` f) $ nodeChildren simplifiedNode
         rFuncs = case simplifiedNode of
@@ -128,10 +131,10 @@ augmentWithEntry label f = fromMaybe
 
 tryAugmentWithEntry :: NodeRef -> Formula cachedInfo -> Maybe (RefWithNode cachedInfo)
 tryAugmentWithEntry ref@(RefComposed _ id) (Formula nodes _ _ cInfoComps) = case Map.lookup id nodes of
-    Just (mbLabel, FormulaEntry nType nChildren rFuncs cachedInfo) -> Just RefWithNode
+    Just (label, FormulaEntry nType nChildren rFuncs cachedInfo) -> Just RefWithNode
         { entryRef        = ref
         , entryNode       = Composed nType nChildren
-        , entryLabel      = mbLabel
+        , entryLabel      = Just label
         , entryRFuncs     = rFuncs
         , entryCachedInfo = cachedInfo
         }
@@ -168,18 +171,18 @@ deterministicRefWithNode val cachedInfo = RefWithNode
     , entryCachedInfo = cachedInfo
     }
 
-entryPrevChoicesReal :: RefWithNode cachedInfo -> HashMap RFuncLabel Interval
-entryPrevChoicesReal entry = case entryRef entry of
-    RefBuildInPredicate _ choices -> choices
+entryChoices :: RefWithNode cachedInfo -> Conditions
+entryChoices entry = case entryRef entry of
+    RefBuildInPredicate _ choices -> (Map.empty, choices)
     _ -> case entryLabel entry of
-        Just (ComposedLabel _ _ choices _) -> choices
-        _ -> Map.empty
+        Just (ComposedLabel _ conds _) -> conds
+        _ -> (Map.empty, Map.empty)
 
 conditionBool :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Bool -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 conditionBool origNodeEntry rf val f@(Formula nodes _ labels2ids cInfoComps)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
     | otherwise = case entryRef origNodeEntry of
-        RefComposed sign origId -> case maybe Nothing (`Map.lookup` labels2ids) newLabel of
+        RefComposed sign origId -> case Map.lookup newLabel labels2ids of
                                     Just nodeId -> (augmentWithEntry (RefComposed sign nodeId) f, f)
                                     _ -> let (mbLabel, FormulaEntry op children _ _) = fromJust $ Map.lookup origId nodes
                                              (condChildren, f') = Set.foldr
@@ -189,9 +192,9 @@ conditionBool origNodeEntry rf val f@(Formula nodes _ labels2ids cInfoComps)
                                                 )
                                                 (Set.empty, f)
                                                 children
-                                         in insert newLabel sign op (Set.map entryRef condChildren) f'
+                                         in insert (Left newLabel) sign op (Set.map entryRef condChildren) f'
             where
-                newLabel = condComposedLabelBool rf val <$> entryLabel origNodeEntry
+                newLabel = condComposedLabelBool rf val $ fromJust $ entryLabel origNodeEntry
         RefBuildInPredicate pred prevChoicesReal -> let condPred = conditionPred pred
                                     in case AST.deterministicValue condPred of
                                         Just val -> (deterministicRefWithNode val $ cachedInfoDeterministic cInfoComps val, f)
@@ -211,7 +214,7 @@ conditionReal :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo 
 conditionReal origNodeEntry rf interv f@(Formula nodes _ labels2ids cInfoComps)
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
     | otherwise = case entryRef origNodeEntry of
-        RefComposed sign origLabel -> case maybe Nothing (`Map.lookup` labels2ids) newLabel of
+        RefComposed sign origLabel -> case Map.lookup newLabel labels2ids of
                                         Just nodeId -> (augmentWithEntry (RefComposed sign nodeId) f, f)
                                         _ -> let (mbLabel, FormulaEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
                                                  (condChildren, f') = Set.foldr
@@ -221,9 +224,9 @@ conditionReal origNodeEntry rf interv f@(Formula nodes _ labels2ids cInfoComps)
                                                     )
                                                     (Set.empty, f)
                                                     children
-                                             in insert newLabel sign op (Set.map entryRef condChildren) f'
+                                             in insert (Left newLabel) sign op (Set.map entryRef condChildren) f'
             where
-                newLabel = condComposedLabelReal rf interv <$> entryLabel origNodeEntry
+                newLabel = condComposedLabelReal rf interv $ fromJust $ entryLabel origNodeEntry
         RefBuildInPredicate pred prevChoicesReal -> let condPred = conditionPred pred prevChoicesReal
                                     in case AST.deterministicValue condPred of
                                         Just val -> (deterministicRefWithNode val $ cachedInfoDeterministic cInfoComps val, f)
@@ -262,9 +265,9 @@ exportAsDot path (Formula nodes _ _ _) = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Handle -> (ComposedId, (Maybe ComposedLabel, FormulaEntry cachedInfo)) -> ExceptionalT String IO ()
-        printNode file (id, (mbLabel, FormulaEntry op children _ _)) = do
-            doIO (hPutStrLn file (printf "%i[label=\"%i: %s%s\"];" id id (maybe "" (\l -> show l ++ "\\n") mbLabel) descr))
+        printNode :: Handle -> (ComposedId, (ComposedLabel, FormulaEntry cachedInfo)) -> ExceptionalT String IO ()
+        printNode file (id, (label, FormulaEntry op children _ _)) = do
+            doIO (hPutStrLn file (printf "%i[label=\"%i: %s\\n%s\"];" id id (show label) descr))
             void $ forM_ children writeEdge
             where
                 descr = case op of And -> "AND"; Or -> "OR"
@@ -278,22 +281,23 @@ exportAsDot path (Formula nodes _ _ _) = do
 -- FORMULA STORAGE
 
 data Formula cachedInfo = Formula
-    (HashMap ComposedId (Maybe ComposedLabel, FormulaEntry cachedInfo)) -- graph representing formulas
-    Int                                                                 -- "counter for fresh nodes"
-    (HashMap ComposedLabel ComposedId)                                  -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
-    (CacheComputations cachedInfo)                                      -- how cached information attached to formulas is computed
+    (HashMap ComposedId (ComposedLabel, FormulaEntry cachedInfo)) -- graph representing formulas
+    Int                                                           -- counter for fresh nodes
+    (HashMap ComposedLabel ComposedId)                            -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
+    (CacheComputations cachedInfo)                                -- how cached information attached to formulas is computed
 
 type ComposedId = Int
 
 data ComposedLabel = ComposedLabel
-    String                        -- the name
-    (HashMap RFuncLabel Bool)     -- conditions for boolean variables
-    (HashMap RFuncLabel Interval) -- conditions for continuous variables
-    Int                           -- stored hash to avoid recomputation
+    String     -- the name
+    Conditions -- conditions
+    Int        -- stored hash to avoid recomputation
     deriving (Eq)
 
+type Conditions = (HashMap RFuncLabel Bool, HashMap RFuncLabel Interval)
+
 instance Show ComposedLabel where
-    show (ComposedLabel name bConds rConds _) = printf
+    show (ComposedLabel name (bConds, rConds) _) = printf
         "%s|%s"
         name
         (List.intercalate "," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))
@@ -301,19 +305,19 @@ instance Show ComposedLabel where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
 
 instance Hashable ComposedLabel where
-    hash              (ComposedLabel _ _ _ hash) = hash
-    hashWithSalt salt (ComposedLabel _ _ _ hash) = Hashable.hashWithSalt salt hash
+    hash              (ComposedLabel _ _ hash) = hash
+    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
 uncondComposedLabel :: PredicateLabel -> ComposedLabel
-uncondComposedLabel name = ComposedLabel name Map.empty Map.empty $ Hashable.hash name
+uncondComposedLabel name = ComposedLabel name (Map.empty, Map.empty) $ Hashable.hash name
 
 condComposedLabelBool :: RFuncLabel -> Bool -> ComposedLabel -> ComposedLabel
-condComposedLabelBool rf val (ComposedLabel name bConds rConds hash) = ComposedLabel name bConds' rConds hash' where
+condComposedLabelBool rf val (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds', rConds) hash' where
     bConds' = Map.insert rf val bConds
     hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash val) rf
 
 condComposedLabelReal :: RFuncLabel -> Interval -> ComposedLabel -> ComposedLabel
-condComposedLabelReal rf interv (ComposedLabel name bConds rConds hash) = ComposedLabel name bConds rConds' hash' where
+condComposedLabelReal rf interv (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds, rConds') hash' where
     rConds' = Map.insert rf interv rConds
     hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash interv) rf
 

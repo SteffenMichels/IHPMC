@@ -64,8 +64,8 @@ gwmc query finishPred rfuncDefs f =  evalState (gwmc' 1 $ HPT.initialNode query)
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds
 gwmcEvidence query evidence finishPred rfuncDefs =  evalState (do
-        queryAndEvidence    <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef True,  evidence])
-        negQueryAndEvidence <- state $ Formula.insert Nothing True Formula.And (Set.fromList [queryRef False, evidence])
+        queryAndEvidence    <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef True,  evidence])
+        negQueryAndEvidence <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef False, evidence])
         gwmc' 1 (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
     ) where
     queryRef sign = case query of
@@ -148,7 +148,7 @@ iterate pstNode partChoiceProb rfuncDefs = do
                                 pUntilLower = cdf' cdf True curLower
                                 pUntilUpper = cdf' cdf False curUpper
                                 pUntilSplit = cdf splitPoint
-                                (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ Formula.entryPrevChoicesReal fEntry
+                                (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ snd $ Formula.entryChoices fEntry
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
                         ((splitRF, splitPoint), _) = head sortedCandidateSplitPoints--trace (show sortedCandidateSplitPoints) $
@@ -161,13 +161,15 @@ iterate pstNode partChoiceProb rfuncDefs = do
                 Just (origOp, decOp, sign, decomposition) -> do
                     psts <- foldlM (\psts dec -> do
                             fresh <- if Set.size dec > 1 then
-                                    state $ \f -> first Formula.entryRef $ Formula.insert Nothing sign origOp dec f
+                                    state $ \f -> first Formula.entryRef $ Formula.insert (Right conds) sign origOp dec f
                                 else
                                     let single = getFirst dec in
                                     return $ if sign then single else Formula.negate single
                             return (HPT.Unfinished (HPT.Leaf fresh) (0.0,1.0) partChoiceProb:psts)
                         ) [] decomposition
                     return (HPT.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
+                    where
+                        conds = Formula.entryChoices $ Formula.augmentWithEntry ref f
 
 combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
     (leftLower,  leftUpper)  = HPT.bounds left
