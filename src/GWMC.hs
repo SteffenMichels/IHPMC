@@ -151,8 +151,8 @@ iterate pstNode partChoiceProb rfuncDefs = do
                                 (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ snd $ Formula.entryChoices fEntry
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
-                        ((splitRF, splitPoint), _) = head sortedCandidateSplitPoints--trace (show sortedCandidateSplitPoints) $
-                        sortedCandidateSplitPoints = sortWith (negate . snd) $ Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
+                        ((splitRF, splitPoint), _) = maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
+                        candidateSplitPoints = Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
 
                         fEntry = Formula.augmentWithEntry ref f
                         toHPTNode p entry = case Formula.entryNode entry of
@@ -283,13 +283,6 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
         (AST.Constant _)              -> (nRfs, Map.empty)
         (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList [((rf, splitPoint rf), probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal) | rf <- Set.toList predRfs])
             where
-                errorReduction2 rf remRfs choices = pDiff where
-                    (curLower',curUpper') = Map.lookupDefault (Inf,Inf) rf choices
-                    pUntilLower = cdf' cdf True  curLower'
-                    pUntilUpper = cdf' cdf False curUpper'
-                    pDiff       = pUntilUpper - pUntilLower
-                    (cdf, icdf) = case Map.lookup rf rfDefs of
-                            Just (AST.RealDist cdf icdf:_) -> (cdf, icdf)
                 bestReduction rfs choices = maximumBy (\(_,r) (_,s) -> compare r s) [(rf, errorReduction rf (Set.filter (/= rf) rfs) choices) | rf <- Set.toList rfs]
                 errorReduction rf remRfs choices = leftRed + rightRed
                     where
