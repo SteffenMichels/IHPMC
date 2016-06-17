@@ -59,7 +59,7 @@ gwmc query finishPred rfuncDefs f =  evalState (gwmc' 1 $ HPT.initialNode query)
             pst@(HPT.Finished _)              -> return $ HPT.bounds pst
             pst@(HPT.Unfinished pstNode' _ _) -> let bounds = HPT.bounds pst
                                                  in if finishPred i $ HPT.bounds pst
-                                                    then get >>= \f -> return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
+                                                    then get >>= \f -> return bounds--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
                                                     else gwmc' (i+1) pstNode'
 
 gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds
