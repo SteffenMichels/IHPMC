@@ -37,8 +37,6 @@ import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (first)
 import Control.Monad.State.Strict
 import Data.Foldable (foldlM)
---import System.IO.Unsafe (unsafePerformIO)
---import Exception
 import Data.List (maximumBy)
 
 type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) Double) -- number of rfs in primitives, split points + scores
