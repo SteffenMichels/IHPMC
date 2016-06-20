@@ -21,7 +21,6 @@ executable pclp_float
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp
     hs-source-dirs: src
     other-modules:
-        MainPCLP
         GWMCExact
         Parser
         HPT
@@ -51,7 +50,6 @@ executable pclp_exact
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp
     hs-source-dirs: src
     other-modules:
-        MainPCLP
         GWMCExact
         Parser
         HPT
