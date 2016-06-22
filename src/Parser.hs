@@ -70,8 +70,8 @@ parseRat = do
         parseDecimal = do
             before <- decimal
             string "."
-            after <- decimal
-            return $ (fst . head . readFloat) (printf "%i.%i" before after)
+            after <- many1 digit
+            return $ (fst . head . readFloat) (printf "%i.%s" before after)
         parseFraction = do
             before <- integer
             string "/"

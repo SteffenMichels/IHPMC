@@ -24,7 +24,6 @@ main = do
             assertT "There should be at least one iteration." (nIterations > 0)
             src <- doIO $ readFile modelFile
             ast <- returnExceptional $ parsePclp src
-            doIO $ putStrLn $ show ast
             ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
             let (l,u) = gwmc (getFirst queries) (\n (l,u) -> n == nIterations) (AST.rFuncDefs ast) f
             doIO $ putStrLn $ printf "%i iterations..." nIterations
