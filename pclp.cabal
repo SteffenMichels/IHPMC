@@ -18,7 +18,7 @@ executable pclp_float
         time -any,
         unordered-containers -any,
         mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp NamedFieldPuns
     hs-source-dirs: src
     other-modules:
         GWMCExact
@@ -47,7 +47,7 @@ executable pclp_exact
         time -any,
         unordered-containers -any,
         mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp NamedFieldPuns
     hs-source-dirs: src
     other-modules:
         GWMCExact
