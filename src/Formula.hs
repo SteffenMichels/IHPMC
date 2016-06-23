@@ -49,6 +49,7 @@ import qualified Data.List as List
 import Interval (Interval)
 import qualified Interval
 import Data.Foldable (forM_)
+import Data.Bits (xor)
 
 -- INTERFACE
 data Node = Composed NodeType (HashSet NodeRef)
@@ -64,10 +65,8 @@ data RefWithNode cachedInfo = RefWithNode
     , entryCachedInfo :: cachedInfo
     } deriving (Eq)
 instance Hashable (RefWithNode cachedInfo) where
-    hash                  = Hashable.hashWithSalt 0
-    hashWithSalt salt rwn = case entryRef rwn of
-        RefComposed sign id -> Hashable.hashWithSalt (Hashable.hashWithSalt salt sign) id
-        ref                 -> Hashable.hashWithSalt salt ref
+    hash                                    = Hashable.hashWithSalt 0
+    hashWithSalt salt RefWithNode{entryRef} = Hashable.hashWithSalt salt entryRef
 
 insert :: (Hashable cachedInfo, Eq cachedInfo) => Either ComposedLabel Conditions -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
 insert labelOrConds sign op children f@Formula{nodes,labels2ids,freshCounter,cacheComps} = case simplifiedNode of
@@ -88,7 +87,8 @@ insert labelOrConds sign op children f@Formula{nodes,labels2ids,freshCounter,cac
         freshId = freshCounter
         label = case labelOrConds of
             Left label  -> label
-            Right conds -> ComposedLabel (show freshId) conds $ Hashable.hashWithSalt freshId conds
+            Right conds -> let name = show freshId
+                           in  ComposedLabel name conds $ initCompLabelHashes name conds
         (simplifiedNode, simplifiedSign) = simplify (Composed op children) f
         children' = Set.map (`augmentWithEntry` f) $ nodeChildren simplifiedNode
         rFuncs = case simplifiedNode of
@@ -294,9 +294,9 @@ data Formula cachedInfo = Formula
 type ComposedId = Int
 
 data ComposedLabel = ComposedLabel
-    String     -- the name
-    Conditions -- conditions
-    Int        -- stored hash to avoid recomputation
+    String            -- the name
+    Conditions        -- conditions
+    (Int,Int,Int,Int) -- stored hashes (name,bConds,rConds,final) to avoid recomputation
     deriving (Eq)
 
 type Conditions = (HashMap RFuncLabel Bool, HashMap RFuncLabel Interval)
@@ -310,21 +310,30 @@ instance Show ComposedLabel where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
 
 instance Hashable ComposedLabel where
-    hash              (ComposedLabel _ _ hash) = hash
-    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
+    hash              (ComposedLabel _ _ (_,_,_,hash)) = hash
+    hashWithSalt salt (ComposedLabel _ _ (_,_,_,hash)) = xor salt hash
 
 uncondComposedLabel :: PredicateLabel -> ComposedLabel
-uncondComposedLabel name = ComposedLabel name (Map.empty, Map.empty) $ Hashable.hash name
+uncondComposedLabel name = ComposedLabel name (Map.empty, Map.empty) $ initCompLabelHashes name (Map.empty, Map.empty)
 
 condComposedLabelBool :: RFuncLabel -> Bool -> ComposedLabel -> ComposedLabel
-condComposedLabelBool rf val (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds', rConds) hash' where
+condComposedLabelBool rf val (ComposedLabel name (bConds, rConds) (nhash,_,rhash,_)) = ComposedLabel name (bConds', rConds) (nhash,bhash,rhash,hash') where
     bConds' = Map.insert rf val bConds
-    hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash val) rf
+    bhash   = Hashable.hash bConds'
+    hash'   = xor nhash $ xor bhash rhash
 
 condComposedLabelReal :: RFuncLabel -> Interval -> ComposedLabel -> ComposedLabel
-condComposedLabelReal rf interv (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds, rConds') hash' where
+condComposedLabelReal rf interv (ComposedLabel name (bConds, rConds) (nhash,bhash,_,_)) = ComposedLabel name (bConds, rConds') (nhash,bhash,rhash,hash') where
     rConds' = Map.insert rf interv rConds
-    hash'   = Hashable.hashWithSalt (Hashable.hashWithSalt hash interv) rf
+    rhash   = Hashable.hash rConds'
+    hash'   = xor nhash $ xor bhash rhash
+
+initCompLabelHashes :: String -> Conditions -> (Int,Int,Int,Int)
+initCompLabelHashes name (bConds,rConds) = (nhash,bhash,rhash,hash) where
+    nhash = Hashable.hash name
+    bhash = Hashable.hash bConds
+    rhash = Hashable.hash rConds
+    hash  = xor nhash $ xor bhash rhash
 
 labelId :: ComposedLabel -> Formula cachedInfo -> Maybe ComposedId
 labelId label Formula{labels2ids} = Map.lookup label labels2ids
