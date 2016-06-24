@@ -4,10 +4,11 @@ import System.Environment (getArgs)
 import Parser
 import Grounder
 import Exception
-import Text.Printf (printf)
-import Text.Read (readMaybe)
+import Text.Printf (printf, PrintfArg)
 import GWMC
 import qualified AST
+import Options (Options(..))
+import qualified Options
 import Control.Monad.Exception.Synchronous
 
 main = do
@@ -18,13 +19,22 @@ main = do
     where
         exeMain' = do
             args <- doIO getArgs
-            assertT "Wrong number of arguments. Should be: MODELFILE NRITERATIONS" (length args == 2)
-            let [modelFile,nIterationsStr] = args
-            nIterations <- returnExceptional $ fromMaybe (printf "'%s' is not a valid number!" nIterationsStr) $ readMaybe nIterationsStr
-            assertT "There should be at least one iteration." (nIterations > 0)
+            Options{modelFile, nIterations, errBound} <- Options.parseConsoleArgs args
+            assertT
+                "Error bound should be between 0.0 and 0.5."
+                (case errBound of
+                    Nothing -> True
+                    Just b  -> b >= 0 && b <= 0.5
+                )
             src <- doIO $ readFile modelFile
             ast <- returnExceptional $ parsePclp src
             ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
-            let (l,u) = gwmc (getFirst queries) (\n (l,u) -> n == nIterations) (AST.rFuncDefs ast) f
-            doIO $ putStrLn $ printf "%i iterations..." nIterations
+            let stopPred n (l,u) =  maybe False (== n)      nIterations
+                                 || maybe False (>= (u-l)/2) errBound
+            let (l,u) = gwmc (getFirst queries) stopPred (AST.rFuncDefs ast) f
+            printIfSet "Stopping after %i iterations." nIterations
+            printIfSet "Stopping if error bound is at most %f." $ probToDouble <$> errBound
             doIO $ putStrLn $ printf "%s: %f (error bound: %f)" (getFirst $ AST.queries ast) (probToDouble (u+l)/2) (probToDouble (u-l)/2)
+
+printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
+printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr

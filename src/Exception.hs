@@ -29,3 +29,4 @@ doIO action = mapExceptionT show (fromEitherT (IOError.tryIOError action))
 
 returnExceptional :: Monad m => Exceptional e a -> ExceptionalT e m a
 returnExceptional func = ExceptionalT $ return func
+

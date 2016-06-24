@@ -6,9 +6,7 @@ license: AllRightsReserved
 
 executable pclp_float
     main-is: Main.hs
-    cpp-options: -DFLOAT_PROBS
     build-depends:
-        --QuickCheck -any,
         base -any,
         containers -any,
         explicit-exception -any,
@@ -17,11 +15,15 @@ executable pclp_float
         statistics -any,
         time -any,
         unordered-containers -any,
-        mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp NamedFieldPuns
+        mtl -any,
+        argparser -any
+    cpp-options: -DFLOAT_PROBS
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
+                EmptyDataDecls ParallelListComp NamedFieldPuns
     hs-source-dirs: src
     other-modules:
         GWMCExact
+        Options
         Parser
         HPT
         Formula
@@ -37,7 +39,6 @@ executable pclp_float
 executable pclp_exact
     main-is: Main.hs
     build-depends:
-        --QuickCheck -any,
         base -any,
         containers -any,
         explicit-exception -any,
@@ -46,11 +47,14 @@ executable pclp_exact
         statistics -any,
         time -any,
         unordered-containers -any,
-        mtl -any
-    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections EmptyDataDecls ParallelListComp NamedFieldPuns
+        mtl -any,
+        argparser -any
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
+                EmptyDataDecls ParallelListComp NamedFieldPuns
     hs-source-dirs: src
     other-modules:
         GWMCExact
+        Options
         Parser
         HPT
         Formula
@@ -62,3 +66,4 @@ executable pclp_exact
         Interval
         Exception
     ghc-options: -Werror -rtsopts -fwarn-unused-imports
+
