@@ -36,7 +36,9 @@ main = do
             let stopPred n (l,u) t =  maybe False (== n)       nIterations
                                    || maybe False (>= (u-l)/2) errBound
                                    || maybe False (<= t)       timeout
-            results <- doIO $ gwmc (getFirst queries) stopPred repInterval (AST.rFuncDefs ast) f
+            results <- doIO $ case mbEvidence of
+                Nothing -> gwmc         (getFirst queries)    stopPred repInterval (AST.rFuncDefs ast) f
+                Just ev -> gwmcEvidence (getFirst queries) ev stopPred repInterval (AST.rFuncDefs ast) f
             forM_
                 results
                 (\(i,(l,u)) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2) (probToDouble (u-l)/2))

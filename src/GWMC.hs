@@ -52,74 +52,79 @@ untilFinished _ _ = False
 gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
 gwmc query finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (gwmc' 1 t t $ HPT.initialNode query) f where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
     gwmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
-    gwmc' i startTime lastReportedTime pstNode = do
+    gwmc' i startTime lastReportedTime hptNode = do
         f       <- get
-        (pst,f) <- return $ runState (GWMC.iterate pstNode 1.0 rfuncDefs) f
+        (pst,f) <- return $ runState (GWMC.iterate hptNode 1.0 rfuncDefs) f
         put f
         case pst of
             pst@(HPT.Finished _)              -> return [(i,HPT.bounds pst)]
-            pst@(HPT.Unfinished pstNode' _ _) -> do
+            pst@(HPT.Unfinished hptNode' _ _) -> do
                 curTime <- lift getTime
                 let bounds = HPT.bounds pst
                 if finishPred i bounds (curTime - startTime)
                     then return [(i,bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
                     else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                        then gwmc' (i+1) startTime curTime pstNode' >>= \bs -> return ((i,bounds) : bs)
-                        else gwmc' (i+1) startTime lastReportedTime pstNode'
+                        then gwmc' (i+1) startTime curTime hptNode' >>= \bs -> return ((i,bounds) : bs)
+                        else gwmc' (i+1) startTime lastReportedTime hptNode'
 
-    getTime = fmap (\x -> fromIntegral (round (x*1000)::Int)) getPOSIXTime
-
-gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ProbabilityBounds
-gwmcEvidence query evidence finishPred rfuncDefs =  evalState (do
+gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
+gwmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (do
         queryAndEvidence    <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef True,  evidence])
         negQueryAndEvidence <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef False, evidence])
-        gwmc' 1 (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
-    ) where
+        gwmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
+    ) f where
     queryRef sign = case query of
         Formula.RefComposed qSign label                  -> Formula.RefComposed (sign == qSign) label
         Formula.RefBuildInPredicate pred prevChoicesReal -> Formula.RefBuildInPredicate (if sign then pred else AST.negatePred pred) prevChoicesReal
     initHPT nwr = HPT.Unfinished (HPT.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
 
-    gwmc' :: Int -> HPT -> HPT -> FState ProbabilityBounds
-    gwmc' i qe nqe = case (qe, nqe) of
-        _ | finishPred i bounds          -> return bounds
-        (HPT.Finished _, HPT.Finished _) -> return bounds
+    gwmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
+    gwmc' i startTime lastReportedTime qe nqe = lift getTime >>= \curTime -> case (qe, nqe) of
+        _ | finishPred i bounds (curTime - startTime) -> return [(i, bounds)]
+        (HPT.Finished _, HPT.Finished _)              -> return [(i, bounds)]
         _ | HPT.maxError qe > HPT.maxError nqe -> do
-            let (HPT.Unfinished pstNode _ _) = qe
-            qe'  <- GWMC.iterate pstNode 1.0 rfuncDefs
-            gwmc' (i+1) qe' nqe
+            qe' <- iterate qe
+            recurse qe' nqe curTime
         _ -> do
-            let (HPT.Unfinished pstNode _ _) = nqe
-            nqe' <- GWMC.iterate pstNode 1.0 rfuncDefs
-            gwmc' (i+1) qe nqe'
+            nqe' <- iterate nqe
+            recurse qe nqe' curTime
         where
-            bounds = probBounds qe nqe
+            bounds = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
+                (lqe,  uqe)  = HPT.bounds qe
+                (lnqe, unqe) = HPT.bounds nqe
 
-    probBounds qe nqe = (lqe/(lqe+unqe), uqe/(uqe+lnqe)) where
-        (lqe,  uqe)  = HPT.bounds qe
-        (lnqe, unqe) = HPT.bounds nqe
+            recurse qe nqe curTime =
+                if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
+                then gwmc' (i+1) startTime curTime qe nqe >>= \bs -> return ((i,bounds) : bs)
+                else gwmc' (i+1) startTime lastReportedTime qe nqe
+
+    iterate (HPT.Unfinished hptNode _ _) = do
+        f <- get
+        (hpt',f) <- return $ runState (GWMC.iterate hptNode 1.0 rfuncDefs) f
+        put f
+        return hpt'
 
 iterate :: HPTNode -> Double -> HashMap RFuncLabel [AST.RFuncDef] -> FState HPT
-iterate pstNode partChoiceProb rfuncDefs = do
-    (pstNode', bounds@(l,u), score) <- iterateNode pstNode partChoiceProb
+iterate hptNode partChoiceProb rfuncDefs = do
+    (hptNode', bounds@(l,u), score) <- iterateNode hptNode partChoiceProb
     return $ if l == u then HPT.Finished l
-                       else HPT.Unfinished pstNode' bounds score
+                       else HPT.Unfinished hptNode' bounds score
     where
         iterateNode :: HPTNode -> Double -> FState (HPTNode, ProbabilityBounds, Double)
         iterateNode (HPT.ChoiceBool rFuncLabel p left right) partChoiceProb = do
             (left, right) <- case (left, right) of
-                (HPT.Unfinished pstNode _ _, _) | HPT.score left > HPT.score right ->
-                    (,right) <$> GWMC.iterate pstNode (probToDouble p * partChoiceProb) rfuncDefs
-                (_, HPT.Unfinished pstNode _ _) ->
-                    (left,)  <$> GWMC.iterate pstNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                (HPT.Unfinished hptNode _ _, _) | HPT.score left > HPT.score right ->
+                    (,right) <$> GWMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
+                (_, HPT.Unfinished hptNode _ _) ->
+                    (left,)  <$> GWMC.iterate hptNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
             return (HPT.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
         iterateNode (HPT.ChoiceReal rf p splitPoint left right) partChoiceProb = do
             (left, right) <- case (left, right) of
-                (HPT.Unfinished pstNode _ _, _) | HPT.score left > HPT.score right ->
-                    (,right) <$> GWMC.iterate pstNode (probToDouble p * partChoiceProb) rfuncDefs
-                (_, HPT.Unfinished pstNode _ _) ->
-                    (left,)  <$> GWMC.iterate pstNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                (HPT.Unfinished hptNode _ _, _) | HPT.score left > HPT.score right ->
+                    (,right) <$> GWMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
+                (_, HPT.Unfinished hptNode _ _) ->
+                    (left,)  <$> GWMC.iterate hptNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
             return (HPT.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
         iterateNode (HPT.Decomposition op dec) partChoiceProb = do
@@ -129,7 +134,7 @@ iterate pstNode partChoiceProb rfuncDefs = do
             where
                 sortedChildren = sortWith (\c -> -HPT.score  c) dec
                 selectedChildNode = case head sortedChildren of
-                    HPT.Unfinished pstNode _ _ -> pstNode
+                    HPT.Unfinished hptNode _ _ -> hptNode
                     _                          -> error "finished node should not be selected for iteration"
         iterateNode (HPT.Leaf ref) partChoiceProb = do
             f <- get
@@ -384,3 +389,5 @@ heuristicComposed = Set.foldr
 cdf' _ lower Inf      = if lower then 0.0 else 1.0
 cdf' cdf _ (Open x)   = cdf x
 cdf' cdf _ (Closed x) = cdf x
+
+getTime = fmap (\x -> fromIntegral (round (x*1000)::Int)) getPOSIXTime
