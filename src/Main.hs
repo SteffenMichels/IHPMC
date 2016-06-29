@@ -10,6 +10,7 @@ import qualified AST
 import Options (Options(..))
 import qualified Options
 import Control.Monad.Exception.Synchronous
+import Control.Monad (forM_)
 
 main = do
     result <- runExceptionalT exeMain'
@@ -19,7 +20,7 @@ main = do
     where
         exeMain' = do
             args <- doIO getArgs
-            Options{modelFile, nIterations, errBound, timeout} <- Options.parseConsoleArgs args
+            Options{modelFile, nIterations, errBound, timeout, repInterval} <- Options.parseConsoleArgs args
             assertT
                 "Error bound should be between 0.0 and 0.5."
                 (case errBound of
@@ -35,8 +36,10 @@ main = do
             let stopPred n (l,u) t =  maybe False (== n)       nIterations
                                    || maybe False (>= (u-l)/2) errBound
                                    || maybe False (<= t)       timeout
-            (l,u) <- doIO $ gwmc (getFirst queries) stopPred (AST.rFuncDefs ast) f
-            doIO $ putStrLn $ printf "%s: %f (error bound: %f)" (getFirst $ AST.queries ast) (probToDouble (u+l)/2) (probToDouble (u-l)/2)
+            results <- doIO $ gwmc (getFirst queries) stopPred repInterval (AST.rFuncDefs ast) f
+            forM_
+                results
+                (\(i,(l,u)) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2) (probToDouble (u-l)/2))
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr

@@ -49,21 +49,23 @@ instance Hashable SplitPoint
 untilFinished :: Int -> ProbabilityBounds -> Bool
 untilFinished _ _ = False
 
-gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO ProbabilityBounds
-gwmc query finishPred rfuncDefs f = getTime >>= \t -> evalStateT (gwmc' 1 t $ HPT.initialNode query) f where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
-    gwmc' :: Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) IO ProbabilityBounds
-    gwmc' i startTime pstNode = do
+gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
+gwmc query finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (gwmc' 1 t t $ HPT.initialNode query) f where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
+    gwmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
+    gwmc' i startTime lastReportedTime pstNode = do
         f       <- get
         (pst,f) <- return $ runState (GWMC.iterate pstNode 1.0 rfuncDefs) f
         put f
         case pst of
-            pst@(HPT.Finished _)              -> return $ HPT.bounds pst
+            pst@(HPT.Finished _)              -> return [(i,HPT.bounds pst)]
             pst@(HPT.Unfinished pstNode' _ _) -> do
                 curTime <- lift getTime
                 let bounds = HPT.bounds pst
                 if finishPred i bounds (curTime - startTime)
-                    then return bounds--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
-                    else gwmc' (i+1) startTime pstNode'
+                    then return [(i,bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return bounds)
+                    else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
+                        then gwmc' (i+1) startTime curTime pstNode' >>= \bs -> return ((i,bounds) : bs)
+                        else gwmc' (i+1) startTime lastReportedTime pstNode'
 
     getTime = fmap (\x -> fromIntegral (round (x*1000)::Int)) getPOSIXTime
 
