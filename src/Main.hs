@@ -11,11 +11,12 @@ import Options (Options(..))
 import qualified Options
 import Control.Monad.Exception.Synchronous
 import Control.Monad (forM_)
+import System.Exit (exitFailure)
 
 main = do
     result <- runExceptionalT exeMain'
     case result of
-        Exception e -> putStrLn $ printf "\nError: %s" e
+        Exception e -> putStrLn (printf "\nError: %s" e) >> exitFailure
         Success _   -> return ()
     where
         exeMain' = do
