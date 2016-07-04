@@ -23,12 +23,10 @@ module BasicTypes
     , doubleToProb
     , probToDouble
     , getFirst
-    , maximumBranchAndBound
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Numeric (fromRat)
---import Debug.Trace (trace)
 #ifndef FLOAT_PROBS
 import Data.Ratio (numerator, denominator)
 import Text.Printf (printf)
@@ -73,10 +71,3 @@ type RFuncLabel      = String
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
-
-maximumBranchAndBound :: (Show a, Show b, Ord b) => (a -> b -> b) -> b -> HashSet a -> (a,b)
-maximumBranchAndBound f init s =
-    let (a,b,c) = Set.foldr
-            (\ax (ay,b,l) -> let b' = f ax b in if b' >= b then (ax,b',l++[(ax,b')]) else (ay,b,l++[(ax,b')]))
-            (error "BasicType.maximumBranchAndBound failed",init,[]) s
-    in (a,b)--trace (show c) (a,b)
