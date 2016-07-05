@@ -43,7 +43,8 @@ import Exception
 import System.IO.Unsafe (unsafePerformIO)
 --import Debug.Trace (trace)
 
-type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) Double) -- number of rfs in primitives, split points + scores
+type HeuristicScore = (Int, Double)
+type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) HeuristicScore) -- number of rfs in primitives, split points + scores
 type FState = State (Formula CachedSplitPoints)
 
 data SplitPoint = DiscreteSplit | ContinuousSplit Rational deriving (Eq, Show, Generic)
@@ -166,7 +167,7 @@ iterate hptNode partChoiceProb rfuncDefs = do
                                 (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ snd $ Formula.entryChoices fEntry
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
-                        ((splitRF, splitPoint), _) = maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
+                        ((splitRF, splitPoint), _) = maximumBy (\(_,(sx,x)) (_,(sy,y)) -> compare (-sx,x) (-sy,y)) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
                         candidateSplitPoints = Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
 
                         fEntry = Formula.augmentWithEntry ref f
@@ -242,11 +243,12 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
         let predRfs = AST.predRandomFunctions pred
             nRfs    = Set.size predRfs
         in case pred of
-            (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
+            (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) (1,1.0)) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
             (AST.Constant _)              -> (nRfs, Map.empty)
             (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList $
-                    filterTooManySteps [((rf, splitPoint rf False), second probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal False) | rf <- Set.toList predRfs]
-                    ++                 [((rf, splitPoint rf True),  probToDouble . snd  $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal True)  | rf <- Set.toList predRfs]
+                                            [((rf, splitPoint rf True),  (\(s,r) -> (1,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal True)  | rf <- Set.toList predRfs]
+                    {-filterTooManySteps-} ++ [((rf, splitPoint rf False), second probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal False) | rf <- Set.toList predRfs]
+
                 )
                 where
                     filterTooManySteps cands = [(spp,red) | (spp,(steps,red)) <- cands, steps == minimum [s | (_,(s,_)) <- cands]]
@@ -330,8 +332,8 @@ heuristicComposed = Set.foldr
     (\(rfsInPrims,splitPoints) (rfsInPrims', splitPoints') -> (rfsInPrims + rfsInPrims', combineSplitPoints splitPoints splitPoints'))
     (0, Map.empty)
     where
-        combineSplitPoints :: HashMap (RFuncLabel, SplitPoint) Double -> HashMap (RFuncLabel, SplitPoint) Double -> HashMap (RFuncLabel, SplitPoint) Double
-        combineSplitPoints = Map.unionWith (+)
+        combineSplitPoints :: HashMap (RFuncLabel, SplitPoint) HeuristicScore -> HashMap (RFuncLabel, SplitPoint) HeuristicScore -> HashMap (RFuncLabel, SplitPoint) HeuristicScore
+        combineSplitPoints = Map.unionWith (\(sx,rx) (sy,ry) -> (min sx sy, rx+ry))
 
 cdf' _ lower Inf      = if lower then 0.0 else 1.0
 cdf' cdf _ (Open x)   = cdf x
