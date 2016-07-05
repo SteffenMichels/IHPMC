@@ -41,10 +41,9 @@ import Data.List (maximumBy)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Exception
 import System.IO.Unsafe (unsafePerformIO)
-import Debug.Trace (trace)
+--import Debug.Trace (trace)
 
-type HeuristicScore = (Int, Double)
-type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) HeuristicScore) -- number of rfs in primitives, split points + scores
+type CachedSplitPoints = (Int, HashMap (RFuncLabel, SplitPoint) Double) -- number of rfs in primitives, split points + scores
 type FState = State (Formula CachedSplitPoints)
 
 data SplitPoint = DiscreteSplit | ContinuousSplit Rational deriving (Eq, Show, Generic)
@@ -167,7 +166,7 @@ iterate hptNode partChoiceProb rfuncDefs = do
                                 (curLower, curUpper) = Map.lookupDefault (Inf, Inf) splitRF $ snd $ Formula.entryChoices fEntry
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
-                        ((splitRF, splitPoint), _) = maximumBy (\(_,(sx,rx)) (_,(sy,ry)) -> compare (rx) (ry)) (trace (show candidateSplitPoints) candidateSplitPoints)
+                        ((splitRF, splitPoint), _) = maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
                         candidateSplitPoints = Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
 
                         fEntry = Formula.augmentWithEntry ref f
@@ -243,12 +242,17 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
         let predRfs = AST.predRandomFunctions pred
             nRfs    = Set.size predRfs
         in case pred of
-            (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) (0,1.0)) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
+            (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
             (AST.Constant _)              -> (nRfs, Map.empty)
-            (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList [((rf, splitPoint rf), second probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal) | rf <- Set.toList predRfs])
+            (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList $
+                    filterTooManySteps [((rf, splitPoint rf False), second probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal False) | rf <- Set.toList predRfs]
+                    ++                 [((rf, splitPoint rf True),  probToDouble . snd  $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal True)  | rf <- Set.toList predRfs]
+                )
                 where
-                    bestReduction rfs choices = fst $ maximumBy (\((sx,rx),rfx) ((sy,ry),rfy) -> compare (rx,rfx) (ry,rfy)) [(errorReduction rf (Set.filter (/= rf) rfs) choices,rf) | rf <- Set.toList rfs]
-                    errorReduction rf remRfs choices = (min leftSteps rightSteps + 1, leftRed + rightRed)
+                    filterTooManySteps cands = [(spp,red) | (spp,(steps,red)) <- cands, steps == minimum [s | (_,(s,_)) <- cands]]
+
+                    bestReduction rfs choices equalSp = maximumBy (\(_,rx) (_,ry) -> compare rx ry) [errorReduction rf (Set.filter (/= rf) rfs) choices equalSp | rf <- Set.toList rfs]
+                    errorReduction rf remRfs choices equalSp = (min leftSteps rightSteps + 1, leftRed + rightRed)
                         where
                             (leftSteps,leftRed)   = errorRed' (Map.insert rf (curLower, Open splitP) choices)
                             (rightSteps,rightRed) = errorRed' (Map.insert rf (Open splitP, curUpper) choices)
@@ -256,13 +260,13 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                             errorRed' choices
                                 | all ((==) $ Just True) checkedCorners || all ((==) $ Just False) checkedCorners = (0, diff')
                                 | Set.null remRfs = (0, 0)
-                                | otherwise = second (* diff') $ bestReduction remRfs choices
+                                | otherwise = second (* diff') $ bestReduction remRfs choices equalSp
                                 where
                                     extremePoints  = Set.map (\rf' -> (rf', Map.lookupDefault (Inf,Inf) rf' choices)) predRfs
                                     corners        = Interval.corners $ Set.toList extremePoints
                                     checkedCorners = map (AST.checkRealIneqPred op exprX exprY) corners
                                     diff'          = pDiff rf choices
-                            ContinuousSplit splitP = splitPoint rf
+                            ContinuousSplit splitP = splitPoint rf equalSp
 
                     pDiff rf choices = pUntilUpper - pUntilLower where
                         pUntilLower = cdf' cdf True  curLower
@@ -271,9 +275,9 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                         (cdf, icdf) = case Map.lookup rf rfDefs of
                             Just (AST.RealDist cdf icdf:_) -> (cdf, icdf)
 
-                    splitPoint rf = ContinuousSplit $ equalSplit rf
-                        -- | null points' = ContinuousSplit $ head points''
-                        -- | otherwise    = ContinuousSplit $ head points'
+                    splitPoint rf equalSp
+                        | null points' = if equalSp then ContinuousSplit $ equalSplit rf else ContinuousSplit $ head points''
+                        | otherwise    = ContinuousSplit $ head points'
                         where
                             (lower, upper) = Map.lookupDefault (Inf,Inf) rf prevChoicesReal
                             rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
@@ -326,8 +330,8 @@ heuristicComposed = Set.foldr
     (\(rfsInPrims,splitPoints) (rfsInPrims', splitPoints') -> (rfsInPrims + rfsInPrims', combineSplitPoints splitPoints splitPoints'))
     (0, Map.empty)
     where
-        combineSplitPoints :: HashMap (RFuncLabel, SplitPoint) HeuristicScore -> HashMap (RFuncLabel, SplitPoint) HeuristicScore -> HashMap (RFuncLabel, SplitPoint) HeuristicScore
-        combineSplitPoints = Map.unionWith (\(sx,rx) (sy,ry) -> (min sx sy,rx+ry))
+        combineSplitPoints :: HashMap (RFuncLabel, SplitPoint) Double -> HashMap (RFuncLabel, SplitPoint) Double -> HashMap (RFuncLabel, SplitPoint) Double
+        combineSplitPoints = Map.unionWith (+)
 
 cdf' _ lower Inf      = if lower then 0.0 else 1.0
 cdf' cdf _ (Open x)   = cdf x
