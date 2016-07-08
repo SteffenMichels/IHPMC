@@ -1,20 +1,27 @@
------------------------------------------------------------------------------
+--The MIT License (MIT)
 --
--- Module      :  GWMC
--- Copyright   :
--- License     :  AllRightsReserved
+--Copyright (c) 2016 Steffen Michels (mail@steffen-michels.de)
 --
--- Maintainer  :
--- Stability   :
--- Portability :
+--Permission is hereby granted, free of charge, to any person obtaining a copy of
+--this software and associated documentation files (the "Software"), to deal in
+--the Software without restriction, including without limitation the rights to use,
+--copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+--Software, and to permit persons to whom the Software is furnished to do so,
+--subject to the following conditions:
 --
--- |
+--The above copyright notice and this permission notice shall be included in all
+--copies or substantial portions of the Software.
 --
------------------------------------------------------------------------------
+--THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+--IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+--FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+--COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+--IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+--CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-module GWMC
-    ( gwmc
-    , gwmcEvidence
+module IHPMC
+    ( ihpmc
+    , ihpmcEvidence
     , untilFinished
     , heuristicsCacheComputations
     ) where
@@ -39,8 +46,8 @@ import Control.Monad.State.Strict
 import Data.Foldable (foldlM)
 import Data.List (maximumBy)
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Exception
-import System.IO.Unsafe (unsafePerformIO)
+--import Exception
+--import System.IO.Unsafe (unsafePerformIO)
 --import Debug.Trace (trace)
 
 type HeuristicScore = (Int, Double)
@@ -53,37 +60,37 @@ instance Hashable SplitPoint
 untilFinished :: Int -> ProbabilityBounds -> Bool
 untilFinished _ _ = False
 
-gwmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
-gwmc query finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (gwmc' 1 t t $ HPT.initialNode query) f where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
-    gwmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
-    gwmc' i startTime lastReportedTime hptNode = do
+ihpmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
+ihpmc query finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (ihpmc' 1 t t $ HPT.initialNode query) f where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
+    ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
+    ihpmc' i startTime lastReportedTime hptNode = do
         f       <- get
-        (pst,f) <- return $ runState (GWMC.iterate hptNode 1.0 rfuncDefs) f
+        (hpt,f) <- return $ runState (IHPMC.iterate hptNode 1.0 rfuncDefs) f
         put f
-        case pst of
-            pst@(HPT.Finished _)              -> return [(i,HPT.bounds pst)]
-            pst@(HPT.Unfinished hptNode' _ _) -> do
+        case hpt of
+            hpt@(HPT.Finished _)              -> return [(i,HPT.bounds hpt)]
+            hpt@(HPT.Unfinished hptNode' _ _) -> do
                 curTime <- lift getTime
-                let bounds = HPT.bounds pst
+                let bounds = HPT.bounds hpt
                 if finishPred i bounds (curTime - startTime)
-                    then return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" pst >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i,bounds)])
+                    then return [(i,bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" hpt >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i,bounds)])
                     else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                        then gwmc' (i+1) startTime curTime hptNode' >>= \bs -> return ((i,bounds) : bs)
-                        else gwmc' (i+1) startTime lastReportedTime hptNode'
+                        then ihpmc' (i+1) startTime curTime hptNode' >>= \bs -> return ((i,bounds) : bs)
+                        else ihpmc' (i+1) startTime lastReportedTime hptNode'
 
-gwmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
-gwmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (do
+ihpmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
+ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (do
         queryAndEvidence    <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef True,  evidence])
         negQueryAndEvidence <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef False, evidence])
-        gwmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
+        ihpmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
     ) f where
     queryRef sign = case query of
         Formula.RefComposed qSign label                  -> Formula.RefComposed (sign == qSign) label
         Formula.RefBuildInPredicate pred prevChoicesReal -> Formula.RefBuildInPredicate (if sign then pred else AST.negatePred pred) prevChoicesReal
     initHPT nwr = HPT.Unfinished (HPT.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
 
-    gwmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
-    gwmc' i startTime lastReportedTime qe nqe = lift getTime >>= \curTime -> case (qe, nqe) of
+    ihpmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
+    ihpmc' i startTime lastReportedTime qe nqe = lift getTime >>= \curTime -> case (qe, nqe) of
         _ | finishPred i bounds (curTime - startTime) -> return [(i, bounds)]
         (HPT.Finished _, HPT.Finished _)              -> return [(i, bounds)]
         _ | HPT.maxError qe > HPT.maxError nqe -> do
@@ -99,12 +106,12 @@ gwmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = getTime >>= \
 
             recurse qe nqe curTime =
                 if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                then gwmc' (i+1) startTime curTime qe nqe >>= \bs -> return ((i,bounds) : bs)
-                else gwmc' (i+1) startTime lastReportedTime qe nqe
+                then ihpmc' (i+1) startTime curTime qe nqe >>= \bs -> return ((i,bounds) : bs)
+                else ihpmc' (i+1) startTime lastReportedTime qe nqe
 
     iterate (HPT.Unfinished hptNode _ _) = do
         f <- get
-        (hpt',f) <- return $ runState (GWMC.iterate hptNode 1.0 rfuncDefs) f
+        (hpt',f) <- return $ runState (IHPMC.iterate hptNode 1.0 rfuncDefs) f
         put f
         return hpt'
 
@@ -118,21 +125,21 @@ iterate hptNode partChoiceProb rfuncDefs = do
         iterateNode (HPT.ChoiceBool rFuncLabel p left right) partChoiceProb = do
             (left, right) <- case (left, right) of
                 (HPT.Unfinished hptNode _ _, _) | HPT.score left > HPT.score right ->
-                    (,right) <$> GWMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
+                    (,right) <$> IHPMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
                 (_, HPT.Unfinished hptNode _ _) ->
-                    (left,)  <$> GWMC.iterate hptNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                    (left,)  <$> IHPMC.iterate hptNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
             return (HPT.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
         iterateNode (HPT.ChoiceReal rf p splitPoint left right) partChoiceProb = do
             (left, right) <- case (left, right) of
                 (HPT.Unfinished hptNode _ _, _) | HPT.score left > HPT.score right ->
-                    (,right) <$> GWMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
+                    (,right) <$> IHPMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
                 (_, HPT.Unfinished hptNode _ _) ->
-                    (left,)  <$> GWMC.iterate hptNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
+                    (left,)  <$> IHPMC.iterate hptNode (probToDouble (1-p) * partChoiceProb) rfuncDefs
                 _ -> error "finished node should not be selected for iteration"
             return (HPT.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
         iterateNode (HPT.Decomposition op dec) partChoiceProb = do
-            selectedChild <- GWMC.iterate selectedChildNode partChoiceProb rfuncDefs
+            selectedChild <- IHPMC.iterate selectedChildNode partChoiceProb rfuncDefs
             let dec' = selectedChild:tail sortedChildren
             return (HPT.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
             where
@@ -175,27 +182,27 @@ iterate hptNode partChoiceProb rfuncDefs = do
                             Formula.Deterministic val -> HPT.Finished $ if val then 1.0 else 0.0
                             _                         -> HPT.Unfinished (HPT.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
                 Just (origOp, decOp, sign, decomposition) -> do
-                    psts <- foldlM (\psts dec -> do
+                    htps <- foldlM (\htps dec -> do
                             fresh <- if Set.size dec > 1 then
                                     state $ \f -> first Formula.entryRef $ Formula.insert (Right conds) sign origOp dec f
                                 else
                                     let single = getFirst dec in
                                     return $ if sign then single else Formula.negate single
-                            return (HPT.Unfinished (HPT.Leaf fresh) (0.0,1.0) partChoiceProb:psts)
+                            return (HPT.Unfinished (HPT.Leaf fresh) (0.0,1.0) partChoiceProb:htps)
                         ) [] decomposition
-                    return (HPT.Decomposition decOp psts, (0.0,1.0), combineScoresDecomp psts)
+                    return (HPT.Decomposition decOp htps, (0.0,1.0), combineScoresDecomp htps)
                     where
                         conds = Formula.entryChoices $ Formula.augmentWithEntry ref f
 
 combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
     (leftLower,  leftUpper)  = HPT.bounds left
     (rightLower, rightUpper) = HPT.bounds right
-combineProbsDecomp Formula.And dec = foldr (\pst (l,u) -> let (l',u') = HPT.bounds pst in (l'*l,u'*u)) (1.0, 1.0) dec
+combineProbsDecomp Formula.And dec = foldr (\hpt (l,u) -> let (l',u') = HPT.bounds hpt in (l'*l,u'*u)) (1.0, 1.0) dec
 combineProbsDecomp Formula.Or dec  = (1-nl, 1-nu) where
-    (nl, nu) = foldr (\pst (l,u) -> let (l',u') = HPT.bounds pst in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
+    (nl, nu) = foldr (\hpt (l,u) -> let (l',u') = HPT.bounds hpt in (l*(1.0-l'), u*(1.0-u'))) (1.0, 1.0) dec
 
 combineScoresChoice left right = max (HPT.score left) (HPT.score right)
-combineScoresDecomp            = foldr (\pst score -> max score $ HPT.score pst) 0.0
+combineScoresDecomp            = foldr (\hpt score -> max score $ HPT.score hpt) 0.0
 
 decompose :: Formula.NodeRef -> Formula CachedSplitPoints -> Maybe (Formula.NodeType, Formula.NodeType, Bool, HashSet (HashSet Formula.NodeRef))
 decompose ref f = Nothing{-case Formula.entryNode $ Formula.augmentWithEntry ref f of
@@ -246,12 +253,12 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
             (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) (1,1.0)) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
             (AST.Constant _)              -> (nRfs, Map.empty)
             (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList $
-                                            [((rf, splitPoint rf True),  (\(s,r) -> (1,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal True)  | rf <- Set.toList predRfs]
-                    {-filterTooManySteps-} ++ [((rf, splitPoint rf False), second probToDouble $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal False) | rf <- Set.toList predRfs]
+                                            [((rf, splitPoint rf True),  (\(s,r) -> (2,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal True)  | rf <- Set.toList predRfs]
+                    ++ [((rf, splitPoint rf False), (\(s,r) -> (s,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal False) | rf <- Set.toList predRfs]
 
                 )
                 where
-                    filterTooManySteps cands = [(spp,red) | (spp,(steps,red)) <- cands, steps == minimum [s | (_,(s,_)) <- cands]]
+                    filterTooManySteps cands = [(spp,(steps,red)) | (spp,(steps,red)) <- cands, steps == minimum [s | (_,(s,_)) <- cands]]
 
                     bestReduction rfs choices equalSp = maximumBy (\(_,rx) (_,ry) -> compare rx ry) [errorReduction rf (Set.filter (/= rf) rfs) choices equalSp | rf <- Set.toList rfs]
                     errorReduction rf remRfs choices equalSp = (min leftSteps rightSteps + 1, leftRed + rightRed)
@@ -312,7 +319,7 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                                         pUntilLower = cdf' cdf True  curLower
                                         pUntilUpper = cdf' cdf False curUpper
                                         (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf prevChoicesReal
-                                _ -> error "GWMC.equalSplit failed"
+                                _ -> error "IHPMC.equalSplit failed"
 
                             sumExpr2 :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational
                             sumExpr2 (AST.RealConstant c) _ = c

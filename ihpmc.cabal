@@ -1,10 +1,10 @@
-name: pclp
+name: ihpmc
 version: 0.0.1
 cabal-version: >=1.4
 build-type: Simple
-license: AllRightsReserved
+license: MIT
 
-executable pclp_float
+executable ihpmc_float
     main-is: Main.hs
     build-depends:
         base -any,
@@ -22,21 +22,19 @@ executable pclp_float
                 EmptyDataDecls ParallelListComp NamedFieldPuns
     hs-source-dirs: src
     other-modules:
-        GWMCExact
         Options
         Parser
         HPT
         Formula
-        GWMC
+        IHPMC
         AST
         BasicTypes
-        Benchmarks
         Grounder
         Interval
         Exception
-    ghc-options: -Werror -rtsopts -fwarn-unused-imports
+    ghc-options: -Werror -rtsopts -fwarn-unused-imports -prof -fprof-auto
 
-executable pclp_exact
+executable ihpmc_exact
     main-is: Main.hs
     build-depends:
         base -any,
@@ -53,15 +51,13 @@ executable pclp_exact
                 EmptyDataDecls ParallelListComp NamedFieldPuns
     hs-source-dirs: src
     other-modules:
-        GWMCExact
         Options
         Parser
         HPT
         Formula
-        GWMC
+        IHPMC
         AST
         BasicTypes
-        Benchmarks
         Grounder
         Interval
         Exception

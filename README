@@ -1,0 +1,19 @@
+The algorithm is written in Haskell and there is a Cabal package file. You can build the package with:
+
+    cabal install ihpmc.cabal
+
+There is also a binary Linux executable ("bin/ihpmc").
+
+The model used for the expriments of the paper "Approximate Probabilistic Inference with Bounded Error for Hybrid Probabilistic Logic Programming" is included as "diagnosis.pclp". You can run the model for instance with:
+
+    dist/build/ihpmc/ihpmc diagnosis.pclp 100000
+
+or
+
+    bin/ihpmc diagnosis.pclp 100000
+
+This will compute the result for 100000 iterations. The expected output is:
+
+    100000 iterations...
+    f9: 0.10000000693775893 (error bound: 0.000000000001976994956631728)
+
