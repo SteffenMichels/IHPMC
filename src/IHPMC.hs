@@ -43,7 +43,6 @@ import qualified Interval
 import Data.Maybe (mapMaybe, fromJust)
 import Control.Arrow (second)
 import Control.Monad.State.Strict
---import Data.Foldable (foldlM)
 import Data.List (maximumBy)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 --import Exception
@@ -252,8 +251,8 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
             (AST.BoolEq{})                -> (nRfs, Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) (1,1.0)) Map.empty predRfs) -- TODO: weight for constraint with 2 boolean vars
             (AST.Constant _)              -> (nRfs, Map.empty)
             (AST.RealIneq op exprX exprY) -> (nRfs, Map.fromList $
-                                            [((rf, splitPoint rf True),  (\(s,r) -> (2,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal True)  | rf <- Set.toList predRfs]
-                    ++ [((rf, splitPoint rf False), (\(s,r) -> (s,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal False) | rf <- Set.toList predRfs]
+                                            []--[((rf, splitPoint rf True),  (\(s,r) -> (s,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal True)  | rf <- Set.toList predRfs]
+                    ++  [((rf, splitPoint rf False), (\(s,r) -> (s,probToDouble r)) $ errorReduction rf (Set.filter (/= rf) predRfs) prevChoicesReal False) | rf <- Set.toList predRfs]
 
                 )
                 where

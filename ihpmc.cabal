@@ -32,7 +32,7 @@ executable ihpmc_float
         Grounder
         Interval
         Exception
-    ghc-options: -Werror -rtsopts -fwarn-unused-imports -prof -fprof-auto
+    ghc-options: -Werror -rtsopts -fwarn-unused-imports
 
 executable ihpmc_exact
     main-is: Main.hs
