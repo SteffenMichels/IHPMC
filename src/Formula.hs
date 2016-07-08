@@ -58,7 +58,6 @@ import qualified Interval
 import Data.Foldable (forM_)
 import Data.Bits (xor)
 import Control.Arrow (first)
-import Debug.Trace (trace)
 
 -- INTERFACE
 data Node = Composed NodeType (HashSet NodeRef)
@@ -85,43 +84,43 @@ insert labelOrConds sign op children f@Formula{nodes,labels2ids,freshCounter,cac
                                               , entryRFuncs     = rFuncs
                                               , entryCachedInfo = cachedInfo
                                               }
-                                , f'          { nodes        = Map.insert freshId (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
+                                , f''         { nodes        = Map.insert freshId (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
                                               , freshCounter = freshId+1
                                               , labels2ids   = Map.insert label freshId labels2ids
                                               }
                                 )
-    BuildInPredicate pred rConds -> (predRefWithNode (if sign then pred else AST.negatePred pred) rConds cachedInfo, f')
-    Deterministic val            -> (deterministicRefWithNode (val == sign) cachedInfo, f')
+    BuildInPredicate pred rConds -> (predRefWithNode (if sign then pred else AST.negatePred pred) rConds cachedInfo, f'')
+    Deterministic val            -> (deterministicRefWithNode (val == sign) cachedInfo, f'')
     where
         freshId = freshCounter
         label = case labelOrConds of
             Left label  -> label
             Right conds -> let name = show freshId
                            in  ComposedLabel name conds $ initCompLabelHashes name conds
-        (simplifiedNode, simplifiedSign) = simplify (Composed op children) f
-        (children', f') = Set.foldr (\c (cs,f) -> first (`Set.insert` cs) $ augmentWithEntry c f) (Set.empty,f) (nodeChildren simplifiedNode)
+        (simplifiedNode, simplifiedSign, f') = simplify (Composed op children) f
+        (children', f'') = Set.foldr (\c (cs,f) -> first (`Set.insert` cs) $ augmentWithEntry c f) (Set.empty,f') (nodeChildren simplifiedNode)
         rFuncs = case simplifiedNode of
             Deterministic _         -> Set.empty
             BuildInPredicate pred _ -> AST.predRandomFunctions pred
             Composed _ _            -> Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
         cachedInfo = cachedInfoComposed cacheComps (Set.map entryCachedInfo children')
 
-        simplify :: Node -> Formula cachedInfo -> (Node, Bool)
-        simplify node@(Deterministic val) _ = (node, undefined)
-        simplify node@(BuildInPredicate pred _) _ = case AST.deterministicValue pred of
-            Just val -> (Deterministic val, undefined)
-            Nothing  -> (node, undefined)
-        simplify (Composed operator childRefs) f = (simplified, sign)
+        simplify :: Node -> Formula cachedInfo -> (Node, Bool, Formula cachedInfo)
+        simplify node@(Deterministic val) f = (node, undefined, f)
+        simplify node@(BuildInPredicate pred _) f = case AST.deterministicValue pred of
+            Just val -> (Deterministic val, undefined, f)
+            Nothing  -> (node, undefined, f)
+        simplify (Composed operator childRefs) f = (simplified, sign, f')
             where
                 sign = case (nChildren, getFirst newChildRefs) of
                     (1, RefComposed s _) -> s
                     _                    -> True
-                simplified
-                    | nChildren == 0 = Deterministic filterValue
-                    | nChildren == 1 = entryNode . fst . (`augmentWithEntry` f) $ getFirst newChildRefs
+                (simplified, f')
+                    | nChildren == 0 = (Deterministic filterValue, f)
+                    | nChildren == 1 = first entryNode . (`augmentWithEntry` f) $ getFirst newChildRefs
                     | Foldable.any (RefDeterministic singleDeterminismValue ==) childRefs =
-                        Deterministic singleDeterminismValue
-                    | otherwise = Composed operator newChildRefs
+                        (Deterministic singleDeterminismValue, f)
+                    | otherwise = (Composed operator newChildRefs, f)
 
                 newChildRefs = Set.filter (RefDeterministic filterValue /=) childRefs
                 nChildren    = Set.size newChildRefs
@@ -139,7 +138,7 @@ augmentWithEntry label f = let (mbRef, f') = tryAugmentWithEntry label f
                            in  ( fromMaybe
                                    (error $ printf "non-existing Formula node '%s'" $ show label)
                                    mbRef
-                               , f)
+                               , f' )
 
 tryAugmentWithEntry :: NodeRef -> Formula cachedInfo -> (Maybe (RefWithNode cachedInfo), Formula cachedInfo)
 tryAugmentWithEntry ref@(RefComposed _ id) f@Formula{nodes} = case Map.lookup id nodes of
@@ -383,7 +382,7 @@ data CacheComputations cachedInfo = CacheComputations
 cachedInfoBuildInPredCached :: HashMap RFuncLabel Interval -> AST.BuildInPredicate -> (HashMap RFuncLabel Interval -> AST.BuildInPredicate -> cachedInfo) -> HashMap (AST.BuildInPredicate, HashMap RFuncLabel Interval) cachedInfo -> (cachedInfo, HashMap (AST.BuildInPredicate, HashMap RFuncLabel Interval) cachedInfo)
 cachedInfoBuildInPredCached conds pred infoComp cache = case Map.lookup (pred,conds) cache of
     Just cachedInfo -> (cachedInfo, cache)
-    Nothing         -> let cachedInfo = trace ("cache fail " ++ show pred ++ show conds) $ infoComp conds pred
+    Nothing         -> let cachedInfo = infoComp conds pred
                        in  (cachedInfo, Map.insert (pred,conds) cachedInfo cache)
 
 empty :: CacheComputations cachedInfo -> Formula cachedInfo
