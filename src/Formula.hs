@@ -56,7 +56,6 @@ import qualified Data.List as List
 import Interval (Interval)
 import qualified Interval
 import Data.Foldable (forM_)
-import Data.Bits (xor)
 import Control.Arrow (first)
 
 -- INTERFACE
@@ -96,7 +95,7 @@ insert labelOrConds sign op children f@Formula{nodes,labels2ids,freshCounter,cac
         label = case labelOrConds of
             Left label  -> label
             Right conds -> let name = show freshId
-                           in  ComposedLabel name conds $ initCompLabelHashes name conds
+                           in  ComposedLabel name conds $ Hashable.hash name -- only use name as hash (ignore conds) as node is unique anyhow
         (simplifiedNode, simplifiedSign, f') = simplify (Composed op children) f
         (children', f'') = Set.foldr (\c (cs,f) -> first (`Set.insert` cs) $ augmentWithEntry c f) (Set.empty,f') (nodeChildren simplifiedNode)
         rFuncs = case simplifiedNode of
@@ -308,7 +307,7 @@ type ComposedId = Int
 data ComposedLabel = ComposedLabel
     String            -- the name
     Conditions        -- conditions
-    (Int,Int,Int,Int) -- stored hashes (name,bConds,rConds,final) to avoid recomputation
+    Int               -- stored hash to avoid recomputation
     deriving (Eq)
 
 type Conditions = (HashMap RFuncLabel Bool, HashMap RFuncLabel Interval)
@@ -322,30 +321,21 @@ instance Show ComposedLabel where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
 
 instance Hashable ComposedLabel where
-    hash              (ComposedLabel _ _ (_,_,_,hash)) = hash
-    hashWithSalt salt (ComposedLabel _ _ (_,_,_,hash)) = xor salt hash
+    hash              (ComposedLabel _ _ hash) = hash
+    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
 uncondComposedLabel :: PredicateLabel -> ComposedLabel
-uncondComposedLabel name = ComposedLabel name (Map.empty, Map.empty) $ initCompLabelHashes name (Map.empty, Map.empty)
+uncondComposedLabel name = ComposedLabel name (Map.empty, Map.empty) $ Hashable.hash name
 
 condComposedLabelBool :: RFuncLabel -> Bool -> ComposedLabel -> ComposedLabel
-condComposedLabelBool rf val (ComposedLabel name (bConds, rConds) (nhash,_,rhash,_)) = ComposedLabel name (bConds', rConds) (nhash,bhash,rhash,hash') where
+condComposedLabelBool rf val (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds', rConds) hash' where
     bConds' = Map.insert rf val bConds
-    bhash   = Hashable.hash bConds'
-    hash'   = xor nhash $ xor bhash rhash
+    hash'   = hash + Hashable.hashWithSalt (Hashable.hash rf) val
 
 condComposedLabelReal :: RFuncLabel -> Interval -> ComposedLabel -> ComposedLabel
-condComposedLabelReal rf interv (ComposedLabel name (bConds, rConds) (nhash,bhash,_,_)) = ComposedLabel name (bConds, rConds') (nhash,bhash,rhash,hash') where
+condComposedLabelReal rf interv (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds, rConds') hash' where
     rConds' = Map.insert rf interv rConds
-    rhash   = Hashable.hash rConds'
-    hash'   = xor nhash $ xor bhash rhash
-
-initCompLabelHashes :: String -> Conditions -> (Int,Int,Int,Int)
-initCompLabelHashes name (bConds,rConds) = (nhash,bhash,rhash,hash) where
-    nhash = Hashable.hash name
-    bhash = Hashable.hash bConds
-    rhash = Hashable.hash rConds
-    hash  = xor nhash $ xor bhash rhash
+    hash'   = hash + Hashable.hashWithSalt (Hashable.hash rf) interv
 
 labelId :: ComposedLabel -> Formula cachedInfo -> Maybe ComposedId
 labelId label Formula{labels2ids} = Map.lookup label labels2ids
