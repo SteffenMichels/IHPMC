@@ -41,9 +41,9 @@ import GHC.Exts (sortWith)
 import Interval (Interval, IntervalLimit(..), IntervalLimitPoint(..), LowerUpper(..), (~<), (~>))
 import qualified Interval
 import Data.Maybe (mapMaybe, fromJust)
-import Control.Arrow (first,second)
+import Control.Arrow (second)
 import Control.Monad.State.Strict
-import Data.Foldable (foldlM)
+--import Data.Foldable (foldlM)
 import Data.List (maximumBy)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 --import Exception
@@ -148,8 +148,8 @@ iterate hptNode partChoiceProb rfuncDefs = do
                     HPT.Unfinished hptNode _ _ -> hptNode
                     _                          -> error "finished node should not be selected for iteration"
         iterateNode (HPT.Leaf ref) partChoiceProb = do
-            f <- get
-            case decompose ref f of
+            fEntry <- state $ Formula.augmentWithEntry ref
+            case Nothing of --decompose ref f of
                 Nothing -> case splitPoint of
                     DiscreteSplit -> case Map.lookup splitRF rfuncDefs of
                         Just (AST.Flip p:_) -> do
@@ -175,13 +175,12 @@ iterate hptNode partChoiceProb rfuncDefs = do
                         _  -> error ("undefined rfunc " ++ splitRF)
                     where
                         ((splitRF, splitPoint), _) = maximumBy (\(_,(sx,x)) (_,(sy,y)) -> compare (-sx,x) (-sy,y)) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
-                        candidateSplitPoints = Map.toList $ snd $ Formula.entryCachedInfo $ Formula.augmentWithEntry ref f
+                        candidateSplitPoints = Map.toList $ snd $ Formula.entryCachedInfo fEntry
 
-                        fEntry = Formula.augmentWithEntry ref f
                         toHPTNode p entry = case Formula.entryNode entry of
                             Formula.Deterministic val -> HPT.Finished $ if val then 1.0 else 0.0
                             _                         -> HPT.Unfinished (HPT.Leaf $ Formula.entryRef entry) (0.0,1.0) (probToDouble p * partChoiceProb)
-                Just (origOp, decOp, sign, decomposition) -> do
+                Just (origOp, decOp, sign, decomposition) -> undefined {-do
                     htps <- foldlM (\htps dec -> do
                             fresh <- if Set.size dec > 1 then
                                     state $ \f -> first Formula.entryRef $ Formula.insert (Right conds) sign origOp dec f
@@ -192,7 +191,7 @@ iterate hptNode partChoiceProb rfuncDefs = do
                         ) [] decomposition
                     return (HPT.Decomposition decOp htps, (0.0,1.0), combineScoresDecomp htps)
                     where
-                        conds = Formula.entryChoices $ Formula.augmentWithEntry ref f
+                        conds = Formula.entryChoices fEntry-}
 
 combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
     (leftLower,  leftUpper)  = HPT.bounds left
