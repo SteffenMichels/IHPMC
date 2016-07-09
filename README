@@ -6,14 +6,19 @@ There is also a binary Linux executable ("bin/ihpmc").
 
 The model used for the expriments of the paper "Approximate Probabilistic Inference with Bounded Error for Hybrid Probabilistic Logic Programming" is included as "diagnosis.pclp". You can run the model for instance with:
 
-    dist/build/ihpmc/ihpmc diagnosis.pclp 100000
+    dist/build/ihpmc/ihpmc diagnosis.pclp -i 100000
 
-or
+or, in case you want to use the pre-compiled executable:
 
-    bin/ihpmc diagnosis.pclp 100000
+    bin/ihpmc diagnosis.pclp -i 100000
 
 This will compute the result for 100000 iterations. The expected output is:
 
     100000 iterations...
     f9: 0.10000000693775893 (error bound: 0.000000000001976994956631728)
 
+Instead of the number of iterations, it is also possible to specify a timeout (-t) or a maximal allowed error (-e) as stop condition. For instance:
+
+    ihpmc diagnosis.pclp -i 2000 -t 1000 -e 0.01
+
+In this case inference will stop after 2000 iterations, after 1000ms or if the maximal error of the approximation is at most 0.01, whatever occurs first.
