@@ -190,7 +190,7 @@ iterate hptNode partChoiceProb rfuncDefs = do
                     where
                         conds = Formula.entryChoices fEntry-}
 
-combineProbsChoice p left right = (p*leftLower+(1-p)*rightLower, p*leftUpper+(1-p)*rightUpper) where
+combineProbsChoice p left right = ((leftLower-rightLower)*p+rightLower, (leftUpper-rightUpper)*p+rightUpper) where
     (leftLower,  leftUpper)  = HPT.bounds left
     (rightLower, rightUpper) = HPT.bounds right
 combineProbsDecomp Formula.And dec = foldr (\hpt (l,u) -> let (l',u') = HPT.bounds hpt in (l'*l,u'*u)) (1.0, 1.0) dec
@@ -257,6 +257,15 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                     (splitPoints <$> subsequences (Set.toList predRfs))
                 )
                 where
+                    equalSplits = Map.fromList [(rf,equalSplit rf) | rf <- Set.toList predRfs]
+                        where
+                            equalSplit rf = case Map.lookup rf rfDefs of
+                                Just (AST.RealDist cdf icdf:_) -> icdf ((pUntilLower + pUntilUpper)/2)
+                                    where
+                                        pUntilLower = cdf' cdf True  curLower
+                                        pUntilUpper = cdf' cdf False curUpper
+                                        (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf prevChoicesReal
+                                _ -> error "IHPMC.equalSplit failed"
                     splitPoints rfs
                         | null rfs || null result = (rfs, Map.empty,                             result)
                         | otherwise               = (rfs, Map.fromList [(rf, nRfs) | rf <- rfs], result)
@@ -282,16 +291,9 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
 
                             splitPoint rf remRfsCornerPts = ((fromIntegral nRfs-1)*equalSplit rf + (if rfOnLeft then 1 else -1) * (sumExpr exprY evalVals - sumExpr exprX evalVals))/fromIntegral nRfs
                                 where
-                                    evalVals = Map.union prefSplitPs remRfsCornerPts
-                                    prefSplitPs = foldr (\rf ps -> Map.insert rf (equalSplit rf) ps) Map.empty rfs
+                                    evalVals = Map.union remRfsCornerPts equalSplits
                                     rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
-                                    equalSplit rf = case Map.lookup rf rfDefs of
-                                        Just (AST.RealDist cdf icdf:_) -> icdf ((pUntilLower + pUntilUpper)/2)
-                                            where
-                                                pUntilLower = cdf' cdf True  curLower
-                                                pUntilUpper = cdf' cdf False curUpper
-                                                (curLower, curUpper) = Map.lookupDefault (Inf, Inf) rf prevChoicesReal
-                                        _ -> error "IHPMC.equalSplit failed"
+                                    equalSplit rf = Map.lookupDefault (error "IHPMC.splitPoint") rf equalSplits
 
                                     sumExpr :: AST.Expr AST.RealN -> Map.HashMap RFuncLabel Rational-> Rational
                                     sumExpr (AST.RealConstant c) _ = c
