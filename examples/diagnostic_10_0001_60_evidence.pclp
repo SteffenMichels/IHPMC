@@ -59,6 +59,6 @@ fails8 <- fails9.
 fails9 <- ~break9 = true.
 fails9 <- ~limit9 < ~temp.
 
-query fail9.
+query fails9.
 evidence fails0.
 
