@@ -44,6 +44,7 @@ import Data.Maybe (fromMaybe)
 import Control.Monad.State.Strict
 import Data.List (maximumBy, subsequences)
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Exception
 --import Exception
 --import System.IO.Unsafe (unsafePerformIO)
 --import Debug.Trace (trace)
@@ -57,26 +58,30 @@ instance Hashable SplitPoint
 untilFinished :: Int -> ProbabilityBounds -> Bool
 untilFinished _ _ = False
 
-ihpmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
-ihpmc query finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (ihpmc' 1 t t $ HPT.initialNode query) f where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
-    ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
-    ihpmc' i startTime lastReportedTime hptNode = do
-        f       <- get
-        (hpt,f) <- return $ runState (IHPMC.iterate hptNode 1.0 rfuncDefs) f
-        put f
-        case hpt of
-            hpt@(HPT.Finished _)              -> return [(i,HPT.bounds hpt)]
-            hpt@(HPT.Unfinished hptNode' _ _) -> do
-                curTime <- lift getTime
-                let bounds = HPT.bounds hpt
-                if finishPred i bounds (curTime - startTime)
-                    then return [(i,bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" hpt >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i,bounds)])
-                    else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                        then ihpmc' (i+1) startTime curTime hptNode' >>= \bs -> return ((i,bounds) : bs)
-                        else ihpmc' (i+1) startTime lastReportedTime hptNode'
+ihpmc :: Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ExceptionalT String IO [(Int,ProbabilityBounds)]
+ihpmc (Formula.RefDeterministic v) _ _ _ _= let p = if v then 1.0 else 0.0 in return [(1,(p,p))]
+ihpmc query finishPred mbRepInterval rfuncDefs f = do
+    t <- doIO getTime
+    evalStateT (ihpmc' 1 t t $ HPT.initialNode query) f
+        where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
+            ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int,ProbabilityBounds)]
+            ihpmc' i startTime lastReportedTime hptNode = do
+                f       <- get
+                (hpt,f) <- return $ runState (IHPMC.iterate hptNode 1.0 rfuncDefs) f
+                put f
+                case hpt of
+                    hpt@(HPT.Finished _)              -> return [(i,HPT.bounds hpt)]
+                    hpt@(HPT.Unfinished hptNode' _ _) -> do
+                        curTime <- lift $ doIO getTime
+                        let bounds = HPT.bounds hpt
+                        if finishPred i bounds (curTime - startTime)
+                            then return [(i,bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" hpt >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i,bounds)])
+                            else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
+                                then ihpmc' (i+1) startTime curTime hptNode' >>= \bs -> return ((i,bounds) : bs)
+                                else ihpmc' (i+1) startTime lastReportedTime hptNode'
 
-ihpmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> IO [(Int,ProbabilityBounds)]
-ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = getTime >>= \t -> evalStateT (do
+ihpmcEvidence :: Formula.NodeRef -> Formula.NodeRef -> (Int -> ProbabilityBounds -> Int -> Bool) -> Maybe Int -> HashMap RFuncLabel [AST.RFuncDef] -> Formula CachedSplitPoints -> ExceptionalT String IO [(Int,ProbabilityBounds)]
+ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = doIO getTime >>= \t -> evalStateT (do
         queryAndEvidence    <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef True,  evidence])
         negQueryAndEvidence <- state $ Formula.insert (Right (Map.empty,Map.empty)) True Formula.And (Set.fromList [queryRef False, evidence])
         ihpmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
@@ -84,10 +89,12 @@ ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = getTime >>= 
     queryRef sign = case query of
         Formula.RefComposed qSign label                  -> Formula.RefComposed (sign == qSign) label
         Formula.RefBuildInPredicate pred prevChoicesReal -> Formula.RefBuildInPredicate (if sign then pred else AST.negatePred pred) prevChoicesReal
-    initHPT nwr = HPT.Unfinished (HPT.initialNode $ Formula.entryRef nwr) (0.0,1.0) undefined
+    initHPT e = case Formula.entryRef e of
+        Formula.RefDeterministic v -> HPT.Finished $ if v then 1.0 else 0.0
+        ref                        -> HPT.Unfinished (HPT.initialNode ref) (0.0,1.0) undefined
 
-    ihpmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) IO [(Int,ProbabilityBounds)]
-    ihpmc' i startTime lastReportedTime qe nqe = lift getTime >>= \curTime -> case (qe, nqe) of
+    ihpmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int,ProbabilityBounds)]
+    ihpmc' i startTime lastReportedTime qe nqe = lift (doIO getTime) >>= \curTime -> case (qe, nqe) of
         _ | finishPred i bounds (curTime - startTime) -> return [(i, bounds)]
         (HPT.Finished _, HPT.Finished _)              -> return [(i, bounds)]
         _ | HPT.maxError qe > HPT.maxError nqe -> do

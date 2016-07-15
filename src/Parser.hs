@@ -44,7 +44,7 @@ languageDef =
     emptyDef { Token.commentStart    = "/*"
              , Token.commentEnd      = "*/"
              , Token.commentLine     = "//"
-             , Token.identStart      = letter
+             , Token.identStart      = lower
              , Token.identLetter     = alphaNum
              , Token.reservedNames   = [ "query", "evidence", "flip"
                                        , "norm", "true", "false"
@@ -66,6 +66,11 @@ integer    = Token.integer    lexer
 dot        = Token.dot        lexer
 comma      = Token.comma      lexer
 whiteSpace = Token.whiteSpace lexer
+variable   = Token.lexeme     lexer parseVar where
+    parseVar = do
+        first <- upper
+        rest  <- many alphaNum
+        return (first:rest)
 
 parseRat :: Parser Rational
 parseRat = do
@@ -125,9 +130,9 @@ parseTheory ast = whiteSpace >>
             parseTheory ast'
           )
       <|> ( do -- rule
-            (label, body) <- parseRule
+            (label, args, body) <- parseRule
             -- put together rules with same head
-            let ast' = ast {AST.rules = Map.insertWith Set.union label (Set.singleton body) (AST.rules ast)}
+            let ast' = ast {AST.rules = Map.insertWith Set.union label (Set.singleton (args, body)) (AST.rules ast)}
             parseTheory ast'
           )
       <|> ( do -- end of input
@@ -137,26 +142,31 @@ parseTheory ast = whiteSpace >>
     )
 
 -- rules
-parseRule :: Parser (PredicateLabel, AST.RuleBody)
+parseRule :: Parser (PredicateLabel, [AST.PredArgument], AST.RuleBody)
 parseRule = do
-    label <- parsePredicateLabel
+    (label,args) <- parseUserPred
     reservedOp "<-"
     body <- sepBy parseBodyElement comma
     dot
-    return (label, AST.RuleBody body)
+    return (label, args, AST.RuleBody body)
 
 parseBodyElement :: Parser AST.RuleBodyElement
 parseBodyElement =
-        fmap AST.UserPredicate parsePredicateLabel
+        uncurry AST.UserPredicate <$> parseUserPred
     <|>
-        fmap AST.BuildInPredicate parseBuildInPredicate
+        AST.BuildInPredicate <$> parseBuildInPredicate
+
+parseUserPred :: Parser (PredicateLabel, [AST.PredArgument])
+parseUserPred = do
+    label <- parsePredicateLabel
+    args  <- option [] $ parens $ sepBy parseArg comma
+    return (label, args)
 
 parsePredicateLabel :: Parser PredicateLabel
-parsePredicateLabel = do
-    first <- lower
-    rest  <- many alphaNum
-    spaces
-    return (first:rest)
+parsePredicateLabel = identifier
+
+parseArg :: Parser AST.PredArgument
+parseArg = AST.ObjectLabel <$> identifier <|> AST.Variable <$> variable
 
 parseBuildInPredicate :: Parser AST.BuildInPredicate
 parseBuildInPredicate = try parseBoolPredicate <|> parseRealPredicate
@@ -222,17 +232,17 @@ rTerm =  fmap AST.RealConstant rational
      <|> fmap AST.UserRFunc parseUserRFuncLabel
 
 -- queries
-parseQuery :: Parser PredicateLabel
+parseQuery :: Parser (PredicateLabel, [AST.PredArgument])
 parseQuery = do
     reserved "query"
-    query <- parsePredicateLabel
+    query <- parseUserPred
     dot
     return query
 
 -- evidence
-parseEvidence :: Parser PredicateLabel
+parseEvidence :: Parser (PredicateLabel, [AST.PredArgument])
 parseEvidence = do
     reserved "evidence"
-    evidence <- parsePredicateLabel
+    evidence <- parseUserPred
     dot
     return evidence

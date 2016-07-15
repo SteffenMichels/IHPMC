@@ -24,10 +24,13 @@ module AST
     , RuleBody(..)
     , RuleBodyElement(..)
     , BuildInPredicate(..)
+    , PredArgument(..)
     , RFuncDef(..)
     , Expr(..)
     , RealN
     , IneqOp(..)
+    , VarName
+    , ObjectLabel
     , deterministicValue
     , predRandomFunctions
     , exprRandomFunctions
@@ -52,23 +55,23 @@ import qualified Interval
 
 data AST = AST
     { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches
-    , rules     :: HashMap PredicateLabel (HashSet RuleBody)
-    , queries   :: HashSet PredicateLabel
-    , evidence  :: Maybe PredicateLabel
+    , rules     :: HashMap PredicateLabel (HashSet ([PredArgument], RuleBody))
+    , queries   :: HashSet (PredicateLabel, [PredArgument])
+    , evidence  :: Maybe (PredicateLabel, [PredArgument])
     }
 
 instance Show AST where
     show ast = rfuncDefsStr ++ rulesStr ++ queryStr ++ evStr where
         rfuncDefsStr = concat $ concat [
-                            [printf "~%s ~ %s.\n" label $ show def | def <- defs]
+                            [printf "~%s ~ %s.\n" (show label) $ show def | def <- defs]
                        | (label, defs) <- Map.toList $ rFuncDefs ast]
         rulesStr     = concat $ concat [
-                            [printf "%s <- %s.\n" label $ show body | body <- Set.toList bodies]
+                            [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args,body) <- Set.toList bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
-        queryStr     = concat [printf "query %s.\n" query | query <- Set.toList $ queries ast]
+        queryStr     = concat [printf "query %s%s.\n" query $ show args | (query,args) <- Set.toList $ queries ast]
         evStr = case evidence ast of
-            Just ev -> printf "evidence %s.\n" ev
-            Nothing -> ""
+            Just (ev,args) -> printf "evidence %s%s.\n" ev $ show args
+            Nothing        -> ""
 
 data RFuncDef = Flip Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
@@ -83,14 +86,19 @@ instance Show RuleBody where
     show (RuleBody elements) = intercalate ", " (fmap show elements)
 instance Hashable RuleBody
 
-data RuleBodyElement = UserPredicate PredicateLabel
+data RuleBodyElement = UserPredicate PredicateLabel [PredArgument]
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic)
 
 instance Show RuleBodyElement where
-    show (UserPredicate label)   = label
-    show (BuildInPredicate pred) = show pred
+    show (UserPredicate label args) = show label ++ show args
+    show (BuildInPredicate pred)    = show pred
 instance Hashable RuleBodyElement
+
+data PredArgument = Variable VarName | ObjectLabel ObjectLabel deriving (Eq, Show, Generic)
+instance Hashable PredArgument
+type VarName      = String
+type ObjectLabel  = String
 
 data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
                       | RealIneq IneqOp (Expr RealN) (Expr RealN)

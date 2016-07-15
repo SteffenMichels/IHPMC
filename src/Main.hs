@@ -34,6 +34,7 @@ import Control.Monad.Exception.Synchronous
 import Control.Monad (forM_)
 import System.Exit (exitFailure)
 import Data.Maybe (isJust)
+import qualified Formula
 
 main = do
     result <- runExceptionalT exeMain'
@@ -58,11 +59,13 @@ main = do
             printIfSet "Stopping after %ims." timeout
             src <- doIO $ readFile modelFile
             ast <- returnExceptional $ parsePclp src
+            doIO $ print ast
             ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
+            Formula.exportAsDot "/tmp/f.dot" f
             let stopPred n (l,u) t =  maybe False (== n)       nIterations
                                    || maybe False (>= (u-l)/2) errBound
                                    || maybe False (<= t)       timeout
-            results <- doIO $ case mbEvidence of
+            results <- case mbEvidence of
                 Nothing -> ihpmc         (getFirst queries)    stopPred repInterval (AST.rFuncDefs ast) f
                 Just ev -> ihpmcEvidence (getFirst queries) ev stopPred repInterval (AST.rFuncDefs ast) f
             forM_

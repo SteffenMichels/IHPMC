@@ -275,7 +275,6 @@ exportAsDot :: FilePath -> Formula cachedInfo -> ExceptionalT String IO ()
 exportAsDot path Formula{nodes} = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
-    doIO (hPutStrLn file $ printf "%i" $ Map.size nodes)
     forM_ (Map.toList nodes) (printNode file)
     doIO (hPutStrLn file "}")
     doIO (hClose file)
