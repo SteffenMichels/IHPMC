@@ -8,18 +8,17 @@ executable ihpmc_float
     main-is: Main.hs
     build-depends:
         base -any,
-        containers -any,
-        explicit-exception -any,
-        hashable >=1.2.4.0,
         parsec -any,
         statistics -any,
-        time -any,
+        hashable >=1.2.4.0,
+        argparser -any,
         unordered-containers -any,
         mtl -any,
-        argparser -any
+        explicit-exception -any,
+        time -any
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
-                EmptyDataDecls ParallelListComp NamedFieldPuns
+                EmptyDataDecls NamedFieldPuns
     hs-source-dirs: src
     other-modules:
         Options
@@ -38,17 +37,16 @@ executable ihpmc_exact
     main-is: Main.hs
     build-depends:
         base -any,
-        containers -any,
-        explicit-exception -any,
-        hashable >=1.2.4.0,
         parsec -any,
         statistics -any,
-        time -any,
+        hashable >=1.2.4.0,
+        argparser -any,
         unordered-containers -any,
         mtl -any,
-        argparser -any
+        explicit-exception -any,
+        time -any
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
-                EmptyDataDecls ParallelListComp NamedFieldPuns
+                EmptyDataDecls NamedFieldPuns
     hs-source-dirs: src
     other-modules:
         Options
