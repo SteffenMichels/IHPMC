@@ -132,7 +132,7 @@ parseTheory ast = whiteSpace >>
       <|> ( do -- rule
             (label, args, body) <- parseRule
             -- put together rules with same head
-            let ast' = ast {AST.rules = Map.insertWith Set.union label (Set.singleton (args, body)) (AST.rules ast)}
+            let ast' = ast {AST.rules = Map.insertWith Set.union (label, length args) (Set.singleton (args, body)) (AST.rules ast)}
             parseTheory ast'
           )
       <|> ( do -- end of input

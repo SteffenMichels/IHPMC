@@ -13,6 +13,7 @@ executable ihpmc_float
         hashable >=1.2.4.0,
         argparser -any,
         unordered-containers -any,
+        containers -any,
         mtl -any,
         explicit-exception -any,
         time -any
@@ -42,6 +43,7 @@ executable ihpmc_exact
         hashable >=1.2.4.0,
         argparser -any,
         unordered-containers -any,
+        containers -any,
         mtl -any,
         explicit-exception -any,
         time -any

@@ -55,7 +55,7 @@ import qualified Interval
 
 data AST = AST
     { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches
-    , rules     :: HashMap PredicateLabel (HashSet ([PredArgument], RuleBody))
+    , rules     :: HashMap (PredicateLabel, Int) (HashSet ([PredArgument], RuleBody))
     , queries   :: HashSet (PredicateLabel, [PredArgument])
     , evidence  :: Maybe (PredicateLabel, [PredArgument])
     }
