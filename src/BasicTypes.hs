@@ -25,53 +25,72 @@ module BasicTypes
     ( Probability
     , ProbabilityBounds(..)
     , printProb
-    , ratToProb
     , doubleToProb
     , probToDouble
     , getFirst
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Numeric (fromRat)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 #ifndef FLOAT_PROBS
+import Numeric (fromRat)
 import Data.Ratio (numerator, denominator)
 import Text.Printf (printf)
 #endif
 
 #ifdef FLOAT_PROBS
-type Probability = Double
+newtype Probability = Probability Double deriving (Eq, Show, Generic)
+instance Hashable Probability
 
 printProb :: Probability -> String
 printProb = show
 
 ratToProb :: Rational -> Probability
-ratToProb = fromRat
+ratToProb = Probability. fromRational
 
 doubleToProb :: Double -> Probability
-doubleToProb = id
+doubleToProb = Probability
 
 probToDouble :: Probability -> Double
-probToDouble = id
+probToDouble (Probability p) = p
 #else
-type Probability = Rational
+newtype Probability = Probability Rational deriving (Eq, Show, Generic)
+instance Hashable Probability
 
 printProb :: Probability -> String
-printProb p = printf "%i/%i" n d
+printProb (Probability p) = printf "%i/%i" n d
     where
     n = numerator p
     d = denominator p
 
 ratToProb :: Rational -> Probability
-ratToProb = id
+ratToProb = Probability
 
 doubleToProb :: Double -> Probability
-doubleToProb = toRational
+doubleToProb = Probability . toRational
 
 probToDouble :: Probability -> Double
-probToDouble = fromRat
+probToDouble (Probability p) = fromRat p
 #endif
+
+instance Ord Probability
+    where
+    Probability x <= Probability y = x <= y
+
+instance Num Probability
+    where
+    Probability x + Probability y = Probability (x + y)
+    Probability x - Probability y = Probability (x - y)
+    Probability x * Probability y = Probability (x * y)
+    abs _       = error "BasicTypes: abs not implemented for probabilities"
+    signum _    = error "BasicTypes: signum not implemented for probabilities"
+    fromInteger = Probability . fromIntegral
+
+instance Fractional Probability
+    where
+    Probability x / Probability y = Probability (x / y)
+    fromRational = ratToProb
 
 data ProbabilityBounds = ProbabilityBounds Probability Probability deriving (Eq, Show, Generic)
 instance Hashable ProbabilityBounds

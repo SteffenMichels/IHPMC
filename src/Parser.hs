@@ -199,7 +199,7 @@ parseRFuncDef = do
 parseFlip :: Parser AST.RFuncDef
 parseFlip = do
     reserved "flip"
-    prob <- parens $ ratToProb <$> rational
+    prob <- parens $ fromRational <$> rational
     dot
     return $ AST.Flip prob
 

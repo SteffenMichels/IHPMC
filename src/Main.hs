@@ -48,7 +48,7 @@ main = do
             "Error bound should be between 0.0 and 0.5."
             (case errBound of
                 Nothing -> True
-                Just b  -> b >= 0 && b <= 0.5
+                Just b  -> b >= 0.0 && b <= 0.5
             )
         assertT
             "You should specify at least one stop condition."
@@ -67,7 +67,7 @@ main = do
             Just ev -> ihpmcEvidence (getFirst queries) ev stopPred repInterval (AST.rFuncDefs ast) f
         forM_
             results
-            (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2) (probToDouble (u-l)/2))
+            (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2.0) (probToDouble (u-l)/2))
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr

@@ -49,10 +49,10 @@ data ParsedOptions = ParsedOptions
 popts2opts :: ParsedOptions -> Options
 popts2opts ParsedOptions{pModelFile,pNIterations,pErrBound,pTimeout,pRepInterval} = Options
     { modelFile   = pModelFile
-    , nIterations = justIf (>  0)                               pNIterations
-    , errBound    = justIf (>= 0) $ doubleToProb $ float2Double pErrBound
-    , timeout     = justIf (>  0)                               pTimeout
-    , repInterval = justIf (>= 0)                               pRepInterval
+    , nIterations = justIf (>  0)                                 pNIterations
+    , errBound    = justIf (>= 0.0) $ doubleToProb $ float2Double pErrBound
+    , timeout     = justIf (>  0)                                 pTimeout
+    , repInterval = justIf (>= 0)                                 pRepInterval
     }
     where
     justIf pred v = if pred v then Just v else Nothing
