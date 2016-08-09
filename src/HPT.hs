@@ -37,6 +37,7 @@ import Control.Monad (foldM)
 import Numeric (fromRat)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
+import qualified AST
 
 -- Hybrid Probability Tree
 data HPT     = Unfinished HPTNode ProbabilityBounds Double
@@ -44,8 +45,8 @@ data HPT     = Unfinished HPTNode ProbabilityBounds Double
              deriving (Show, Eq, Generic)
 instance Hashable HPT
 data HPTNode = Leaf Formula.NodeRef
-             | ChoiceBool RFuncLabel Probability HPT HPT
-             | ChoiceReal RFuncLabel Probability Rational HPT HPT
+             | ChoiceBool AST.RFuncLabel Probability HPT HPT
+             | ChoiceReal AST.RFuncLabel Probability Rational HPT HPT
              | Decomposition Formula.NodeType [HPT]
              deriving (Show, Eq, Generic)
 instance Hashable HPTNode
@@ -55,15 +56,15 @@ initialNode = Leaf
 
 bounds :: HPT -> ProbabilityBounds
 bounds (Unfinished _ b _) = b
-bounds (Finished p)       = (p, p)
+bounds (Finished p)       = ProbabilityBounds p p
 
 score :: HPT -> Double
 score (Unfinished _ _ s) = s
 score _                  = 0.0
 
 maxError :: HPT -> Probability
-maxError (Unfinished _ (l,u) _) = u-l
-maxError _                      = 0.0
+maxError (Unfinished _ (ProbabilityBounds l u) _) = u-l
+maxError _                                        = 0.0
 
 exportAsDot :: FilePath -> HPT -> ExceptionalT String IO ()
 exportAsDot path pst = do
@@ -79,16 +80,16 @@ exportAsDot path pst = do
             doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
             print mbParent (show counter) mbEdgeLabel
             return (counter+1)
-        Unfinished (ChoiceBool label prob left right) _ score -> do
+        Unfinished (ChoiceBool (AST.RFuncLabel rf)  prob left right) _ score -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
             print mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) label) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) label) right counter' file
-        Unfinished (ChoiceReal label prob splitPoint left right) _ score -> do
+            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) rf) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) rf) right counter' file
+        Unfinished (ChoiceReal (AST.RFuncLabel rf) prob splitPoint left right) _ score -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
             print mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) label (fromRat splitPoint::Float)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) label (fromRat splitPoint::Float)) right counter' file
+            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) rf (fromRat splitPoint::Float)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) rf (fromRat splitPoint::Float)) right counter' file
         Unfinished (Decomposition op psts) _ score -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds pst) score)
             print mbParent (show counter) mbEdgeLabel
@@ -106,10 +107,10 @@ exportAsDot path pst = do
                 )))
 
         printBounds :: HPT -> String
-        printBounds pst = let (l,u) = HPT.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
+        printBounds pst = let ProbabilityBounds l u = HPT.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
 
         nodeRefToReadableString :: Formula.NodeRef -> String
-        nodeRefToReadableString (Formula.RefComposed sign id) = printf
+        nodeRefToReadableString (Formula.RefComposed sign (Formula.ComposedId id)) = printf
             "%s%s\n"
             (if sign then "" else "-")
             (show id)

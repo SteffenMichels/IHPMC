@@ -23,9 +23,7 @@
 
 module BasicTypes
     ( Probability
-    , ProbabilityBounds
-    , PredicateLabel
-    , RFuncLabel
+    , ProbabilityBounds(..)
     , printProb
     , ratToProb
     , doubleToProb
@@ -35,6 +33,8 @@ module BasicTypes
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Numeric (fromRat)
+import GHC.Generics (Generic)
+import Data.Hashable (Hashable)
 #ifndef FLOAT_PROBS
 import Data.Ratio (numerator, denominator)
 import Text.Printf (printf)
@@ -73,10 +73,8 @@ probToDouble :: Probability -> Double
 probToDouble = fromRat
 #endif
 
-type ProbabilityBounds = (Probability, Probability)
-
-type PredicateLabel  = String
-type RFuncLabel      = String
+data ProbabilityBounds = ProbabilityBounds Probability Probability deriving (Eq, Show, Generic)
+instance Hashable ProbabilityBounds
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set

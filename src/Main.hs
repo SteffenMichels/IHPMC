@@ -59,7 +59,7 @@ main = do
         src <- doIO $ readFile modelFile
         ast <- returnExceptional $ parsePclp src
         ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
-        let stopPred n (l,u) t =  maybe False (== n)       nIterations
+        let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                || maybe False (>= (u-l)/2) errBound
                                || maybe False (<= t)       timeout
         results <- case mbEvidence of
@@ -67,7 +67,7 @@ main = do
             Just ev -> ihpmcEvidence (getFirst queries) ev stopPred repInterval (AST.rFuncDefs ast) f
         forM_
             results
-            (\(i,(l,u)) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2) (probToDouble (u-l)/2))
+            (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2) (probToDouble (u-l)/2))
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr

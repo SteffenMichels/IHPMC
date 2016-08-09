@@ -22,7 +22,6 @@
 module Grounder
     ( groundPclp
     ) where
-import BasicTypes
 import AST (AST)
 import qualified AST
 import Formula (Formula)
@@ -42,13 +41,13 @@ import qualified Data.Sequence as Seq
 import Data.Maybe (catMaybes)
 
 type FState cachedInfo = State (Formula cachedInfo)
-type Valuation = HashMap AST.VarName AST.ObjectLabel
+newtype Valuation = Valuation (HashMap AST.VarName AST.ObjectLabel)
 data GroundingState = GroundingState
-    { groundings  :: HashMap (PredicateLabel,Int) (HashSet [AST.ObjectLabel])
+    { groundings  :: HashMap (AST.PredicateLabel,Int) (HashSet [AST.ObjectLabel])
     , varCount    :: Int
     , valuation   :: Valuation
-    , provenGoals :: HashMap (PredicateLabel,Int) (HashSet [AST.PredArgument])
-    } deriving (Show)
+    , provenGoals :: HashMap (AST.PredicateLabel,Int) (HashSet [AST.PredArgument])
+    }
 
 groundPclp :: (Eq cachedInfo, Hashable cachedInfo)
            => AST
@@ -68,41 +67,41 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
     queries'    = Set.map (second assumeAllArgsGrounded)     queries
     mbEvidence' =          second assumeAllArgsGrounded  <$> mbEvidence
     assumeAllArgsGrounded = fmap (\x -> case x of
-                                     AST.Variable _         -> error "only grounded query/evidence allowed"
-                                     AST.ObjectLabel olabel -> olabel
+                                     AST.Variable _    -> error "only grounded query/evidence allowed"
+                                     AST.Object olabel -> olabel
                                  )
 
-    headFormula :: (Eq cachedInfo, Hashable cachedInfo) => (PredicateLabel, [AST.ObjectLabel]) -> FState cachedInfo Formula.NodeRef
-    headFormula (label, args) =
+    headFormula :: (Eq cachedInfo, Hashable cachedInfo) => (AST.PredicateLabel, [AST.ObjectLabel]) -> FState cachedInfo Formula.NodeRef
+    headFormula (label@(AST.PredicateLabel lStr), args) =
         do mbNodeId <- Formula.labelId labelWithArgs <$> get
            case mbNodeId of
                Just nodeId -> return $ Formula.RefComposed True nodeId
                _ -> do (fBodies,_) <- foldM (ruleFormulas label args) (Set.empty, 0::Int) headRules
                        state $ first Formula.entryRef . Formula.insert (Left labelWithArgs) True Formula.Or fBodies
         where
-        labelWithArgs = Formula.uncondComposedLabel $ predWithArgs label args
-        headRules     = Map.lookupDefault (error $ printf "head '%s/%i' undefined" label nArgs) (label, nArgs) rules
+        labelWithArgs = Formula.uncondComposedLabel $ toPropLabel label args Nothing
+        headRules     = Map.lookupDefault (error $ printf "head '%s/%i' undefined" lStr nArgs) (label, nArgs) rules
         nArgs         = length args
 
     ruleFormulas :: (Eq cachedInfo, Hashable cachedInfo)
-                 => PredicateLabel
+                 => AST.PredicateLabel
                  -> [AST.ObjectLabel]
                  -> (HashSet Formula.NodeRef, Int)
                  -> ([AST.PredArgument], AST.RuleBody)
                  -> FState cachedInfo (HashSet Formula.NodeRef, Int)
     ruleFormulas label givenArgs (fBodies,counter) (args, body) = case completeValuation <$> matchArgs givenArgs args of
         Nothing         -> return (fBodies,counter) -- given arguments do not match definition OR domain of other vars in rule is empty, do not add anything to set of bodies
-        Just valuations -> foldrM (\val (fBodies,counter) -> do newChild <- bodyFormula (printf "%s%i" (predWithArgs label givenArgs) counter) body val
+        Just valuations -> foldrM (\val (fBodies,counter) -> do newChild <- bodyFormula (toPropLabel label givenArgs $ Just counter) body val
                                                                 return (Set.insert newChild fBodies, counter+1)
                                   )
                                   (fBodies,counter)
                                   valuations
         where
         -- initial valuation based on matching given arguments with head definition
-        matchArgs :: [AST.ObjectLabel] -> [AST.PredArgument] -> Maybe (HashMap AST.VarName AST.ObjectLabel)
-        matchArgs givenArgs args = foldr match (Just Map.empty) $ zip givenArgs args
+        matchArgs :: [AST.ObjectLabel] -> [AST.PredArgument] -> Maybe Valuation
+        matchArgs givenArgs args = Valuation <$> foldr match (Just Map.empty) (zip givenArgs args)
             where
-            match (givenObj, AST.ObjectLabel req) mbV
+            match (givenObj, AST.Object req) mbV
                 | givenObj == req = mbV
                 | otherwise       = Nothing
             match (givenObj, AST.Variable var) mbV = do
@@ -114,7 +113,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
 
         -- valuations for all possible combination of values for vars not included in head valuation
         completeValuation :: Valuation -> [Valuation]
-        completeValuation valuation = [Map.union valuation ibov | ibov <- inBodyOnlyValuations]
+        completeValuation (Valuation valuation) = [Valuation $ Map.union valuation ibov | ibov <- inBodyOnlyValuations]
             where
             inBodyOnlyValuations = foldr updateDomains [Map.empty] bodyElements
             AST.RuleBody bodyElements = body
@@ -125,17 +124,21 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                 catMaybes [ foldr (\(grArg, arg) mbVal -> do
                                       val <- mbVal
                                       case (grArg, arg) of
-                                          (AST.ObjectLabel objX, objY) -> if objX == objY then return val else Nothing
-                                          (AST.Variable var, objX)     -> case Map.lookup var valuation of
-                                                                              Nothing   -> return $ Map.insert var objX val
-                                                                              Just objY -> if objX == objY then return val else Nothing
+                                          (AST.Object objX,  objY) -> if objX == objY then return val else Nothing
+                                          (AST.Variable var, objX) -> case Map.lookup var valuation of
+                                                                          Nothing   -> return $ Map.insert var objX val
+                                                                          Just objY -> if objX == objY then return val else Nothing
                                   )
                                   (Just valuation)
                                   (zip args grArgs)
                           | grArgs <- Set.toList $ Map.lookupDefault Set.empty (label,length args) allGroundings
                           ]
 
-    bodyFormula :: (Eq cachedInfo, Hashable cachedInfo) => PredicateLabel -> AST.RuleBody -> Valuation -> FState cachedInfo Formula.NodeRef
+    bodyFormula :: (Eq cachedInfo, Hashable cachedInfo)
+                => Formula.PropPredicateLabel
+                -> AST.RuleBody
+                -> Valuation
+                -> FState cachedInfo Formula.NodeRef
     bodyFormula label (AST.RuleBody elements) valuation = case elements of
         []              -> error "Grounder.bodyFormula: empty rule body?"
         [singleElement] -> elementFormula singleElement valuation
@@ -148,10 +151,10 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
     elementFormula (AST.UserPredicate label args) valuation = headFormula (label, applyValuation valuation <$> args)
     elementFormula (AST.BuildInPredicate pred)    _         = return $ Formula.RefBuildInPredicate pred Map.empty
 
-    allGroundings :: HashMap (PredicateLabel,Int) (HashSet [AST.ObjectLabel])
+    allGroundings :: HashMap (AST.PredicateLabel,Int) (HashSet [AST.ObjectLabel])
     allGroundings = groundings $ Set.foldr
-                        (\(label,args) -> execState $ groundings' $ Seq.singleton $ AST.UserPredicate label $ fmap AST.ObjectLabel args)
-                        GroundingState{groundings = Map.empty, varCount = 0, valuation = Map.empty, provenGoals = Map.empty}
+                        (\(label,args) -> execState $ groundings' $ Seq.singleton $ AST.UserPredicate label $ fmap AST.Object args)
+                        GroundingState{groundings = Map.empty, varCount = 0, valuation = Valuation Map.empty, provenGoals = Map.empty}
                         (Set.union queries'$ maybe Set.empty Set.singleton mbEvidence')
         where
         groundings' :: Seq AST.RuleBodyElement -> State GroundingState ()
@@ -165,11 +168,11 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                         addGroundingsCall args = Map.insertWith Set.union (label,nArgs) (Set.singleton $ applyValuation valuation <$> args)
             nextGoal :< todoRest -> case nextGoal of
                 AST.BuildInPredicate _            -> groundings' todoRest
-                AST.UserPredicate label givenArgs -> do
+                AST.UserPredicate label@(AST.PredicateLabel lStr) givenArgs -> do
                     modify (\st -> st{provenGoals = Map.insertWith Set.union (label,nArgs) (Set.singleton givenArgs) $ provenGoals st})
                     forM_ headRules continueWithRule
                     where
-                    headRules = Map.lookupDefault (error $ printf "head '%s/%i' undefined" label nArgs) (label, nArgs) rules
+                    headRules = Map.lookupDefault (error $ printf "head '%s/%i' undefined" lStr nArgs) (label, nArgs) rules
                     nArgs     = length givenArgs
 
                     continueWithRule (args, AST.RuleBody elements) = do
@@ -192,13 +195,13 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                     match Nothing _          = return Nothing
                     match (Just els) argPair = case argPair of
                         (x,                 y@(AST.Variable _))   -> return $ Just $ replace x y <$> els
-                        (AST.ObjectLabel x,    AST.ObjectLabel y) -> return $ if x == y then Just els else Nothing
-                        (AST.Variable x,       AST.ObjectLabel y) -> do
+                        (AST.Object x,   AST.Object y) -> return $ if x == y then Just els else Nothing
+                        (AST.Variable x, AST.Object y) -> do
                             st <- get
-                            let valu = valuation st
+                            let Valuation valu = valuation st
                             case Map.lookup x valu of
                                 Just v  -> return $ if v == y then Just els else Nothing
-                                Nothing -> put st{valuation = Map.insert x y valu} >>= \_ -> return $ Just els
+                                Nothing -> put st{valuation = Valuation $ Map.insert x y valu} >>= \_ -> return $ Just els
 
                     replace x y (AST.UserPredicate label args) = AST.UserPredicate label $ replace' <$> args
                         where
@@ -216,15 +219,21 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                             replaceEVars' :: ([AST.PredArgument], HashMap AST.VarName Int)
                                           -> AST.PredArgument
                                           -> State GroundingState ([AST.PredArgument], HashMap AST.VarName Int)
-                            replaceEVars' (args,vars2ids) obj@(AST.ObjectLabel _) = return (obj:args,vars2ids)
+                            replaceEVars' (args,vars2ids) obj@(AST.Object _) = return (obj:args,vars2ids)
                             replaceEVars' (args,vars2ids) (AST.Variable var) = case Map.lookup var vars2ids of
-                                Just i -> return ((AST.Variable $ show i):args, vars2ids)
+                                Just i -> return ((AST.Variable $ AST.VarName $ show i):args, vars2ids)
                                 Nothing -> do
                                     i <- state (\st -> let i = varCount st in (i, st{varCount=i+1}))
-                                    return ((AST.Variable $ show i):args, Map.insert var i vars2ids)
+                                    return ((AST.Variable $ AST.VarName $ show i):args, Map.insert var i vars2ids)
 
-    predWithArgs :: PredicateLabel -> [AST.ObjectLabel] -> String
-    predWithArgs label objs = printf "%s(%s)" label $ intercalate "," objs
+-- turn predicate label from ordinary ones (with arguments) to propositional ones (after grounding)
+toPropLabel :: AST.PredicateLabel -> [AST.ObjectLabel] -> Maybe Int -> Formula.PropPredicateLabel
+toPropLabel (AST.PredicateLabel label) objs mbInt = Formula.PropPredicateLabel $ printf
+    "%s(%s)%s"
+    label
+    (intercalate "," $ (\(AST.ObjectLabel l) -> l) <$> objs)
+    (maybe "" show mbInt)
 
-    applyValuation _   (AST.ObjectLabel l) = l
-    applyValuation val (AST.Variable v)    = Map.lookupDefault (error $ printf "Grounder.groundElement: no valuation for variable '%s'" v) v val
+applyValuation :: Valuation -> AST.PredArgument -> AST.ObjectLabel
+applyValuation _               (AST.Object l)                      = l
+applyValuation (Valuation val) (AST.Variable v@(AST.VarName vstr)) = Map.lookupDefault (error $ printf "Grounder.groundElement: no valuation for variable '%s'" vstr) v val

@@ -21,6 +21,8 @@
 
 module AST
     ( AST(..)
+    , PredicateLabel(..)
+    , RFuncLabel(..)
     , RuleBody(..)
     , RuleBodyElement(..)
     , BuildInPredicate(..)
@@ -29,8 +31,8 @@ module AST
     , Expr(..)
     , RealN
     , IneqOp(..)
-    , VarName
-    , ObjectLabel
+    , VarName(..)
+    , ObjectLabel(..)
     , deterministicValue
     , predRandomFunctions
     , exprRandomFunctions
@@ -70,10 +72,15 @@ instance Show AST
         rulesStr     = concat $ concat [
                             [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args,body) <- Set.toList bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
-        queryStr     = concat [printf "query %s%s.\n" query $ show args | (query,args) <- Set.toList $ queries ast]
+        queryStr     = concat [printf "query %s%s.\n" query $ show args | (PredicateLabel query,args) <- Set.toList $ queries ast]
         evStr = case evidence ast of
-            Just (ev,args) -> printf "evidence %s%s.\n" ev $ show args
-            Nothing        -> ""
+            Just (PredicateLabel ev,args) -> printf "evidence %s%s.\n" ev $ show args
+            Nothing                       -> ""
+
+newtype PredicateLabel = PredicateLabel String deriving (Eq, Show, Generic)
+instance Hashable PredicateLabel
+newtype RFuncLabel     = RFuncLabel String     deriving (Eq, Show, Generic)
+instance Hashable RFuncLabel
 
 data RFuncDef = Flip Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
@@ -95,14 +102,16 @@ data RuleBodyElement = UserPredicate PredicateLabel [PredArgument]
                      deriving (Eq, Generic)
 
 instance Show RuleBodyElement where
-    show (UserPredicate label args) = show label ++ show args
-    show (BuildInPredicate pred)    = show pred
+    show (UserPredicate (PredicateLabel label) args) = show label ++ show args
+    show (BuildInPredicate pred)                     = show pred
 instance Hashable RuleBodyElement
 
-data PredArgument = Variable VarName | ObjectLabel ObjectLabel deriving (Eq, Show, Generic)
+data PredArgument = Variable VarName | Object ObjectLabel deriving (Eq, Show, Generic)
 instance Hashable PredArgument
-type VarName      = String
-type ObjectLabel  = String
+newtype VarName = VarName String deriving (Eq, Show, Generic)
+instance Hashable VarName
+newtype ObjectLabel  = ObjectLabel String deriving (Eq, Show, Generic)
+instance Hashable ObjectLabel
 
 data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
                       | RealIneq IneqOp (Expr RealN) (Expr RealN)
@@ -135,10 +144,10 @@ data Expr a
 deriving instance Eq (Expr a)
 instance Show (Expr a)
     where
-    show (BoolConstant const) = printf "%s" (toLower <$> show const)
-    show (RealConstant const) = printf "%f" (fromRat const::Float)
-    show (UserRFunc label)    = printf "~%s" label
-    show (RealSum x y)        = printf "%s + %s" (show x) (show y)
+    show (BoolConstant const)           = printf "%s" (toLower <$> show const)
+    show (RealConstant const)           = printf "%f" (fromRat const::Float)
+    show (UserRFunc (RFuncLabel label)) = printf "~%s" label
+    show (RealSum x y)                  = printf "%s + %s" (show x) (show y)
 instance Hashable (Expr a)
     where
     hash = Hashable.hashWithSalt 0
@@ -194,6 +203,6 @@ onBoundary left right point = Interval.nullInfte evalLeft == Interval.nullInfte 
     evalRight = eval right point
 
 eval :: Expr t -> HashMap RFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (AST.UserRFunc rf)   point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rf) rf point
-eval (AST.RealConstant r) point = Interval.rat2IntervLimPoint r
-eval (AST.RealSum x y)    point = eval x point + eval y point
+eval (AST.UserRFunc rf@(RFuncLabel rfStr)) point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
+eval (AST.RealConstant r) point                  = Interval.rat2IntervLimPoint r
+eval (AST.RealSum x y)    point                  = eval x point + eval y point

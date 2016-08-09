@@ -97,8 +97,8 @@ parseRealIneqOp =     try (reservedOp "<"  >> return AST.Lt)
                   <|> try (reservedOp ">"  >> return AST.Gt)
                   <|>     (reservedOp ">=" >> return AST.GtEq)
 
-parseUserRFuncLabel :: Parser RFuncLabel
-parseUserRFuncLabel = string "~" >> identifier
+parseUserRFuncLabel :: Parser AST.RFuncLabel
+parseUserRFuncLabel = string "~" >> AST.RFuncLabel <$> identifier
 
 -- PARSER
 parsePclp :: String -> Exceptional String AST
@@ -143,7 +143,7 @@ parseTheory ast = whiteSpace >>
     )
 
 -- rules
-parseRule :: Parser (PredicateLabel, [AST.PredArgument], AST.RuleBody)
+parseRule :: Parser (AST.PredicateLabel, [AST.PredArgument], AST.RuleBody)
 parseRule = do
     (label,args) <- parseUserPred
     reservedOp "<-"
@@ -157,17 +157,19 @@ parseBodyElement =
     <|>
         AST.BuildInPredicate <$> parseBuildInPredicate
 
-parseUserPred :: Parser (PredicateLabel, [AST.PredArgument])
+parseUserPred :: Parser (AST.PredicateLabel, [AST.PredArgument])
 parseUserPred = do
     label <- parsePredicateLabel
     args  <- option [] $ parens $ sepBy parseArg comma
     return (label, args)
 
-parsePredicateLabel :: Parser PredicateLabel
-parsePredicateLabel = identifier
+parsePredicateLabel :: Parser AST.PredicateLabel
+parsePredicateLabel = AST.PredicateLabel <$> identifier
 
 parseArg :: Parser AST.PredArgument
-parseArg = AST.ObjectLabel <$> identifier <|> AST.Variable <$> variable
+parseArg = AST.Object   . AST.ObjectLabel <$> identifier
+           <|>
+           AST.Variable . AST.VarName     <$> variable
 
 parseBuildInPredicate :: Parser AST.BuildInPredicate
 parseBuildInPredicate = try parseBoolPredicate <|> parseRealPredicate
@@ -187,7 +189,7 @@ parseRealPredicate = do
     return $ AST.RealIneq op exprX exprY
 
 -- rfunc defs
-parseRFuncDef :: Parser (RFuncLabel, AST.RFuncDef)
+parseRFuncDef :: Parser (AST.RFuncLabel, AST.RFuncDef)
 parseRFuncDef = do
     label <- parseUserRFuncLabel
     reservedOp "~"
@@ -233,7 +235,7 @@ rTerm =  fmap AST.RealConstant rational
      <|> fmap AST.UserRFunc parseUserRFuncLabel
 
 -- queries
-parseQuery :: Parser (PredicateLabel, [AST.PredArgument])
+parseQuery :: Parser (AST.PredicateLabel, [AST.PredArgument])
 parseQuery = do
     reserved "query"
     query <- parseUserPred
@@ -241,7 +243,7 @@ parseQuery = do
     return query
 
 -- evidence
-parseEvidence :: Parser (PredicateLabel, [AST.PredArgument])
+parseEvidence :: Parser (AST.PredicateLabel, [AST.PredArgument])
 parseEvidence = do
     reserved "evidence"
     evidence <- parseUserPred

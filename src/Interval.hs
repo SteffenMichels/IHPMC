@@ -24,7 +24,7 @@ module Interval
     , IntervalLimitPoint(..)
     , Infinitesimal(..)
     , LowerUpper(..)
-    , Interval
+    , Interval(..)
     , toPoint
     , pointRational
     , corners
@@ -60,7 +60,8 @@ instance Show IntervalLimitPoint
 
 data Infinitesimal = InfteNull | InftePlus | InfteMinus | InfteIndet deriving (Eq, Show)
 instance Hashable IntervalLimit
-type Interval = (IntervalLimit, IntervalLimit)
+data Interval = Interval IntervalLimit IntervalLimit deriving (Eq, Show, Generic)
+instance Hashable Interval
 
 toPoint :: LowerUpper -> IntervalLimit -> IntervalLimitPoint
 toPoint _     (Closed p) = Point p InfteNull
@@ -186,15 +187,15 @@ oneArgIndet Indet _     = True
 oneArgIndet _     Indet = True
 oneArgIndet _     _     = False
 
-corners :: (Eq k, Hashable k) => [(k, (IntervalLimit, IntervalLimit))] -> [Map.HashMap k IntervalLimitPoint]
+corners :: (Eq k, Hashable k) => [(k, Interval)] -> [Map.HashMap k IntervalLimitPoint]
 corners choices = foldr
-        ( \(rf, (l,u)) corners ->
+        ( \(rf, Interval l u) corners ->
           [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners]
         )
         [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]]
         otherConditions
     where
-    ((firstRf, (firstLower,firstUpper)):otherConditions) = choices
+    ((firstRf, Interval firstLower firstUpper):otherConditions) = choices
 
 rat2IntervLimPoint :: Rational -> IntervalLimitPoint
 rat2IntervLimPoint r = Point r InfteNull
