@@ -40,7 +40,6 @@ import Data.Foldable (foldrM)
 import Data.Sequence (Seq, ViewL((:<)), (><))
 import qualified Data.Sequence as Seq
 import Data.Maybe (catMaybes)
-import Debug.Trace
 
 type FState cachedInfo = State (Formula cachedInfo)
 type Valuation = HashMap AST.VarName AST.ObjectLabel
@@ -142,14 +141,13 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
         elementFormula (AST.BuildInPredicate pred)    _         = return $ Formula.RefBuildInPredicate pred Map.empty
 
         allGroundings :: HashMap (PredicateLabel,Int) (HashSet [AST.ObjectLabel])
-        allGroundings = let x = Set.foldr
-                                (\(label,args) -> execState $ groundings' $ Seq.singleton $ AST.UserPredicate label $ fmap AST.ObjectLabel args)
-                                GroundingState{groundings = Map.empty, varCount = 0, valuation = Map.empty, provenGoals = Map.empty}
-                                (Set.union queries'$ maybe Set.empty Set.singleton mbEvidence')
-                        in trace (show x) $ groundings x
+        allGroundings = groundings $ Set.foldr
+                            (\(label,args) -> execState $ groundings' $ Seq.singleton $ AST.UserPredicate label $ fmap AST.ObjectLabel args)
+                            GroundingState{groundings = Map.empty, varCount = 0, valuation = Map.empty, provenGoals = Map.empty}
+                            (Set.union queries'$ maybe Set.empty Set.singleton mbEvidence')
             where
             groundings' :: Seq AST.RuleBodyElement -> State GroundingState ()
-            groundings' todo = get >>= \st -> case trace (show todo ++ "\n" ++ show st) $ Seq.viewl todo of
+            groundings' todo = case Seq.viewl todo of
                 Seq.EmptyL           -> modify addGroundings
                     where
                     addGroundings st@GroundingState{groundings,provenGoals,valuation} = st {groundings = Map.foldrWithKey addGoundingsHead groundings provenGoals}

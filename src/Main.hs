@@ -59,9 +59,7 @@ main = do
             printIfSet "Stopping after %ims." timeout
             src <- doIO $ readFile modelFile
             ast <- returnExceptional $ parsePclp src
-            doIO $ print ast
             ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
-            Formula.exportAsDot "/tmp/f.dot" f
             let stopPred n (l,u) t =  maybe False (== n)       nIterations
                                    || maybe False (>= (u-l)/2) errBound
                                    || maybe False (<= t)       timeout
