@@ -166,9 +166,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
             nextGoal :< todoRest -> case nextGoal of
                 AST.BuildInPredicate _            -> groundings' todoRest
                 AST.UserPredicate label givenArgs -> do
-                    when
-                        (nArgs > 0)
-                        (modify (\st -> st{provenGoals = Map.insertWith Set.union (label,nArgs) (Set.singleton givenArgs) $ provenGoals st}))
+                    modify (\st -> st{provenGoals = Map.insertWith Set.union (label,nArgs) (Set.singleton givenArgs) $ provenGoals st})
                     forM_ headRules continueWithRule
                     where
                     headRules = Map.lookupDefault (error $ printf "head '%s/%i' undefined" label nArgs) (label, nArgs) rules
