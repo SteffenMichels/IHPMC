@@ -40,7 +40,8 @@ import Numeric (fromRat)
 
 data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic)
 
-instance Show IntervalLimit where
+instance Show IntervalLimit
+    where
     show Inf        = "inf"
     show (Open r)   = printf "Open %f" (fromRat r :: Float)
     show (Closed r) = printf "Closed %f" (fromRat r :: Float)
@@ -50,7 +51,8 @@ data IntervalLimitPoint = PosInf | NegInf | Indet
                         | Point Rational Infinitesimal
                         deriving (Eq)
 
-instance Show IntervalLimitPoint where
+instance Show IntervalLimitPoint
+    where
     show PosInf          = "+inf"
     show NegInf          = "-inf"
     show Indet           = "?"
@@ -72,7 +74,8 @@ pointRational (Point r _) = Just r
 pointRational _           = Nothing
 
 --TODO: complete definition
-instance Num IntervalLimitPoint where
+instance Num IntervalLimitPoint
+    where
     x + y = case (x, y) of
         (Point x ix, Point y iy) -> Point (x+y) $ case (ix, iy) of
             (InfteIndet, _         ) -> InfteIndet
@@ -98,12 +101,14 @@ instance Num IntervalLimitPoint where
     negate Indet           = Indet
     negate PosInf          = NegInf
     negate NegInf          = PosInf
-    negate (Point x infte) = Point (-x) $ negInfte infte where
+    negate (Point x infte) = Point (-x) $ negInfte infte
+        where
         negInfte InfteMinus = InftePlus
         negInfte InftePlus  = InfteMinus
         negInfte infte      = infte
 
-instance Ord IntervalLimitPoint where
+instance Ord IntervalLimitPoint
+    where
     Indet  <= _      = error "Ord IntervalLimitPoint: undefined for Indet"
     _      <= Indet  = error "Ord IntervalLimitPoint: undefined for Indet"
     NegInf <= _      = True
@@ -114,7 +119,8 @@ instance Ord IntervalLimitPoint where
         | x == y    = infteX <= infteY
         | otherwise = x <= y
 
-instance Ord Infinitesimal where
+instance Ord Infinitesimal
+    where
     InfteIndet <= _          = True--error "Ord Infinitesimal: undefined for InfteIndet"
     _          <= InfteIndet = True--error "Ord Infinitesimal: undefined for InfteIndet"
     InfteMinus <= _          = True
@@ -147,12 +153,13 @@ compareIntervalPoints x y = case (x,y) of
             (InfteMinus, _         ) -> Lt
             (InfteNull,  InftePlus ) -> Lt
             _                        -> Gt
-        where o = ordRat x y
+        where
+        o = ordRat x y
     where
-        ordRat x y = case compare x y of
-            LT -> Lt
-            GT -> Gt
-            EQ -> Eq
+    ordRat x y = case compare x y of
+        LT -> Lt
+        GT -> Gt
+        EQ -> Eq
 
 infix 4 ~<
 (~<) :: IntervalLimitPoint -> IntervalLimitPoint -> Maybe Bool
@@ -181,10 +188,13 @@ oneArgIndet _     _     = False
 
 corners :: (Eq k, Hashable k) => [(k, (IntervalLimit, IntervalLimit))] -> [Map.HashMap k IntervalLimitPoint]
 corners choices = foldr
-            (\(rf, (l,u)) corners -> [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners])
-            [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]] otherConditions
+        ( \(rf, (l,u)) corners ->
+          [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners]
+        )
+        [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]]
+        otherConditions
     where
-        ((firstRf, (firstLower,firstUpper)):otherConditions) = choices
+    ((firstRf, (firstLower,firstUpper)):otherConditions) = choices
 
 rat2IntervLimPoint :: Rational -> IntervalLimitPoint
 rat2IntervLimPoint r = Point r InfteNull

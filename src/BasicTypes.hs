@@ -58,7 +58,8 @@ probToDouble = id
 type Probability = Rational
 
 printProb :: Probability -> String
-printProb p = printf "%i/%i" n d where
+printProb p = printf "%i/%i" n d
+    where
     n = numerator p
     d = denominator p
 

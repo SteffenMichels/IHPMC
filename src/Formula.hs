@@ -71,11 +71,18 @@ data RefWithNode cachedInfo = RefWithNode
     , entryRFuncs     :: HashSet RFuncLabel
     , entryCachedInfo :: cachedInfo
     } deriving (Eq)
-instance Hashable (RefWithNode cachedInfo) where
+instance Hashable (RefWithNode cachedInfo)
+    where
     hash                                    = Hashable.hashWithSalt 0
     hashWithSalt salt RefWithNode{entryRef} = Hashable.hashWithSalt salt entryRef
 
-insert :: (Hashable cachedInfo, Eq cachedInfo) => Either ComposedLabel Conditions -> Bool -> NodeType -> HashSet NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+insert :: (Hashable cachedInfo, Eq cachedInfo)
+       => Either ComposedLabel Conditions
+       -> Bool
+       -> NodeType
+       -> HashSet NodeRef
+       -> Formula cachedInfo
+       -> (RefWithNode cachedInfo, Formula cachedInfo)
 insert labelOrConds sign op children f@Formula{nodes,labels2ids,freshCounter,cacheComps} = case simplifiedNode of
     Composed nType nChildren -> ( RefWithNode { entryRef        = RefComposed (sign == simplifiedSign) freshId
                                               , entryNode       = simplifiedNode
@@ -91,53 +98,54 @@ insert labelOrConds sign op children f@Formula{nodes,labels2ids,freshCounter,cac
     BuildInPredicate pred rConds -> (predRefWithNode (if sign then pred else AST.negatePred pred) rConds cachedInfo, f'')
     Deterministic val            -> (deterministicRefWithNode (val == sign) cachedInfo, f'')
     where
-        freshId = freshCounter
-        label = case labelOrConds of
-            Left label  -> label
-            Right conds -> let name = show freshId
-                           in  ComposedLabel name conds $ Hashable.hash name -- only use name as hash (ignore conds) as node is unique anyhow
-        (simplifiedNode, simplifiedSign, f') = simplify (Composed op children) f
-        (children', f'') = Set.foldr (\c (cs,f) -> first (`Set.insert` cs) $ augmentWithEntry c f) (Set.empty,f') (nodeChildren simplifiedNode)
-        rFuncs = case simplifiedNode of
-            Deterministic _         -> Set.empty
-            BuildInPredicate pred _ -> AST.predRandomFunctions pred
-            Composed _ _            -> Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
-        cachedInfo = cachedInfoComposed cacheComps (Set.map entryCachedInfo children')
+    freshId = freshCounter
+    label = case labelOrConds of
+        Left label  -> label
+        Right conds -> let name = show freshId
+                       in  ComposedLabel name conds $ Hashable.hash name -- only use name as hash (ignore conds) as node is unique anyhow
+    (simplifiedNode, simplifiedSign, f') = simplify (Composed op children) f
+    (children', f'') = Set.foldr (\c (cs,f) -> first (`Set.insert` cs) $ augmentWithEntry c f) (Set.empty,f') (nodeChildren simplifiedNode)
+    rFuncs = case simplifiedNode of
+        Deterministic _         -> Set.empty
+        BuildInPredicate pred _ -> AST.predRandomFunctions pred
+        Composed _ _            -> Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
+    cachedInfo = cachedInfoComposed cacheComps (Set.map entryCachedInfo children')
 
-        simplify :: Node -> Formula cachedInfo -> (Node, Bool, Formula cachedInfo)
-        simplify node@(Deterministic val) f = (node, undefined, f)
-        simplify node@(BuildInPredicate pred _) f = case AST.deterministicValue pred of
-            Just val -> (Deterministic val, undefined, f)
-            Nothing  -> (node, undefined, f)
-        simplify (Composed operator childRefs) f = (simplified, sign, f')
-            where
-                sign = case (nChildren, getFirst newChildRefs) of
-                    (1, RefComposed s _) -> s
-                    _                    -> True
-                (simplified, f')
-                    | nChildren == 0 = (Deterministic filterValue, f)
-                    | nChildren == 1 = first entryNode . (`augmentWithEntry` f) $ getFirst newChildRefs
-                    | Foldable.any (RefDeterministic singleDeterminismValue ==) childRefs =
-                        (Deterministic singleDeterminismValue, f)
-                    | otherwise = (Composed operator newChildRefs, f)
+    simplify :: Node -> Formula cachedInfo -> (Node, Bool, Formula cachedInfo)
+    simplify node@(Deterministic val) f = (node, undefined, f)
+    simplify node@(BuildInPredicate pred _) f = case AST.deterministicValue pred of
+        Just val -> (Deterministic val, undefined, f)
+        Nothing  -> (node, undefined, f)
+    simplify (Composed operator childRefs) f = (simplified, sign, f')
+        where
+        sign = case (nChildren, getFirst newChildRefs) of
+            (1, RefComposed s _) -> s
+            _                    -> True
+        (simplified, f')
+            | nChildren == 0 = (Deterministic filterValue, f)
+            | nChildren == 1 = first entryNode . (`augmentWithEntry` f) $ getFirst newChildRefs
+            | Foldable.any (RefDeterministic singleDeterminismValue ==) childRefs =
+                (Deterministic singleDeterminismValue, f)
+            | otherwise = (Composed operator newChildRefs, f)
 
-                newChildRefs = Set.filter (RefDeterministic filterValue /=) childRefs
-                nChildren    = Set.size newChildRefs
-                -- truth value that causes determinism if at least a single child has it
-                singleDeterminismValue = operator == Or
-                -- truth value that can be filtered out
-                filterValue = operator == And
+        newChildRefs = Set.filter (RefDeterministic filterValue /=) childRefs
+        nChildren    = Set.size newChildRefs
+        -- truth value that causes determinism if at least a single child has it
+        singleDeterminismValue = operator == Or
+        -- truth value that can be filtered out
+        filterValue = operator == And
 
-        nodeChildren :: Node -> HashSet NodeRef
-        nodeChildren (Composed _ children) = children
-        nodeChildren _                     = Set.empty
+    nodeChildren :: Node -> HashSet NodeRef
+    nodeChildren (Composed _ children) = children
+    nodeChildren _                     = Set.empty
 
 augmentWithEntry :: NodeRef -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
-augmentWithEntry label f = let (mbRef, f') = tryAugmentWithEntry label f
-                           in  ( fromMaybe
-                                   (error $ printf "non-existing Formula node '%s'" $ show label)
-                                   mbRef
-                               , f' )
+augmentWithEntry label f = ( fromMaybe
+                                 (error $ printf "non-existing Formula node '%s'" $ show label)
+                                 mbRef
+                           , f' )
+    where
+    (mbRef, f') = tryAugmentWithEntry label f
 
 tryAugmentWithEntry :: NodeRef -> Formula cachedInfo -> (Maybe (RefWithNode cachedInfo), Formula cachedInfo)
 tryAugmentWithEntry ref@(RefComposed _ id) f@Formula{nodes} = case Map.lookup id nodes of
@@ -189,7 +197,12 @@ entryChoices entry = case entryRef entry of
         Just (ComposedLabel _ conds _) -> conds
         _ -> (Map.empty, Map.empty)
 
-conditionBool :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Bool -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+conditionBool :: (Hashable cachedInfo, Eq cachedInfo)
+              => RefWithNode cachedInfo
+              -> RFuncLabel
+              -> Bool
+              -> Formula cachedInfo
+              -> (RefWithNode cachedInfo, Formula cachedInfo)
 conditionBool origNodeEntry rf val f@Formula{nodes, labels2ids, buildinCache, cacheComps}
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
     | otherwise = case entryRef origNodeEntry of
@@ -206,24 +219,30 @@ conditionBool origNodeEntry rf val f@Formula{nodes, labels2ids, buildinCache, ca
                                                 children
                                          in  insert (Left newLabel) sign op (Set.map entryRef condChildren) f'
             where
-                newLabel = condComposedLabelBool rf val $ fromJust $ entryLabel origNodeEntry
-        RefBuildInPredicate pred prevChoicesReal -> let condPred = conditionPred pred
-                                    in case AST.deterministicValue condPred of
-                                        Just val -> (deterministicRefWithNode val $ cachedInfoDeterministic cacheComps val, f)
-                                        Nothing  -> let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached prevChoicesReal pred (cachedInfoBuildInPred cacheComps) buildinCache
-                                                    in  (predRefWithNode condPred prevChoicesReal cachedInfo, f {buildinCache=buildinCache'})
+            newLabel = condComposedLabelBool rf val $ fromJust $ entryLabel origNodeEntry
+        RefBuildInPredicate pred prevChoicesReal -> case AST.deterministicValue condPred of
+            Just val -> (deterministicRefWithNode val $ cachedInfoDeterministic cacheComps val, f)
+            Nothing  -> let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached prevChoicesReal pred (cachedInfoBuildInPred cacheComps) buildinCache
+                        in  (predRefWithNode condPred prevChoicesReal cachedInfo, f {buildinCache=buildinCache'})
+            where
+            condPred = conditionPred pred
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no rfunctions"
     where
         conditionPred :: AST.BuildInPredicate -> AST.BuildInPredicate
         conditionPred (AST.BoolEq eq exprL exprR) = AST.BoolEq eq (conditionExpr exprL) (conditionExpr exprR)
             where
-                conditionExpr expr@(AST.UserRFunc exprRFuncLabel)
-                    | exprRFuncLabel == rf = AST.BoolConstant val
-                    | otherwise            = expr
-                conditionExpr expr = expr
+            conditionExpr expr@(AST.UserRFunc exprRFuncLabel)
+                | exprRFuncLabel == rf = AST.BoolConstant val
+                | otherwise            = expr
+            conditionExpr expr = expr
         conditionPred pred = pred
 
-conditionReal :: (Hashable cachedInfo, Eq cachedInfo) => RefWithNode cachedInfo -> RFuncLabel -> Interval -> Formula cachedInfo -> (RefWithNode cachedInfo, Formula cachedInfo)
+conditionReal :: (Hashable cachedInfo, Eq cachedInfo)
+              => RefWithNode cachedInfo
+              -> RFuncLabel
+              -> Interval
+              -> Formula cachedInfo
+              -> (RefWithNode cachedInfo, Formula cachedInfo)
 conditionReal origNodeEntry rf interv f@Formula{nodes, labels2ids, buildinCache, cacheComps}
     | not $ Set.member rf $ entryRFuncs origNodeEntry = (origNodeEntry, f)
     | otherwise = case entryRef origNodeEntry of
@@ -240,13 +259,14 @@ conditionReal origNodeEntry rf interv f@Formula{nodes, labels2ids, buildinCache,
                                                     children
                                              in insert (Left newLabel) sign op (Set.map entryRef condChildren) f'
             where
-                newLabel = condComposedLabelReal rf interv $ fromJust $ entryLabel origNodeEntry
-        RefBuildInPredicate pred prevChoicesReal -> let condPred = conditionPred pred prevChoicesReal
-                                    in case AST.deterministicValue condPred of
-                                        Just val -> (deterministicRefWithNode val $ cachedInfoDeterministic cacheComps val, f)
-                                        Nothing  -> let choices = Map.insert rf interv prevChoicesReal
-                                                        (cachedInfo, buildinCache') = cachedInfoBuildInPredCached choices pred (cachedInfoBuildInPred cacheComps) buildinCache
-                                                    in  (predRefWithNode condPred choices cachedInfo, f {buildinCache=buildinCache'})
+            newLabel = condComposedLabelReal rf interv $ fromJust $ entryLabel origNodeEntry
+        RefBuildInPredicate pred prevChoicesReal -> case AST.deterministicValue condPred of
+            Just val -> (deterministicRefWithNode val $ cachedInfoDeterministic cacheComps val, f)
+            Nothing  -> let choices = Map.insert rf interv prevChoicesReal
+                            (cachedInfo, buildinCache') = cachedInfoBuildInPredCached choices pred (cachedInfoBuildInPred cacheComps) buildinCache
+                        in  (predRefWithNode condPred choices cachedInfo, f {buildinCache=buildinCache'})
+            where
+            condPred = conditionPred pred prevChoicesReal
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no rfunctions"
     where
         conditionPred :: AST.BuildInPredicate -> HashMap RFuncLabel Interval -> AST.BuildInPredicate
@@ -255,15 +275,15 @@ conditionReal origNodeEntry rf interv f@Formula{nodes, labels2ids, buildinCache,
             | length conditions == Set.size predRFuncs = conditionPred'
             | otherwise = pred
             where
-                conditionPred'
-                    | all ((==) $ Just True)  checkedPreds = AST.Constant True
-                    | all ((==) $ Just False) checkedPreds = AST.Constant False
-                    | otherwise                            = pred
+            conditionPred'
+                | all ((==) $ Just True)  checkedPreds = AST.Constant True
+                | all ((==) $ Just False) checkedPreds = AST.Constant False
+                | otherwise                            = pred
 
-                checkedPreds = map (AST.checkRealIneqPred op left right) crns
-                conditions   = (rf, interv):[(rf',interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
-                crns         = Interval.corners conditions
-                predRFuncs   = AST.predRandomFunctions pred
+            checkedPreds = map (AST.checkRealIneqPred op left right) crns
+            conditions   = (rf, interv):[(rf',interv) | (rf',interv) <- Map.toList otherRealChoices, Set.member rf' predRFuncs && rf' /= rf]
+            crns         = Interval.corners conditions
+            predRFuncs   = AST.predRandomFunctions pred
         conditionPred pred _ = pred
 
 negate :: NodeRef -> NodeRef
@@ -288,9 +308,11 @@ exportAsDot path Formula{nodes} = do
                 writeEdge childRef = doIO (hPutStrLn file (printf "%i->%s;" id (childStr childRef)))
 
                 childStr :: NodeRef -> String
-                childStr (RefComposed sign childId)   = printf "%i[label=\"%s\"]" childId (show sign)
-                childStr (RefBuildInPredicate pred rconds) = let h = Hashable.hashWithSalt id pred in printf "%i;\n%i[label=\"%s\"]" h h $ show pred
-                childStr (RefDeterministic _)         = error "Formula export: should this happen?"
+                childStr (RefComposed sign childId)        = printf "%i[label=\"%s\"]" childId (show sign)
+                childStr (RefBuildInPredicate pred rconds) = printf "%i;\n%i[label=\"%s\"]" h h $ show pred
+                    where
+                    h = Hashable.hashWithSalt id pred
+                childStr (RefDeterministic _)              = error "Formula export: should this happen?"
 
 -- FORMULA STORAGE
 data Formula cachedInfo = Formula
@@ -311,7 +333,8 @@ data ComposedLabel = ComposedLabel
 
 type Conditions = (HashMap RFuncLabel Bool, HashMap RFuncLabel Interval)
 
-instance Show ComposedLabel where
+instance Show ComposedLabel
+    where
     show (ComposedLabel name (bConds, rConds) _) = printf
         "%s|%s"
         name
@@ -319,7 +342,8 @@ instance Show ComposedLabel where
         where
             showCondBool (rf, val)    = printf "%s=%s"    rf $ show val
 
-instance Hashable ComposedLabel where
+instance Hashable ComposedLabel
+    where
     hash              (ComposedLabel _ _ hash) = hash
     hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
@@ -327,12 +351,14 @@ uncondComposedLabel :: PredicateLabel -> ComposedLabel
 uncondComposedLabel name = ComposedLabel name (Map.empty, Map.empty) $ Hashable.hash name
 
 condComposedLabelBool :: RFuncLabel -> Bool -> ComposedLabel -> ComposedLabel
-condComposedLabelBool rf val (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds', rConds) hash' where
+condComposedLabelBool rf val (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds', rConds) hash'
+    where
     bConds' = Map.insert rf val bConds
     hash'   = hash + Hashable.hashWithSalt (Hashable.hash rf) val
 
 condComposedLabelReal :: RFuncLabel -> Interval -> ComposedLabel -> ComposedLabel
-condComposedLabelReal rf interv (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds, rConds') hash' where
+condComposedLabelReal rf interv (ComposedLabel name (bConds, rConds) hash) = ComposedLabel name (bConds, rConds') hash'
+    where
     rConds' = Map.insert rf interv rConds
     hash'   = hash + Hashable.hashWithSalt (Hashable.hash rf) interv
 
@@ -351,7 +377,8 @@ data NodeRef = RefComposed Bool ComposedId
              | RefDeterministic Bool
              deriving (Eq, Generic)
 instance Hashable NodeRef
-instance Show NodeRef where
+instance Show NodeRef
+    where
     show (RefComposed sign cid)            = printf "composed %s %i" (show sign) cid
     show (RefBuildInPredicate pred rConds) = printf
                                                 "%s|\n  %s"
@@ -368,7 +395,11 @@ data CacheComputations cachedInfo = CacheComputations
     }
 
 -- to avoid recomputation
-cachedInfoBuildInPredCached :: HashMap RFuncLabel Interval -> AST.BuildInPredicate -> (HashMap RFuncLabel Interval -> AST.BuildInPredicate -> cachedInfo) -> HashMap (AST.BuildInPredicate, HashMap RFuncLabel Interval) cachedInfo -> (cachedInfo, HashMap (AST.BuildInPredicate, HashMap RFuncLabel Interval) cachedInfo)
+cachedInfoBuildInPredCached :: HashMap RFuncLabel Interval
+                            -> AST.BuildInPredicate
+                            -> (HashMap RFuncLabel Interval -> AST.BuildInPredicate -> cachedInfo)
+                            -> HashMap (AST.BuildInPredicate, HashMap RFuncLabel Interval) cachedInfo
+                            -> (cachedInfo, HashMap (AST.BuildInPredicate, HashMap RFuncLabel Interval) cachedInfo)
 cachedInfoBuildInPredCached conds pred infoComp cache = case Map.lookup (pred,conds) cache of
     Just cachedInfo -> (cachedInfo, cache)
     Nothing         -> let cachedInfo = infoComp conds pred

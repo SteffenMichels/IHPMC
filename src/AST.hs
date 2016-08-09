@@ -60,8 +60,10 @@ data AST = AST
     , evidence  :: Maybe (PredicateLabel, [PredArgument])
     }
 
-instance Show AST where
-    show ast = rfuncDefsStr ++ rulesStr ++ queryStr ++ evStr where
+instance Show AST
+    where
+    show ast = rfuncDefsStr ++ rulesStr ++ queryStr ++ evStr
+        where
         rfuncDefsStr = concat $ concat [
                             [printf "~%s ~ %s.\n" (show label) $ show def | def <- defs]
                        | (label, defs) <- Map.toList $ rFuncDefs ast]
@@ -76,13 +78,15 @@ instance Show AST where
 data RFuncDef = Flip Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
 
-instance Show RFuncDef where
+instance Show RFuncDef
+    where
     show (Flip p)       = printf "flip(%s)" $ printProb p
     show (RealDist _ _) = printf "realDist"
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 
-instance Show RuleBody where
+instance Show RuleBody
+    where
     show (RuleBody elements) = intercalate ", " (fmap show elements)
 instance Hashable RuleBody
 
@@ -105,13 +109,15 @@ data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
                       | Constant Bool
                       deriving (Eq, Generic)
 
-instance Show BuildInPredicate where
+instance Show BuildInPredicate
+    where
     show (BoolEq eq exprX exprY)   = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
-instance Show IneqOp where
+instance Show IneqOp
+    where
     show Lt   = "<"
     show LtEq = "<="
     show Gt   = ">"
@@ -119,19 +125,22 @@ instance Show IneqOp where
 instance Hashable IneqOp
 data RealN
 
-data Expr a where
+data Expr a
+    where
     BoolConstant :: Bool                     -> Expr Bool
     RealConstant :: Rational                 -> Expr RealN
     UserRFunc    :: RFuncLabel               -> Expr a -- type depends on user input, has to be typechecked at runtime
     RealSum      :: Expr RealN -> Expr RealN -> Expr RealN
 
 deriving instance Eq (Expr a)
-instance Show (Expr a) where
+instance Show (Expr a)
+    where
     show (BoolConstant const) = printf "%s" (toLower <$> show const)
     show (RealConstant const) = printf "%f" (fromRat const::Float)
     show (UserRFunc label)    = printf "~%s" label
     show (RealSum x y)        = printf "%s + %s" (show x) (show y)
-instance Hashable (Expr a) where
+instance Hashable (Expr a)
+    where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
@@ -164,21 +173,25 @@ exprRandomFunctions (BoolConstant _)  = Set.empty
 exprRandomFunctions (RealConstant _)  = Set.empty
 exprRandomFunctions (RealSum x y)     = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
 
-checkRealIneqPred :: IneqOp -> Expr RealN -> Expr RealN -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint -> Maybe Bool -- result may be undetermined -> Nothing
+checkRealIneqPred :: IneqOp
+                  -> Expr RealN
+                  -> Expr RealN
+                  -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint
+                  -> Maybe Bool -- result may be undetermined -> Nothing
 checkRealIneqPred op left right point = case op of
     AST.Lt   -> evalLeft ~<  evalRight
     AST.LtEq -> evalLeft ~<= evalRight
     AST.Gt   -> evalLeft ~>  evalRight
     AST.GtEq -> evalLeft ~>= evalRight
     where
-        evalLeft  = eval left  point
-        evalRight = eval right point
+    evalLeft  = eval left  point
+    evalRight = eval right point
 
 onBoundary :: Expr RealN -> Expr RealN -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint -> Bool
 onBoundary left right point = Interval.nullInfte evalLeft == Interval.nullInfte evalRight
     where
-        evalLeft  = eval left  point
-        evalRight = eval right point
+    evalLeft  = eval left  point
+    evalRight = eval right point
 
 eval :: Expr t -> HashMap RFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
 eval (AST.UserRFunc rf)   point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rf) rf point

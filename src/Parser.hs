@@ -66,7 +66,8 @@ integer    = Token.integer    lexer
 dot        = Token.dot        lexer
 comma      = Token.comma      lexer
 whiteSpace = Token.whiteSpace lexer
-variable   = Token.lexeme     lexer parseVar where
+variable   = Token.lexeme     lexer parseVar
+    where
     parseVar = do
         first <- upper
         rest  <- many alphaNum
@@ -79,22 +80,22 @@ parseRat = do
     spaces
     return $ if neg then -rat else rat
     where
-        parseDecimal = do
-            before <- decimal
-            string "."
-            after <- many1 digit
-            return $ (fst . head . readFloat) (printf "%i.%s" before after)
-        parseFraction = do
-            before <- integer
-            string "/"
-            after <- integer
-            return $ before % after
+    parseDecimal = do
+        before <- decimal
+        string "."
+        after <- many1 digit
+        return $ (fst . head . readFloat) (printf "%i.%s" before after)
+    parseFraction = do
+        before <- integer
+        string "/"
+        after <- integer
+        return $ before % after
 
 parseRealIneqOp :: Parser AST.IneqOp
-parseRealIneqOp =   try (reservedOp "<"  >> return AST.Lt)
-                <|>     (reservedOp "<=" >> return AST.LtEq)
-                <|> try (reservedOp ">"  >> return AST.Gt)
-                <|>     (reservedOp ">=" >> return AST.GtEq)
+parseRealIneqOp =     try (reservedOp "<"  >> return AST.Lt)
+                  <|>     (reservedOp "<=" >> return AST.LtEq)
+                  <|> try (reservedOp ">"  >> return AST.Gt)
+                  <|>     (reservedOp ">=" >> return AST.GtEq)
 
 parseUserRFuncLabel :: Parser RFuncLabel
 parseUserRFuncLabel = string "~" >> identifier

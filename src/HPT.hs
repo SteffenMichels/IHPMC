@@ -73,55 +73,54 @@ exportAsDot path pst = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Maybe String -> Maybe String-> HPT -> Int -> Handle -> ExceptionalT String IO Int
-        printNode mbParent mbEdgeLabel pst counter file = case pst of
-            Finished prob -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
-                print mbParent (show counter) mbEdgeLabel
-                return (counter+1)
-            Unfinished (ChoiceBool label prob left right) _ score -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
-                print mbParent (show counter) mbEdgeLabel
-                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) label) left (counter+1) file
-                printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) label) right counter' file
-            Unfinished (ChoiceReal label prob splitPoint left right) _ score -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
-                print mbParent (show counter) mbEdgeLabel
-                counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) label (fromRat splitPoint::Float)) left (counter+1) file
-                printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) label (fromRat splitPoint::Float)) right counter' file
-            Unfinished (Decomposition op psts) _ score -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds pst) score)
-                print mbParent (show counter) mbEdgeLabel
-                foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
-            Unfinished (Leaf label) _ score -> do
-                doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (nodeRefToReadableString label) score)
-                print mbParent (show counter) mbEdgeLabel
-                return (counter+1)
-            where
-                print mbParent current mbEdgeLabel = case mbParent of
-                    Nothing -> return ()
-                    Just parent -> doIO (hPutStrLn file (printf "%s->%s%s;" parent current (case mbEdgeLabel of
-                            Nothing -> ""
-                            Just el -> printf "[label=\"%s\"]" el
-                        )))
+    printNode :: Maybe String -> Maybe String-> HPT -> Int -> Handle -> ExceptionalT String IO Int
+    printNode mbParent mbEdgeLabel pst counter file = case pst of
+        Finished prob -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
+            print mbParent (show counter) mbEdgeLabel
+            return (counter+1)
+        Unfinished (ChoiceBool label prob left right) _ score -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
+            print mbParent (show counter) mbEdgeLabel
+            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) label) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) label) right counter' file
+        Unfinished (ChoiceReal label prob splitPoint left right) _ score -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds pst) score)
+            print mbParent (show counter) mbEdgeLabel
+            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) label (fromRat splitPoint::Float)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) label (fromRat splitPoint::Float)) right counter' file
+        Unfinished (Decomposition op psts) _ score -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds pst) score)
+            print mbParent (show counter) mbEdgeLabel
+            foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
+        Unfinished (Leaf label) _ score -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (nodeRefToReadableString label) score)
+            print mbParent (show counter) mbEdgeLabel
+            return (counter+1)
+        where
+        print mbParent current mbEdgeLabel = case mbParent of
+            Nothing -> return ()
+            Just parent -> doIO (hPutStrLn file (printf "%s->%s%s;" parent current (case mbEdgeLabel of
+                    Nothing -> ""
+                    Just el -> printf "[label=\"%s\"]" el
+                )))
 
-                printBounds :: HPT -> String
-                printBounds pst = let (l,u) = HPT.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
+        printBounds :: HPT -> String
+        printBounds pst = let (l,u) = HPT.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
 
-                nodeRefToReadableString :: Formula.NodeRef -> String
-                nodeRefToReadableString (Formula.RefComposed sign id) = printf
-                    "%s%s\n"
-                    (if sign then "" else "-")
-                    (show id)
-                nodeRefToReadableString ref = show ref
-                {-nodeLabelToReadableString :: Formula.NodeRef -> String
-                nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf
-                        "%s%s\n  |%s"
-                        label
-                        (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))
-                        (if sign then "" else "-")
-                        where
-                            showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
-                            showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
-                nodeLabelToReadableString ref = show ref-}
-
+        nodeRefToReadableString :: Formula.NodeRef -> String
+        nodeRefToReadableString (Formula.RefComposed sign id) = printf
+            "%s%s\n"
+            (if sign then "" else "-")
+            (show id)
+        nodeRefToReadableString ref = show ref
+        {-nodeLabelToReadableString :: Formula.NodeRef -> String
+        nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf
+                "%s%s\n  |%s"
+                label
+                (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))
+                (if sign then "" else "-")
+                where
+                    showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
+                    showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
+        nodeLabelToReadableString ref = show ref-}

@@ -53,7 +53,8 @@ popts2opts ParsedOptions{pModelFile,pNIterations,pErrBound,pTimeout,pRepInterval
     , errBound    = justIf (>= 0) $ doubleToProb $ float2Double pErrBound
     , timeout     = justIf (>  0)                               pTimeout
     , repInterval = justIf (>= 0)                               pRepInterval
-    } where
+    }
+    where
     justIf pred v = if pred v then Just v else Nothing
 
 parseConsoleArgs :: Args -> ExceptionalT String IO Options
@@ -62,10 +63,10 @@ parseConsoleArgs args = do
     popts <- returnExceptional $ fromEither $ parseArgs args interf
     return $ popts2opts popts
     where
-        spec :: ParserSpec ParsedOptions
-        spec = ParsedOptions
-            `parsedBy` reqPos       "modelfile"          `Descr` "file containing the probabilistic model"
-            `andBy`    optFlag 0    "iterations"         `Descr` "maximal number of iterations"
-            `andBy`    optFlag (-1) "errorbound"         `Descr` "maximal result error bound"
-            `andBy`    optFlag 0    "timeout"            `Descr` "maximal inference runtime (ms)"
-            `andBy`    optFlag (-1) "reporting_interval" `Descr` "interval in which intermediate results are reported (ms)"
+    spec :: ParserSpec ParsedOptions
+    spec = ParsedOptions
+        `parsedBy` reqPos       "modelfile"          `Descr` "file containing the probabilistic model"
+        `andBy`    optFlag 0    "iterations"         `Descr` "maximal number of iterations"
+        `andBy`    optFlag (-1) "errorbound"         `Descr` "maximal result error bound"
+        `andBy`    optFlag 0    "timeout"            `Descr` "maximal inference runtime (ms)"
+        `andBy`    optFlag (-1) "reporting_interval" `Descr` "interval in which intermediate results are reported (ms)"

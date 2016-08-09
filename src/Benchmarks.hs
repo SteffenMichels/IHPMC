@@ -34,8 +34,8 @@ exe = do
     writeBenchmark show "/tmp/tmp.pclp" $ bench n
     writeBenchmark toProblogSource "/tmp/tmp.pl" $ bench n
         where
-            n = 3
-            bench = paths
+        n = 3
+        bench = paths
 
 writeBenchmark :: (AST -> String) -> FilePath -> AST -> IO ()
 writeBenchmark printFunc path ast = do
@@ -45,9 +45,11 @@ writeBenchmark printFunc path ast = do
 
 -- Problog
 toProblogSource :: AST -> String
-toProblogSource  ast = rfuncDefsStr ++ rulesStr ++ queryStr where
+toProblogSource  ast = rfuncDefsStr ++ rulesStr ++ queryStr
+    where
     rfuncDefsStr = concat [printf "%f :: %s.\n" (probToDouble p) label | (label, [AST.Flip p]) <- Map.toList $ AST.rFuncDefs ast]
-    rulesStr     = concat $ concat [[printf "%s :- %s.\n" label $ toProblogSourceBody body | body <- Set.toList bodies] | (label,bodies) <- Map.toList $ AST.rules ast]
+    rulesStr     = concat $ concat [ [printf "%s :- %s.\n" label $ toProblogSourceBody body | body <- Set.toList bodies]
+                                   | (label,bodies) <- Map.toList $ AST.rules ast ]
     queryStr     = concat [printf "query(%s).\n" query | query <- Set.toList $ AST.queries ast]
 
 toProblogSourceBody :: AST.RuleBody -> String
@@ -71,10 +73,10 @@ growingAnd n = AST.AST { AST.rFuncDefs = rFuncDefs
 
         rules = foldr rule Map.empty [0..n-1]
         rule i = Map.insert
-            (printf "a%i" i)
-            (Set.singleton $ AST.RuleBody (equality:fmap bodyEl [i+1..n-1]))
+                     (printf "a%i" i)
+                     (Set.singleton $ AST.RuleBody (equality:fmap bodyEl [i+1..n-1]))
             where
-                equality = AST.BuildInPredicate $ AST.BoolEq True (AST.UserRFunc (printf "x%i" i)) (AST.BoolConstant True)
+            equality = AST.BuildInPredicate $ AST.BoolEq True (AST.UserRFunc (printf "x%i" i)) (AST.BoolConstant True)
         bodyEl i = AST.UserPredicate (printf "a%i" i)
 
 paths :: Int -> AST
