@@ -55,7 +55,7 @@ popts2opts ParsedOptions{pModelFile,pNIterations,pErrBound,pTimeout,pRepInterval
     , repInterval = justIf (>= 0)                                 pRepInterval
     }
     where
-    justIf pred v = if pred v then Just v else Nothing
+    justIf prd v = if prd v then Just v else Nothing
 
 parseConsoleArgs :: Args -> ExceptionalT String IO Options
 parseConsoleArgs args = do

@@ -72,12 +72,12 @@ ihpmc query finishPred mbRepInterval rfuncDefs f = do
         where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
         ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int,ProbabilityBounds)]
         ihpmc' i startTime lastReportedTime hptNode = do
-            f       <- get
-            (hpt,f) <- return $ runState (IHPMC.iterate hptNode 1.0 rfuncDefs) f
-            put f
+            f'        <- get
+            (hpt,f'') <- return $ runState (ihpmcIterate hptNode 1.0 rfuncDefs) f'
+            put f''
             case hpt of
-                hpt@(HPT.Finished _)              -> return [(i,HPT.bounds hpt)]
-                hpt@(HPT.Unfinished hptNode' _ _) -> do
+                (HPT.Finished _)              -> return [(i,HPT.bounds hpt)]
+                (HPT.Unfinished hptNode' _ _) -> do
                     curTime <- lift $ doIO getTime
                     let bounds = HPT.bounds hpt
                     if finishPred i bounds (curTime - startTime)
@@ -100,8 +100,9 @@ ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = doIO getTime
     ) f
     where
     queryRef sign = case query of
-        Formula.RefComposed qSign label                  -> Formula.RefComposed (sign == qSign) label
-        Formula.RefBuildInPredicate pred prevChoicesReal -> Formula.RefBuildInPredicate (if sign then pred else AST.negatePred pred) prevChoicesReal
+        Formula.RefComposed qSign label                 -> Formula.RefComposed (sign == qSign) label
+        Formula.RefBuildInPredicate prd prevChoicesReal -> Formula.RefBuildInPredicate (if sign then prd else AST.negatePred prd) prevChoicesReal
+        Formula.RefDeterministic val                    -> Formula.RefDeterministic (val == sign)
     initHPT e = case Formula.entryRef e of
         Formula.RefDeterministic v -> HPT.Finished $ if v then 1.0 else 0.0
         ref                        -> HPT.Unfinished (HPT.initialNode ref) (ProbabilityBounds 0.0 1.0) undefined
@@ -111,10 +112,10 @@ ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = doIO getTime
         _ | finishPred i bounds (curTime - startTime) -> return [(i, bounds)]
         (HPT.Finished _, HPT.Finished _)              -> return [(i, bounds)]
         _ | HPT.maxError qe > HPT.maxError nqe -> do
-            qe' <- iterate qe
+            qe' <- iterate' qe
             recurse qe' nqe curTime
         _ -> do
-            nqe' <- iterate nqe
+            nqe' <- iterate' nqe
             recurse qe nqe' curTime
         where
         bounds = ProbabilityBounds (lqe / (lqe + unqe)) (uqe / (uqe + lnqe))
@@ -122,50 +123,51 @@ ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = doIO getTime
             ProbabilityBounds lqe  uqe  = HPT.bounds qe
             ProbabilityBounds lnqe unqe = HPT.bounds nqe
 
-        recurse qe nqe curTime =
+        recurse qe' nqe' curTime =
             if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-            then ihpmc' (i + 1) startTime curTime qe nqe >>= \bs -> return ((i,bounds) : bs)
-            else ihpmc' (i + 1) startTime lastReportedTime qe nqe
+            then ihpmc' (i + 1) startTime curTime qe' nqe' >>= \bs -> return ((i,bounds) : bs)
+            else ihpmc' (i + 1) startTime lastReportedTime qe' nqe'
 
-    iterate (HPT.Unfinished hptNode _ _) = do
-        f <- get
-        (hpt',f) <- return $ runState (IHPMC.iterate hptNode 1.0 rfuncDefs) f
-        put f
+    iterate' (HPT.Unfinished hptNode _ _) = do
+        f'         <- get
+        (hpt',f'') <- return $ runState (ihpmcIterate hptNode 1.0 rfuncDefs) f'
+        put f''
         return hpt'
+    iterate' (HPT.Finished _) = error "IHPMC.ihpmcEvidence"
 
-iterate :: HPTNode -> Double -> HashMap AST.RFuncLabel [AST.RFuncDef] -> FState HPT
-iterate hptNode partChoiceProb rfuncDefs = do
+ihpmcIterate :: HPTNode -> Double -> HashMap AST.RFuncLabel [AST.RFuncDef] -> FState HPT
+ihpmcIterate hptNode partChoiceProb rfuncDefs = do
     (hptNode', bounds@(ProbabilityBounds l u), score) <- iterateNode hptNode partChoiceProb
     return $ if l == u then HPT.Finished l
                        else HPT.Unfinished hptNode' bounds score
     where
     iterateNode :: HPTNode -> Double -> FState (HPTNode, ProbabilityBounds, Double)
-    iterateNode (HPT.ChoiceBool rFuncLabel p left right) partChoiceProb = do
-        (left, right) <- case (left, right) of
-            (HPT.Unfinished hptNode _ _, _) | HPT.score left > HPT.score right ->
-                (,right) <$> IHPMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
-            (_, HPT.Unfinished hptNode _ _) ->
-                (left,)  <$> IHPMC.iterate hptNode (probToDouble (1.0 - p) * partChoiceProb) rfuncDefs
+    iterateNode (HPT.ChoiceBool rFuncLabel p left right) partChoiceProb' = do
+        (left', right') <- case (left, right) of
+            (HPT.Unfinished hptNode' _ _, _) | HPT.score left > HPT.score right ->
+                (,right) <$> ihpmcIterate hptNode' (probToDouble p * partChoiceProb') rfuncDefs
+            (_, HPT.Unfinished hptNode' _ _) ->
+                (left,)  <$> ihpmcIterate hptNode' (probToDouble (1.0 - p) * partChoiceProb') rfuncDefs
             _ -> error "finished node should not be selected for iteration"
-        return (HPT.ChoiceBool rFuncLabel p left right, combineProbsChoice p left right, combineScoresChoice left right)
-    iterateNode (HPT.ChoiceReal rf p splitPoint left right) partChoiceProb = do
-        (left, right) <- case (left, right) of
-            (HPT.Unfinished hptNode _ _, _) | HPT.score left > HPT.score right ->
-                (,right) <$> IHPMC.iterate hptNode (probToDouble p * partChoiceProb) rfuncDefs
-            (_, HPT.Unfinished hptNode _ _) ->
-                (left,)  <$> IHPMC.iterate hptNode (probToDouble (1.0 - p) * partChoiceProb) rfuncDefs
+        return (HPT.ChoiceBool rFuncLabel p left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
+    iterateNode (HPT.ChoiceReal rf p splitPoint left right) partChoiceProb' = do
+        (left', right') <- case (left, right) of
+            (HPT.Unfinished hptNode' _ _, _) | HPT.score left > HPT.score right ->
+                (,right) <$> ihpmcIterate hptNode' (probToDouble p * partChoiceProb') rfuncDefs
+            (_, HPT.Unfinished hptNode' _ _) ->
+                (left,)  <$> ihpmcIterate hptNode' (probToDouble (1.0 - p) * partChoiceProb') rfuncDefs
             _ -> error "finished node should not be selected for iteration"
-        return (HPT.ChoiceReal rf p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
-    iterateNode (HPT.Decomposition op dec) partChoiceProb = do
-        selectedChild <- IHPMC.iterate selectedChildNode partChoiceProb rfuncDefs
+        return (HPT.ChoiceReal rf p splitPoint left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
+    iterateNode (HPT.Decomposition op dec) partChoiceProb' = do
+        selectedChild <- ihpmcIterate selectedChildNode partChoiceProb' rfuncDefs
         let dec' = selectedChild:tail sortedChildren
         return (HPT.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
             where
             sortedChildren = sortWith (\c -> -HPT.score  c) dec
             selectedChildNode = case head sortedChildren of
-                HPT.Unfinished hptNode _ _ -> hptNode
-                _                          -> error "finished node should not be selected for iteration"
-    iterateNode (HPT.Leaf ref) partChoiceProb = do
+                HPT.Unfinished hptNode' _ _ -> hptNode'
+                _                           -> error "finished node should not be selected for iteration"
+    iterateNode (HPT.Leaf ref) _ = do
         fEntry <- state $ Formula.augmentWithEntry ref
         case Nothing of --decompose ref f of
             Nothing -> case splitPoint of
@@ -177,18 +179,18 @@ iterate hptNode partChoiceProb rfuncDefs = do
                         let right = toHPTNode (1.0 - p) rightEntry
                         return (HPT.ChoiceBool splitRF p left right, combineProbsChoice p left right, combineScoresChoice left right)
                     _ -> error ("undefined rfunc " ++ show splitRF)
-                ContinuousSplit splitPoint -> case Map.lookup splitRF rfuncDefs of
+                ContinuousSplit splitPoint' -> case Map.lookup splitRF rfuncDefs of
                     Just (AST.RealDist cdf _:_) -> do
-                        leftEntry  <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval curLower (Open splitPoint)
-                        rightEntry <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval (Open splitPoint) curUpper
+                        leftEntry  <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval curLower (Open splitPoint')
+                        rightEntry <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval (Open splitPoint') curUpper
                         let left  = toHPTNode p leftEntry
                         let right = toHPTNode (1.0 - p) rightEntry
-                        return (HPT.ChoiceReal splitRF p splitPoint left right, combineProbsChoice p left right, combineScoresChoice left right)
+                        return (HPT.ChoiceReal splitRF p splitPoint' left right, combineProbsChoice p left right, combineScoresChoice left right)
                             where
                             p = (pUntilSplit-pUntilLower)/(pUntilUpper-pUntilLower)
                             pUntilLower = cdf' cdf True curLower
                             pUntilUpper = cdf' cdf False curUpper
-                            pUntilSplit = cdf splitPoint
+                            pUntilSplit = cdf splitPoint'
                             Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) splitRF rConds
                                 where
                                 Formula.Conditions _ rConds = Formula.entryChoices fEntry
@@ -200,7 +202,7 @@ iterate hptNode partChoiceProb rfuncDefs = do
                 toHPTNode p entry = case Formula.entryNode entry of
                     Formula.Deterministic val -> HPT.Finished $ if val then 1.0 else 0.0
                     _                         -> HPT.Unfinished (HPT.Leaf $ Formula.entryRef entry) (ProbabilityBounds 0.0 1.0) (probToDouble p * partChoiceProb)
-            Just (origOp, decOp, sign, decomposition) -> undefined {-do
+            Just _ -> undefined{-Just (origOp, decOp, sign, decomposition) -> do
                 htps <- foldlM (\htps dec -> do
                         fresh <- if Set.size dec > 1 then
                                 state $ \f -> first Formula.entryRef $ Formula.insert (Right conds) sign origOp dec f
@@ -237,8 +239,8 @@ combineScoresChoice left right = max (HPT.score left) (HPT.score right)
 combineScoresDecomp :: [HPT] -> Double
 combineScoresDecomp            = foldr (\hpt score -> max score $ HPT.score hpt) 0.0
 
-decompose :: Formula.NodeRef -> Formula CachedSplitPoints -> Maybe (Formula.NodeType, Formula.NodeType, Bool, HashSet (HashSet Formula.NodeRef))
-decompose ref f = Nothing{-case Formula.entryNode $ Formula.augmentWithEntry ref f of
+{-decompose :: Formula.NodeRef -> Formula CachedSplitPoints -> Maybe (Formula.NodeType, Formula.NodeType, Bool, HashSet (HashSet Formula.NodeRef))
+decompose ref f = Nothingcase Formula.entryNode $ Formula.augmentWithEntry ref f of
     Formula.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (`Formula.augmentWithEntry` f) children
                                 in  if Set.size dec == 1 then Nothing else Just (op, decOp op, sign, dec)
     _ -> Nothing
@@ -269,6 +271,7 @@ decompose ref f = Nothing{-case Formula.entryNode $ Formula.augmentWithEntry ref
             Formula.RefComposed sign _ -> sign
             _                      -> error "nodes other than composed ones have to sign"-}
 
+heuristicsCacheComputations :: HashMap AST.RFuncLabel [AST.RFuncDef] -> Formula.CacheComputations CachedSplitPoints
 heuristicsCacheComputations rfDefs = Formula.CacheComputations
     { Formula.cachedInfoComposed      = heuristicComposed
     , Formula.cachedInfoBuildInPred   = heuristicBuildInPred rfDefs
@@ -279,10 +282,10 @@ heuristicDeterministic :: Bool -> CachedSplitPoints
 heuristicDeterministic = const $ CachedSplitPoints 0 Map.empty
 
 heuristicBuildInPred :: HashMap AST.RFuncLabel [AST.RFuncDef] -> HashMap AST.RFuncLabel Interval -> AST.BuildInPredicate -> CachedSplitPoints
-heuristicBuildInPred rfDefs prevChoicesReal pred =
-        let predRfs = AST.predRandomFunctions pred
+heuristicBuildInPred rfDefs prevChoicesReal prd =
+        let predRfs = AST.predRandomFunctions prd
             nRfs    = Set.size predRfs
-        in case pred of
+        in case prd of
             (AST.BoolEq{})                -> CachedSplitPoints nRfs $ Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
             (AST.Constant _)              -> CachedSplitPoints nRfs Map.empty
             (AST.RealIneq op exprX exprY) -> CachedSplitPoints
@@ -307,7 +310,7 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                             _ -> error "IHPMC.equalSplit failed"
                 splitPoints rfs
                     | null rfs || null result = (rfs, Map.empty,                             result)
-                    | otherwise               = (rfs, Map.fromList [(rf, nRfs) | rf <- rfs], result)
+                    | otherwise               = (rfs, Map.fromList [(rf, nRfs') | rf <- rfs], result)
                     where
                     result = Map.filterWithKey notOnBoundary $ foldr
                         (Map.unionWith (+))
@@ -315,13 +318,14 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                         [ Map.fromList [ ((rf, ContinuousSplit $ splitPoint rf corner), probToDouble $ reduction rfs corner prevChoicesReal)
                                        | rf <- rfs
                                        ]
-                        | corner <- remRfsCorners rfs
+                        | corner <- remRfsCorners
                         ]
 
                     notOnBoundary (rf, ContinuousSplit p) _ =    (Interval.rat2IntervLimPoint p ~> Interval.toPoint Lower lower) == Just True
                                                               && (Interval.rat2IntervLimPoint p ~< Interval.toPoint Upper upper) == Just True
                         where
                         Interval.Interval lower upper = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
+                    notOnBoundary (_, DiscreteSplit) _ = error "IHPMC.heuristicBuildInPred.notOnBoundary"
 
                     reduction [] _ choices
                         | all ((==) $ Just True) checkedCorners || all ((==) $ Just False) checkedCorners = product [pDiff rf choices | rf <- Set.toList remainingRfs]
@@ -330,20 +334,20 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                             extremePoints  = Set.map (\rf' -> (rf', Map.lookupDefault (Interval.Interval Inf Inf) rf' choices)) predRfs
                             corners        = Interval.corners $ Set.toList extremePoints
                             checkedCorners = map (AST.checkRealIneqPred op exprX exprY) corners
-                    reduction (rf:rfs) corner choices = pDiff rf chLeft * reduction rfs corner chLeft + pDiff rf chRight * reduction rfs corner chRight
+                    reduction (rf:rfs') corner choices = pDiff rf chLeft * reduction rfs' corner chLeft + pDiff rf chRight * reduction rfs' corner chRight
                         where
                         splitP  = splitPoint rf corner
                         Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
                         chLeft  = Map.insert rf (Interval.Interval curLower (Open splitP)) choices
                         chRight = Map.insert rf (Interval.Interval (Open splitP) curUpper) choices
 
-                    splitPoint rf remRfsCornerPts = (   (fromIntegral nRfs - 1.0)*equalSplit rf
+                    splitPoint rf remRfsCornerPts = (   (fromIntegral nRfs' - 1.0)*equalSplit rf
                                                       + (if rfOnLeft then 1.0 else -1.0) * (sumExpr exprY evalVals - sumExpr exprX evalVals)
-                                                    ) / fromIntegral nRfs
+                                                    ) / fromIntegral nRfs'
                         where
                         evalVals = Map.union remRfsCornerPts equalSplits
                         rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
-                        equalSplit rf = Map.lookupDefault (error "IHPMC.splitPoint") rf equalSplits
+                        equalSplit rf' = Map.lookupDefault (error "IHPMC.splitPoint") rf' equalSplits
 
                         sumExpr :: AST.Expr AST.RealN -> Map.HashMap AST.RFuncLabel Rational-> Rational
                         sumExpr (AST.RealConstant c) _ = c
@@ -352,9 +356,9 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                             | otherwise = fromMaybe (error "IHPMC.sumExpr: Just expected") $ Map.lookup rf' vals
                         sumExpr (AST.RealSum x y) vals = sumExpr x vals + sumExpr y vals
 
-                    nRfs = length rfs
+                    nRfs' = length rfs
 
-                    remRfsCorners rfs = Set.foldr
+                    remRfsCorners = Set.foldr
                         (\rf corners -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
                                             mbX                   = Interval.pointRational (Interval.toPoint Lower l)
                                             mbY                   = Interval.pointRational (Interval.toPoint Upper u)
@@ -373,8 +377,9 @@ heuristicBuildInPred rfDefs prevChoicesReal pred =
                     pUntilLower = cdf' cdf True  curLower
                     pUntilUpper = cdf' cdf False curUpper
                     Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
-                    (cdf, icdf) = case Map.lookup rf rfDefs of
-                        Just (AST.RealDist cdf icdf:_) -> (cdf, icdf)
+                    cdf = case Map.lookup rf rfDefs of
+                        Just (AST.RealDist cdf'' _:_) -> cdf''
+                        _ -> error "IHPMC.heuristicBuildInPred.cdf"
 
 heuristicComposed :: HashSet CachedSplitPoints -> CachedSplitPoints
 heuristicComposed = Set.foldr

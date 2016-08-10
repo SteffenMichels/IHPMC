@@ -78,11 +78,11 @@ pointRational _           = Nothing
 instance Num IntervalLimitPoint
     where
     x + y = case (x, y) of
-        (Point x ix, Point y iy) -> Point (x+y) $ case (ix, iy) of
+        (Point x' ix, Point y' iy) -> Point (x' + y') $ case (ix, iy) of
             (InfteIndet, _         ) -> InfteIndet
             (_,          InfteIndet) -> InfteIndet
-            (InfteNull,  iy        ) -> iy
-            (ix,         InfteNull ) -> ix
+            (InfteNull,  iy'       ) -> iy'
+            (ix',        InfteNull ) -> ix'
             _ | ix == iy             -> ix
             _                        -> InfteIndet
         (Indet,  _     )             -> Indet
@@ -94,9 +94,9 @@ instance Num IntervalLimitPoint
         (NegInf, _     )             -> NegInf
         (_,      NegInf)             -> NegInf
 
-    x * y = error "undefined: * for IntervalLimitPoint"
-    abs x = error "undefined: abs for IntervalLimitPoint"
-    signum x = error "undefined: signum for IntervalLimitPoint"
+    _ * _ = error "undefined: * for IntervalLimitPoint"
+    abs _ = error "undefined: abs for IntervalLimitPoint"
+    signum _ = error "undefined: signum for IntervalLimitPoint"
     fromInteger i = Point (fromInteger i) InfteNull
 
     negate Indet           = Indet
@@ -106,7 +106,7 @@ instance Num IntervalLimitPoint
         where
         negInfte InfteMinus = InftePlus
         negInfte InftePlus  = InfteMinus
-        negInfte infte      = infte
+        negInfte infte'     = infte'
 
 instance Ord IntervalLimitPoint
     where
@@ -138,14 +138,14 @@ data IntervalLimitPointOrd = Lt | Gt | Eq | IndetOrd deriving (Eq, Ord)
 
 compareIntervalPoints :: IntervalLimitPoint -> IntervalLimitPoint -> IntervalLimitPointOrd
 compareIntervalPoints x y = case (x,y) of
-    (Indet,  _     ) -> IndetOrd
-    (_,      Indet ) -> IndetOrd
-    (x, y) | x == y  -> Eq
-    (NegInf, _     ) -> Lt
-    (PosInf, _     ) -> Gt
-    (_,      NegInf) -> Gt
-    (_,      PosInf) -> Lt
-    (Point x ix, Point y iy)
+    (Indet,  _     )    -> IndetOrd
+    (_,      Indet )    -> IndetOrd
+    (x', y') | x' == y' -> Eq
+    (NegInf, _     )    -> Lt
+    (PosInf, _     )    -> Gt
+    (_,      NegInf)    -> Gt
+    (_,      PosInf)    -> Lt
+    (Point x' ix, Point y' iy)
         | o /= Eq                  -> o
         | otherwise -> case (ix, iy) of
             (InfteIndet, _         ) -> IndetOrd
@@ -155,9 +155,9 @@ compareIntervalPoints x y = case (x,y) of
             (InfteNull,  InftePlus ) -> Lt
             _                        -> Gt
         where
-        o = ordRat x y
+        o = ordRat x' y'
     where
-    ordRat x y = case compare x y of
+    ordRat x' y' = case compare x' y' of
         LT -> Lt
         GT -> Gt
         EQ -> Eq
@@ -183,14 +183,15 @@ x ~>= y
     | oneArgIndet x y = Nothing
     | otherwise       = let c = compareIntervalPoints x y in Just $ c == Gt || c == Eq
 
+oneArgIndet :: IntervalLimitPoint -> IntervalLimitPoint -> Bool
 oneArgIndet Indet _     = True
 oneArgIndet _     Indet = True
 oneArgIndet _     _     = False
 
 corners :: (Eq k, Hashable k) => [(k, Interval)] -> [Map.HashMap k IntervalLimitPoint]
 corners choices = foldr
-        ( \(rf, Interval l u) corners ->
-          [Map.insert rf (Interval.toPoint Lower l) c | c <- corners] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- corners]
+        ( \(rf, Interval l u) crnrs ->
+          [Map.insert rf (Interval.toPoint Lower l) c | c <- crnrs] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- crnrs]
         )
         [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]]
         otherConditions

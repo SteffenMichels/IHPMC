@@ -35,6 +35,7 @@ import Control.Monad (forM_)
 import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 
+main :: IO ()
 main = do
     result <- runExceptionalT exeMain'
     case result of
@@ -60,8 +61,8 @@ main = do
         ast <- returnExceptional $ parsePclp src
         ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
         let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
-                               || maybe False (>= (u-l)/2) errBound
-                               || maybe False (<= t)       timeout
+                                                 || maybe False (>= (u-l)/2) errBound
+                                                 || maybe False (<= t)       timeout
         results <- case mbEvidence of
             Nothing -> ihpmc         (getFirst queries)    stopPred repInterval (AST.rFuncDefs ast) f
             Just ev -> ihpmcEvidence (getFirst queries) ev stopPred repInterval (AST.rFuncDefs ast) f

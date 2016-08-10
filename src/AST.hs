@@ -103,10 +103,13 @@ data RuleBodyElement = UserPredicate PredicateLabel [PredArgument]
 
 instance Show RuleBodyElement where
     show (UserPredicate (PredicateLabel label) args) = show label ++ show args
-    show (BuildInPredicate pred)                     = show pred
+    show (BuildInPredicate prd)                      = show prd
 instance Hashable RuleBodyElement
 
-data PredArgument = Variable VarName | Object ObjectLabel deriving (Eq, Show, Generic)
+data PredArgument = Variable VarName
+                  | Object ObjectLabel
+                  -- | NrObject Int
+                  deriving (Eq, Show, Generic)
 instance Hashable PredArgument
 newtype VarName = VarName String deriving (Eq, Show, Generic)
 instance Hashable VarName
@@ -122,6 +125,7 @@ instance Show BuildInPredicate
     where
     show (BoolEq eq exprX exprY)   = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
+    show (Constant cnst)           = show cnst
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
@@ -144,8 +148,8 @@ data Expr a
 deriving instance Eq (Expr a)
 instance Show (Expr a)
     where
-    show (BoolConstant const)           = printf "%s" (toLower <$> show const)
-    show (RealConstant const)           = printf "%f" (fromRat const::Float)
+    show (BoolConstant cnst)            = printf "%s" (toLower <$> show cnst)
+    show (RealConstant cnst)            = printf "%f" (fromRat cnst::Float)
     show (UserRFunc (RFuncLabel label)) = printf "~%s" label
     show (RealSum x y)                  = printf "%s + %s" (show x) (show y)
 instance Hashable (Expr a)
@@ -159,6 +163,7 @@ instance Hashable (Expr a)
 negatePred :: BuildInPredicate -> BuildInPredicate
 negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
 negatePred (RealIneq op exprX exprY) = RealIneq (negateOp op) exprX exprY
+negatePred (Constant cnst)           = Constant $ not cnst
 
 negateOp :: IneqOp -> IneqOp
 negateOp Lt   = GtEq
@@ -177,6 +182,7 @@ predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions lef
 predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions (Constant _)            = Set.empty
 
+exprRandomFunctions :: Expr t -> HashSet RFuncLabel
 exprRandomFunctions (UserRFunc label) = Set.singleton label
 exprRandomFunctions (BoolConstant _)  = Set.empty
 exprRandomFunctions (RealConstant _)  = Set.empty
@@ -202,7 +208,7 @@ onBoundary left right point = Interval.nullInfte evalLeft == Interval.nullInfte 
     evalLeft  = eval left  point
     evalRight = eval right point
 
-eval :: Expr t -> HashMap RFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (AST.UserRFunc rf@(RFuncLabel rfStr)) point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
-eval (AST.RealConstant r) point                  = Interval.rat2IntervLimPoint r
-eval (AST.RealSum x y)    point                  = eval x point + eval y point
+eval :: Expr RealN -> HashMap RFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
+eval (UserRFunc rf@(RFuncLabel rfStr)) point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
+eval (RealConstant r) _                      = Interval.rat2IntervLimPoint r
+eval (RealSum x y)    point                  = eval x point + eval y point

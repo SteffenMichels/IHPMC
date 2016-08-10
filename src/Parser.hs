@@ -19,6 +19,8 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+
 module Parser
     ( parsePclp
     ) where
@@ -53,14 +55,41 @@ languageDef =
                                        ]
              }
 
-lexer = Token.makeTokenParser languageDef
+lexer      = Token.makeTokenParser languageDef
 identifier = Token.identifier lexer
 reserved   = Token.reserved   lexer
 reservedOp = Token.reservedOp lexer
 parens     = Token.parens     lexer
 rational   = Token.lexeme     lexer parseRat
+    where
+    parseRat :: Parser Rational
+    parseRat = do
+        neg <- (string "-" >> return True) <|> return False
+        rat <- try parseDecimal <|> parseFraction
+        spaces
+        return $ if neg then -rat else rat
+        where
+        parseDecimal = do
+            before <- decimal
+            string "."
+            after <- many1 digit
+            return $ (fst . head . readFloat) (printf "%i.%s" before after)
+        parseFraction = do
+            before <- integer
+            string "/"
+            after <- integer
+            return $ before % after
 realIneqOp = Token.lexeme     lexer parseRealIneqOp
+    where
+    parseRealIneqOp :: Parser AST.IneqOp
+    parseRealIneqOp =     try (reservedOp "<"  >> return AST.Lt)
+                      <|>     (reservedOp "<=" >> return AST.LtEq)
+                      <|> try (reservedOp ">"  >> return AST.Gt)
+                      <|>     (reservedOp ">=" >> return AST.GtEq)
 userRFuncL = Token.lexeme     lexer parseUserRFuncLabel
+    where
+    parseUserRFuncLabel :: Parser AST.RFuncLabel
+    parseUserRFuncLabel = string "~" >> AST.RFuncLabel <$> identifier
 decimal    = Token.decimal    lexer
 integer    = Token.integer    lexer
 dot        = Token.dot        lexer
@@ -72,33 +101,6 @@ variable   = Token.lexeme     lexer parseVar
         first <- upper
         rest  <- many alphaNum
         return (first:rest)
-
-parseRat :: Parser Rational
-parseRat = do
-    neg <- (string "-" >> return True) <|> return False
-    rat <- try parseDecimal <|> parseFraction
-    spaces
-    return $ if neg then -rat else rat
-    where
-    parseDecimal = do
-        before <- decimal
-        string "."
-        after <- many1 digit
-        return $ (fst . head . readFloat) (printf "%i.%s" before after)
-    parseFraction = do
-        before <- integer
-        string "/"
-        after <- integer
-        return $ before % after
-
-parseRealIneqOp :: Parser AST.IneqOp
-parseRealIneqOp =     try (reservedOp "<"  >> return AST.Lt)
-                  <|>     (reservedOp "<=" >> return AST.LtEq)
-                  <|> try (reservedOp ">"  >> return AST.Gt)
-                  <|>     (reservedOp ">=" >> return AST.GtEq)
-
-parseUserRFuncLabel :: Parser AST.RFuncLabel
-parseUserRFuncLabel = string "~" >> AST.RFuncLabel <$> identifier
 
 -- PARSER
 parsePclp :: String -> Exceptional String AST
@@ -131,9 +133,9 @@ parseTheory ast = whiteSpace >>
             parseTheory ast'
           )
       <|> ( do -- rule
-            (label, args, body) <- parseRule
+            (lbl, args, body) <- parseRule
             -- put together rules with same head
-            let ast' = ast {AST.rules = Map.insertWith Set.union (label, length args) (Set.singleton (args, body)) (AST.rules ast)}
+            let ast' = ast {AST.rules = Map.insertWith Set.union (lbl, length args) (Set.singleton (args, body)) (AST.rules ast)}
             parseTheory ast'
           )
       <|> ( do -- end of input
@@ -145,11 +147,11 @@ parseTheory ast = whiteSpace >>
 -- rules
 parseRule :: Parser (AST.PredicateLabel, [AST.PredArgument], AST.RuleBody)
 parseRule = do
-    (label,args) <- parseUserPred
+    (lbl,args) <- parseUserPred
     reservedOp "<-"
     body <- sepBy parseBodyElement comma
     dot
-    return (label, args, AST.RuleBody body)
+    return (lbl, args, AST.RuleBody body)
 
 parseBodyElement :: Parser AST.RuleBodyElement
 parseBodyElement =
@@ -159,9 +161,9 @@ parseBodyElement =
 
 parseUserPred :: Parser (AST.PredicateLabel, [AST.PredArgument])
 parseUserPred = do
-    label <- parsePredicateLabel
+    lbl <- parsePredicateLabel
     args  <- option [] $ parens $ sepBy parseArg comma
-    return (label, args)
+    return (lbl, args)
 
 parsePredicateLabel :: Parser AST.PredicateLabel
 parsePredicateLabel = AST.PredicateLabel <$> identifier
@@ -184,17 +186,17 @@ parseBoolPredicate = do
 parseRealPredicate :: Parser AST.BuildInPredicate
 parseRealPredicate = do
     exprX <- rExpression
-    op    <- parseRealIneqOp
+    op    <- realIneqOp
     exprY <- rExpression
     return $ AST.RealIneq op exprX exprY
 
 -- rfunc defs
 parseRFuncDef :: Parser (AST.RFuncLabel, AST.RFuncDef)
 parseRFuncDef = do
-    label <- parseUserRFuncLabel
+    lbl <- userRFuncL
     reservedOp "~"
     def <- parseFlip <|> parseNorm
-    return (label, def)
+    return (lbl, def)
 
 parseFlip :: Parser AST.RFuncDef
 parseFlip = do
@@ -224,7 +226,7 @@ bOperators = []
 
 bTerm =  (reserved "true"  >> return (AST.BoolConstant True))
      <|> (reserved "false" >> return (AST.BoolConstant False))
-     <|> fmap AST.UserRFunc parseUserRFuncLabel
+     <|> fmap AST.UserRFunc userRFuncL
 
 rExpression :: Parser (AST.Expr AST.RealN)
 rExpression = buildExpressionParser rOperators rTerm
@@ -232,7 +234,7 @@ rExpression = buildExpressionParser rOperators rTerm
 rOperators = [ [Infix  (reservedOp "+"   >> return AST.RealSum) AssocLeft] ]
 
 rTerm =  fmap AST.RealConstant rational
-     <|> fmap AST.UserRFunc parseUserRFuncLabel
+     <|> fmap AST.UserRFunc userRFuncL
 
 -- queries
 parseQuery :: Parser (AST.PredicateLabel, [AST.PredArgument])
