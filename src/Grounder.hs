@@ -194,9 +194,9 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                           -> State GroundingState (Maybe [AST.RuleBodyElement])
                     match Nothing _          = return Nothing
                     match (Just els) argPair = case argPair of
-                        (x,                 y@(AST.Variable _))   -> return $ Just $ replace x y <$> els
-                        (AST.Object x,   AST.Object y) -> return $ if x == y then Just els else Nothing
-                        (AST.Variable x, AST.Object y) -> do
+                        (x,              y@(AST.Variable _)) -> return $ Just $ replace x y <$> els
+                        (AST.Object x,      AST.Object y)    -> return $ if x == y then Just els else Nothing
+                        (AST.Variable x,    AST.Object y)    -> do
                             st <- get
                             let Valuation valu = valuation st
                             case Map.lookup x valu of
@@ -231,8 +231,11 @@ toPropLabel :: AST.PredicateLabel -> [AST.ObjectLabel] -> Maybe Int -> Formula.P
 toPropLabel (AST.PredicateLabel label) objs mbInt = Formula.PropPredicateLabel $ printf
     "%s(%s)%s"
     label
-    (intercalate "," $ (\(AST.ObjectLabel l) -> l) <$> objs)
+    (intercalate "," $ objLabelStr <$> objs)
     (maybe "" show mbInt)
+    where
+    objLabelStr (AST.ObjectStr str) = str
+    objLabelStr (AST.ObjectInt int) = show int
 
 applyValuation :: Valuation -> AST.PredArgument -> AST.ObjectLabel
 applyValuation _               (AST.Object l)                      = l

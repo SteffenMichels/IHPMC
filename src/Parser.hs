@@ -169,9 +169,11 @@ parsePredicateLabel :: Parser AST.PredicateLabel
 parsePredicateLabel = AST.PredicateLabel <$> identifier
 
 parseArg :: Parser AST.PredArgument
-parseArg = AST.Object   . AST.ObjectLabel <$> identifier
+parseArg = AST.Object   . AST.ObjectStr <$> identifier
            <|>
-           AST.Variable . AST.VarName     <$> variable
+           AST.Object   . AST.ObjectInt <$> integer
+           <|>
+           AST.Variable . AST.VarName   <$> variable
 
 parseBuildInPredicate :: Parser AST.BuildInPredicate
 parseBuildInPredicate = try parseBoolPredicate <|> parseRealPredicate

@@ -108,12 +108,11 @@ instance Hashable RuleBodyElement
 
 data PredArgument = Variable VarName
                   | Object ObjectLabel
-                  -- | NrObject Int
                   deriving (Eq, Show, Generic)
 instance Hashable PredArgument
 newtype VarName = VarName String deriving (Eq, Show, Generic)
 instance Hashable VarName
-newtype ObjectLabel  = ObjectLabel String deriving (Eq, Show, Generic)
+data ObjectLabel  = ObjectStr String | ObjectInt Integer deriving (Eq, Show, Generic)
 instance Hashable ObjectLabel
 
 data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
