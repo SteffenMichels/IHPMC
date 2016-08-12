@@ -32,6 +32,7 @@ module Formula
     , PropRFuncLabel(..)
     , PropBuildInPredicate(..)
     , PropExpr(..)
+    , PropConstantExpr(..)
     , negatePred
     , predRandomFunctions
     , exprRandomFunctions
@@ -246,7 +247,7 @@ conditionBool origNodeEntry rf val f@Formula{nodes, labels2ids, buildinCache, ca
         conditionPred (BoolEq eq exprL exprR) = BoolEq eq (conditionExpr exprL) (conditionExpr exprR)
             where
             conditionExpr expr@(RFunc exprRFuncLabel)
-                | exprRFuncLabel == rf = BoolConstant val
+                | exprRFuncLabel == rf = ConstantExpr $ BoolConstant val
                 | otherwise            = expr
             conditionExpr expr = expr
         conditionPred prd = prd
@@ -366,26 +367,38 @@ instance Hashable PropBuildInPredicate
 
 data PropExpr a
     where
-    BoolConstant :: Bool                             -> PropExpr Bool
-    RealConstant :: Rational                         -> PropExpr RealN
+    ConstantExpr :: PropConstantExpr a               -> PropExpr a
     RFunc        :: PropRFuncLabel                   -> PropExpr a -- type depends on user input, has to be typechecked at runtime
     RealSum      :: PropExpr RealN -> PropExpr RealN -> PropExpr RealN
 
 deriving instance Eq (PropExpr a)
 instance Show (PropExpr a)
     where
-    show (BoolConstant cnst)            = printf "%s" (toLower <$> show cnst)
-    show (RealConstant cnst)            = printf "%f" (fromRat cnst::Float)
+    show (ConstantExpr cExpr)           = show cExpr
     show (RFunc (PropRFuncLabel label)) = printf "~%s" label
     show (RealSum x y)                  = printf "%s + %s" (show x) (show y)
-
 instance Hashable (PropExpr a)
+    where
+    hash = Hashable.hashWithSalt 0
+    hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
+    hashWithSalt salt (RFunc r)            = Hashable.hashWithSalt salt r
+    hashWithSalt salt (RealSum x y)        = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
+
+data PropConstantExpr a
+    where
+    BoolConstant :: Bool     -> PropConstantExpr Bool
+    RealConstant :: Rational -> PropConstantExpr RealN
+
+deriving instance Eq (PropConstantExpr a)
+instance Show (PropConstantExpr a)
+    where
+    show (BoolConstant cnst) = printf "%s" (toLower <$> show cnst)
+    show (RealConstant cnst) = printf "%f" (fromRat cnst::Float)
+instance Hashable (PropConstantExpr a)
     where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
-    hashWithSalt salt (RFunc r)    = Hashable.hashWithSalt salt r
-    hashWithSalt salt (RealSum x y)    = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
 
 predRandomFunctions :: PropBuildInPredicate -> HashSet PropRFuncLabel
 predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
@@ -394,8 +407,7 @@ predRandomFunctions (Constant _)            = Set.empty
 
 exprRandomFunctions :: PropExpr t -> HashSet PropRFuncLabel
 exprRandomFunctions (RFunc label)    = Set.singleton label
-exprRandomFunctions (BoolConstant _) = Set.empty
-exprRandomFunctions (RealConstant _) = Set.empty
+exprRandomFunctions (ConstantExpr _) = Set.empty
 exprRandomFunctions (RealSum x y)    = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
 
 negatePred :: PropBuildInPredicate -> PropBuildInPredicate
@@ -404,7 +416,7 @@ negatePred (RealIneq op exprX exprY) = RealIneq (AST.negateOp op) exprX exprY
 negatePred (Constant cnst)           = Constant $ not cnst
 
 deterministicValue :: PropBuildInPredicate -> Maybe Bool
-deterministicValue (BoolEq eq (BoolConstant left) (BoolConstant right))   = Just $ (if eq then (==) else (/=)) left right
+deterministicValue (BoolEq eq (ConstantExpr left) (ConstantExpr right))   = Just $ (if eq then (==) else (/=)) left right
 deterministicValue (BoolEq eq (RFunc left) (RFunc right)) | left == right = Just eq
 deterministicValue (Constant val)                                         = Just val
 deterministicValue _                                                      = Nothing
@@ -425,7 +437,7 @@ checkRealIneqPred op left right point = case op of
 
 eval :: PropExpr RealN -> HashMap PropRFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
 eval (RFunc rf@(PropRFuncLabel rfStr)) point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
-eval (RealConstant r) _                      = Interval.rat2IntervLimPoint r
+eval (ConstantExpr (RealConstant r)) _       = Interval.rat2IntervLimPoint r
 eval (RealSum x y)    point                  = eval x point + eval y point
 
 -- conditioned formulas

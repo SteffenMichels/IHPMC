@@ -29,6 +29,7 @@ module AST
     , Argument(..)
     , RFuncDef(..)
     , Expr(..)
+    , ConstantExpr(..)
     , RealN
     , IneqOp(..)
     , VarName(..)
@@ -141,25 +142,38 @@ instance Hashable IneqOp
 
 data Expr a
     where
-    BoolConstant :: Bool                     -> Expr Bool
-    RealConstant :: Rational                 -> Expr RealN
+    ConstantExpr :: ConstantExpr a           -> Expr a
     RFunc        :: RFuncLabel -> [Argument] -> Expr a -- type depends on user input, has to be typechecked at runtime
     RealSum      :: Expr RealN -> Expr RealN -> Expr RealN
 
 deriving instance Eq (Expr a)
 instance Show (Expr a)
     where
-    show (BoolConstant cnst)             = printf "%s" (toLower <$> show cnst)
-    show (RealConstant cnst)             = printf "%f" (fromRat cnst::Float)
+    show (ConstantExpr cnst)             = show cnst
     show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ intercalate ", " $ show <$> args
     show (RealSum x y)                   = printf "%s + %s" (show x) (show y)
 instance Hashable (Expr a)
     where
     hash = Hashable.hashWithSalt 0
+    hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
+    hashWithSalt salt (RFunc r args)       = Hashable.hashWithSalt (Hashable.hashWithSalt salt r) args
+    hashWithSalt salt (RealSum x y)        = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
+
+data ConstantExpr a
+    where
+    BoolConstant :: Bool     -> ConstantExpr Bool
+    RealConstant :: Rational -> ConstantExpr RealN
+
+deriving instance Eq (ConstantExpr a)
+instance Show (ConstantExpr a)
+    where
+    show (BoolConstant cnst) = printf "%s" (toLower <$> show cnst)
+    show (RealConstant cnst) = printf "%f" (fromRat cnst::Float)
+instance Hashable (ConstantExpr a)
+    where
+    hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
-    hashWithSalt salt (RFunc r args)   = Hashable.hashWithSalt (Hashable.hashWithSalt salt r) args
-    hashWithSalt salt (RealSum x y)    = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
 
 {-negatePred :: BuildInPredicate -> BuildInPredicate
 negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
@@ -185,8 +199,7 @@ predRandomFunctions (Constant _)            = Set.empty
 
 exprRandomFunctions :: Expr t -> HashSet (RFuncLabel, [Argument])
 exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
-exprRandomFunctions (BoolConstant _)   = Set.empty
-exprRandomFunctions (RealConstant _)   = Set.empty
+exprRandomFunctions (ConstantExpr _)   = Set.empty
 exprRandomFunctions (RealSum x y)      = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
 
 {-checkRealIneqPred :: IneqOp

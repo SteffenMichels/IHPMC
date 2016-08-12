@@ -232,8 +232,8 @@ bExpression = buildExpressionParser bOperators bTerm
 
 bOperators = []
 
-bTerm =  (reserved "true"  >> return (AST.BoolConstant True))
-     <|> (reserved "false" >> return (AST.BoolConstant False))
+bTerm =  (reserved "true"  >> return (AST.ConstantExpr $ AST.BoolConstant True))
+     <|> (reserved "false" >> return (AST.ConstantExpr $ AST.BoolConstant False))
      <|> uncurry AST.RFunc <$> parseRFunc
 
 rExpression :: Parser (AST.Expr RealN)
@@ -241,8 +241,8 @@ rExpression = buildExpressionParser rOperators rTerm
 
 rOperators = [ [Infix  (reservedOp "+"   >> return AST.RealSum) AssocLeft] ]
 
-rTerm =  AST.RealConstant <$> rational
-     <|> uncurry AST.RFunc <$> parseRFunc
+rTerm =  AST.ConstantExpr . AST.RealConstant  <$> rational
+     <|> uncurry AST.RFunc                    <$> parseRFunc
 
 -- queries
 parseQuery :: Parser (AST.PredicateLabel, [AST.Argument])

@@ -116,8 +116,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                 AST.Constant _             -> doms
                 where
                 updateDomains'' :: AST.Expr a -> HashSet (HashMap AST.VarName AST.ObjectLabel) -> HashSet (HashMap AST.VarName AST.ObjectLabel)
-                updateDomains'' (AST.BoolConstant _)      doms' = doms'
-                updateDomains'' (AST.RealConstant _)      doms' = doms'
+                updateDomains'' (AST.ConstantExpr _)      doms' = doms'
                 updateDomains'' (AST.RealSum exprX exprY) doms' = updateDomains'' exprX $ updateDomains'' exprY doms'
                 updateDomains'' (AST.RFunc label' args')  doms' = Set.fromList $ updateDomains' label' args' (Set.toList doms') allRFGroundings
             updateDomains (AST.UserPredicate label' args') doms = Set.fromList $ updateDomains' label' args' (Set.toList doms)  allPredGroundings
@@ -242,10 +241,9 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                         replace' arg = if arg == y then x else arg
 
                         replaceExpr :: AST.Expr a -> AST.Expr a
-                        replaceExpr bcnst@(AST.BoolConstant _)      = bcnst
-                        replaceExpr rcnst@(AST.RealConstant _)      = rcnst
-                        replaceExpr       (AST.RealSum exprX exprY) = AST.RealSum (replaceExpr exprX) (replaceExpr exprY)
-                        replaceExpr       (AST.RFunc label' args)   = AST.RFunc label' $ replace' <$> args
+                        replaceExpr cnst@(AST.ConstantExpr _)      = cnst
+                        replaceExpr      (AST.RealSum exprX exprY) = AST.RealSum (replaceExpr exprX) (replaceExpr exprY)
+                        replaceExpr      (AST.RFunc label' args)   = AST.RFunc label' $ replace' <$> args
 
                     -- replace existentially quantified (occuring in body, but not head) variables
                     replaceEVars :: ([AST.RuleBodyElement], HashMap AST.VarName Integer)
@@ -265,13 +263,12 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                         return (AST.BuildInPredicate bip':els, vars2ids')
                             where
                             replaceEVarsExpr :: AST.Expr a -> HashMap AST.VarName Integer -> State GroundingState (AST.Expr a, HashMap AST.VarName Integer)
-                            replaceEVarsExpr bcnst@(AST.BoolConstant _)      vars2ids' = return (bcnst, vars2ids')
-                            replaceEVarsExpr rcnst@(AST.RealConstant _)      vars2ids' = return (rcnst, vars2ids')
-                            replaceEVarsExpr       (AST.RealSum exprX exprY) vars2ids' = do
+                            replaceEVarsExpr cnst@(AST.ConstantExpr _)      vars2ids' = return (cnst, vars2ids')
+                            replaceEVarsExpr      (AST.RealSum exprX exprY) vars2ids' = do
                                 (exprX', vars2ids'')  <- replaceEVarsExpr exprX vars2ids'
                                 (exprY', vars2ids''') <- replaceEVarsExpr exprY vars2ids''
                                 return (AST.RealSum exprX' exprY', vars2ids''')
-                            replaceEVarsExpr       (AST.RFunc label' args)   vars2ids' = do
+                            replaceEVarsExpr      (AST.RFunc label' args)   vars2ids' = do
                                 (args', vars2ids'') <- foldM replaceEVarsArgs ([],vars2ids') $ reverse args
                                 return (AST.RFunc label' args', vars2ids'')
                     replaceEVars (els,vars2ids) (AST.UserPredicate label' args) = do
@@ -349,10 +346,13 @@ toPropBuildInPred bip valuation = case bip of
     AST.Constant cnst           -> Formula.Constant cnst
     where
     toPropExpr :: AST.Expr a -> Formula.PropExpr a
-    toPropExpr (AST.BoolConstant cnst)        = Formula.BoolConstant cnst
-    toPropExpr (AST.RealConstant cnst)        = Formula.RealConstant cnst
+    toPropExpr (AST.ConstantExpr cExpr)       = Formula.ConstantExpr $ toPropExpr' cExpr
     toPropExpr (AST.RFunc        label args)  = Formula.RFunc $ toPropRFuncLabel label $ applyValuation valuation args False
     toPropExpr (AST.RealSum      exprX exprY) = Formula.RealSum (toPropExpr exprX) (toPropExpr exprY)
+
+    toPropExpr' :: AST.ConstantExpr a -> Formula.PropConstantExpr a
+    toPropExpr' (AST.BoolConstant cnst) = Formula.BoolConstant cnst
+    toPropExpr' (AST.RealConstant cnst) = Formula.RealConstant cnst
 
 toPropRFuncLabel :: AST.RFuncLabel -> [AST.ObjectLabel] -> Formula.PropRFuncLabel
 toPropRFuncLabel (AST.RFuncLabel label) objs = Formula.PropRFuncLabel $ printf
