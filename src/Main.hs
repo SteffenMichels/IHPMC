@@ -33,6 +33,7 @@ import Control.Monad.Exception.Synchronous
 import Control.Monad (forM_)
 import System.Exit (exitFailure)
 import Data.Maybe (isJust)
+import qualified Formula
 
 main :: IO ()
 main = do
@@ -43,7 +44,7 @@ main = do
     where
     exeMain' = do
         args <- doIO getArgs
-        Options{modelFile, nIterations, errBound, timeout, repInterval} <- Options.parseConsoleArgs args
+        Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <- Options.parseConsoleArgs args
         assertT
             "Error bound should be between 0.0 and 0.5."
             (case errBound of
@@ -59,6 +60,7 @@ main = do
         src <- doIO $ readFile modelFile
         ast <- returnExceptional $ Parser.parsePclp src
         ((queries, mbEvidence, rFuncDefs), f) <- return $ Grounder.groundPclp ast IHPMC.heuristicsCacheComputations
+        whenJust formExpPath $ \path -> Formula.exportAsDot path f
         let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                                  || maybe False (>= (u-l)/2) errBound
                                                  || maybe False (<= t)       timeout
@@ -71,3 +73,7 @@ main = do
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr
+
+whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
+whenJust Nothing _   = return ()
+whenJust (Just x) fx = fx x
