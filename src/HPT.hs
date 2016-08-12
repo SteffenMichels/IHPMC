@@ -37,7 +37,6 @@ import Control.Monad (foldM)
 import Numeric (fromRat)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
-import qualified AST
 
 -- Hybrid Probability Tree
 data HPT     = Unfinished HPTNode ProbabilityBounds Double
@@ -45,8 +44,8 @@ data HPT     = Unfinished HPTNode ProbabilityBounds Double
              deriving (Show, Eq, Generic)
 instance Hashable HPT
 data HPTNode = Leaf Formula.NodeRef
-             | ChoiceBool AST.RFuncLabel Probability HPT HPT
-             | ChoiceReal AST.RFuncLabel Probability Rational HPT HPT
+             | ChoiceBool Formula.PropRFuncLabel Probability HPT HPT
+             | ChoiceReal Formula.PropRFuncLabel Probability Rational HPT HPT
              | Decomposition Formula.NodeType [HPT]
              deriving (Show, Eq, Generic)
 instance Hashable HPTNode
@@ -70,7 +69,7 @@ exportAsDot :: FilePath -> HPT -> ExceptionalT String IO ()
 exportAsDot path hpt = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
-    printNode Nothing Nothing hpt 0 file
+    _ <- printNode Nothing Nothing hpt 0 file
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
@@ -80,12 +79,12 @@ exportAsDot path hpt = do
             doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
-        Unfinished (ChoiceBool (AST.RFuncLabel rf)  prob left right) _ scr -> do
+        Unfinished (ChoiceBool (Formula.PropRFuncLabel rf)  prob left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
             counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) rf) left (counter+1) file
             printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) rf) right counter' file
-        Unfinished (ChoiceReal (AST.RFuncLabel rf) prob splitPoint left right) _ scr -> do
+        Unfinished (ChoiceReal (Formula.PropRFuncLabel rf) prob splitPoint left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
             counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) rf (fromRat splitPoint::Float)) left (counter+1) file
@@ -119,7 +118,7 @@ exportAsDot path hpt = do
         nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf
                 "%s%s\n  |%s"
                 label
-                (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ fmap showCondReal (Map.toList rConds)))
+                (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ showCondReal <$> (Map.toList rConds)))
                 (if sign then "" else "-")
                 where
                     showCondBool (rf, val)   = printf "%s=%s"    rf $ show val

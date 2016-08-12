@@ -26,19 +26,20 @@ module AST
     , RuleBody(..)
     , RuleBodyElement(..)
     , BuildInPredicate(..)
-    , PredArgument(..)
+    , Argument(..)
     , RFuncDef(..)
     , Expr(..)
     , RealN
     , IneqOp(..)
     , VarName(..)
     , ObjectLabel(..)
-    , deterministicValue
+    --, deterministicValue
     , predRandomFunctions
-    , exprRandomFunctions
-    , negatePred
-    , checkRealIneqPred
-    , onBoundary
+    --, exprRandomFunctions
+    --, negatePred
+    , negateOp
+    --, checkRealIneqPred
+    --, onBoundary
     ) where
 import BasicTypes
 import Data.HashMap.Lazy (HashMap)
@@ -52,14 +53,14 @@ import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
 import Numeric (fromRat)
-import Interval ((~<), (~>), (~<=), (~>=))
-import qualified Interval
+--import Interval ((~<), (~>), (~<=), (~>=))
+--import qualified Interval
 
 data AST = AST
-    { rFuncDefs :: HashMap RFuncLabel [RFuncDef] -- list of func with same signature, first matches
-    , rules     :: HashMap (PredicateLabel, Int) (HashSet ([PredArgument], RuleBody))
-    , queries   :: HashSet (PredicateLabel, [PredArgument])
-    , evidence  :: Maybe (PredicateLabel, [PredArgument])
+    { rFuncDefs :: HashMap (RFuncLabel, Int) [([Argument], RFuncDef)] -- first matching def applies
+    , rules     :: HashMap (PredicateLabel, Int) (HashSet ([Argument], RuleBody))
+    , queries   :: HashSet (PredicateLabel, [Argument])
+    , evidence  :: Maybe (PredicateLabel, [Argument])
     }
 
 instance Show AST
@@ -94,10 +95,10 @@ newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 
 instance Show RuleBody
     where
-    show (RuleBody elements) = intercalate ", " (fmap show elements)
+    show (RuleBody elements) = intercalate ", " (show <$> elements)
 instance Hashable RuleBody
 
-data RuleBodyElement = UserPredicate PredicateLabel [PredArgument]
+data RuleBodyElement = UserPredicate    PredicateLabel [Argument]
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic)
 
@@ -106,11 +107,13 @@ instance Show RuleBodyElement where
     show (BuildInPredicate prd)                      = show prd
 instance Hashable RuleBodyElement
 
-data PredArgument = Variable VarName
-                  | Object ObjectLabel
-                  deriving (Eq, Show, Generic)
-instance Hashable PredArgument
-newtype VarName = VarName String deriving (Eq, Show, Generic)
+data Argument = Variable VarName
+              | Object ObjectLabel
+              deriving (Eq, Show, Generic)
+instance Hashable Argument
+data VarName = VarName String
+             | TempVar Integer
+             deriving (Eq, Show, Generic)
 instance Hashable VarName
 data ObjectLabel  = ObjectStr String | ObjectInt Integer deriving (Eq, Show, Generic)
 instance Hashable ObjectLabel
@@ -135,34 +138,33 @@ instance Show IneqOp
     show Gt   = ">"
     show GtEq = ">="
 instance Hashable IneqOp
-data RealN
 
 data Expr a
     where
     BoolConstant :: Bool                     -> Expr Bool
     RealConstant :: Rational                 -> Expr RealN
-    UserRFunc    :: RFuncLabel               -> Expr a -- type depends on user input, has to be typechecked at runtime
+    RFunc        :: RFuncLabel -> [Argument] -> Expr a -- type depends on user input, has to be typechecked at runtime
     RealSum      :: Expr RealN -> Expr RealN -> Expr RealN
 
 deriving instance Eq (Expr a)
 instance Show (Expr a)
     where
-    show (BoolConstant cnst)            = printf "%s" (toLower <$> show cnst)
-    show (RealConstant cnst)            = printf "%f" (fromRat cnst::Float)
-    show (UserRFunc (RFuncLabel label)) = printf "~%s" label
-    show (RealSum x y)                  = printf "%s + %s" (show x) (show y)
+    show (BoolConstant cnst)             = printf "%s" (toLower <$> show cnst)
+    show (RealConstant cnst)             = printf "%f" (fromRat cnst::Float)
+    show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ intercalate ", " $ show <$> args
+    show (RealSum x y)                   = printf "%s + %s" (show x) (show y)
 instance Hashable (Expr a)
     where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
-    hashWithSalt salt (UserRFunc r)    = Hashable.hashWithSalt salt r
+    hashWithSalt salt (RFunc r args)   = Hashable.hashWithSalt (Hashable.hashWithSalt salt r) args
     hashWithSalt salt (RealSum x y)    = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
 
-negatePred :: BuildInPredicate -> BuildInPredicate
+{-negatePred :: BuildInPredicate -> BuildInPredicate
 negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
 negatePred (RealIneq op exprX exprY) = RealIneq (negateOp op) exprX exprY
-negatePred (Constant cnst)           = Constant $ not cnst
+negatePred (Constant cnst)           = Constant $ not cnst-}
 
 negateOp :: IneqOp -> IneqOp
 negateOp Lt   = GtEq
@@ -170,24 +172,24 @@ negateOp LtEq = Gt
 negateOp Gt   = LtEq
 negateOp GtEq = Lt
 
-deterministicValue :: BuildInPredicate -> Maybe Bool
-deterministicValue (BoolEq eq (BoolConstant left) (BoolConstant right))           = Just $ (if eq then (==) else (/=)) left right
-deterministicValue (BoolEq eq (UserRFunc left) (UserRFunc right)) | left == right = Just eq
-deterministicValue (Constant val)                                                 = Just val
-deterministicValue _                                                              = Nothing
+{-deterministicValue :: BuildInPredicate -> Maybe Bool
+deterministicValue (BoolEq eq (BoolConstant left) (BoolConstant right))                   = Just $ (if eq then (==) else (/=)) left right
+deterministicValue (BoolEq eq (RFunc x argsX) (RFunc y argsY)) | x == y && argsX == argsY = Just eq
+deterministicValue (Constant val)                                                         = Just val
+deterministicValue _                                                                      = Nothing-}
 
-predRandomFunctions :: BuildInPredicate -> HashSet RFuncLabel
+predRandomFunctions :: BuildInPredicate -> HashSet (RFuncLabel, [Argument])
 predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions (Constant _)            = Set.empty
 
-exprRandomFunctions :: Expr t -> HashSet RFuncLabel
-exprRandomFunctions (UserRFunc label) = Set.singleton label
-exprRandomFunctions (BoolConstant _)  = Set.empty
-exprRandomFunctions (RealConstant _)  = Set.empty
-exprRandomFunctions (RealSum x y)     = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
+exprRandomFunctions :: Expr t -> HashSet (RFuncLabel, [Argument])
+exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
+exprRandomFunctions (BoolConstant _)   = Set.empty
+exprRandomFunctions (RealConstant _)   = Set.empty
+exprRandomFunctions (RealSum x y)      = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
 
-checkRealIneqPred :: IneqOp
+{-checkRealIneqPred :: IneqOp
                   -> Expr RealN
                   -> Expr RealN
                   -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint
@@ -208,6 +210,6 @@ onBoundary left right point = Interval.nullInfte evalLeft == Interval.nullInfte 
     evalRight = eval right point
 
 eval :: Expr RealN -> HashMap RFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (UserRFunc rf@(RFuncLabel rfStr)) point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
-eval (RealConstant r) _                      = Interval.rat2IntervLimPoint r
-eval (RealSum x y)    point                  = eval x point + eval y point
+eval (RFunc rf@(RFuncLabel rfStr) _) point = undefined--Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
+eval (RealConstant r) _                  = Interval.rat2IntervLimPoint r
+eval (RealSum x y)    point              = eval x point + eval y point-}

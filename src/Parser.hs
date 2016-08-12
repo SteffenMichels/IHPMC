@@ -71,12 +71,12 @@ rational   = Token.lexeme     lexer parseRat
         where
         parseDecimal = do
             before <- decimal
-            string "."
+            _ <- string "."
             after <- many1 digit
             return $ (fst . head . readFloat) (printf "%i.%s" before after)
         parseFraction = do
             before <- integer
-            string "/"
+            _ <- string "/"
             after <- integer
             return $ before % after
 realIneqOp = Token.lexeme     lexer parseRealIneqOp
@@ -86,7 +86,7 @@ realIneqOp = Token.lexeme     lexer parseRealIneqOp
                       <|>     (reservedOp "<=" >> return AST.LtEq)
                       <|> try (reservedOp ">"  >> return AST.Gt)
                       <|>     (reservedOp ">=" >> return AST.GtEq)
-userRFuncL = Token.lexeme     lexer parseUserRFuncLabel
+rFuncL = Token.lexeme     lexer parseUserRFuncLabel
     where
     parseUserRFuncLabel :: Parser AST.RFuncLabel
     parseUserRFuncLabel = string "~" >> AST.RFuncLabel <$> identifier
@@ -127,9 +127,9 @@ parseTheory ast = whiteSpace >>
             parseTheory ast'
           )
       <|> ( do -- random function definition
-            (signature, def) <- parseRFuncDef
+            (lbl, args, def) <- parseRFuncDef
             -- put together defs with same signature
-            let ast' = ast {AST.rFuncDefs = Map.insertWith (++) signature [def] (AST.rFuncDefs ast)}
+            let ast' = ast {AST.rFuncDefs = Map.insertWith (++) (lbl, length args) [(args, def)] (AST.rFuncDefs ast)}
             parseTheory ast'
           )
       <|> ( do -- rule
@@ -145,12 +145,12 @@ parseTheory ast = whiteSpace >>
     )
 
 -- rules
-parseRule :: Parser (AST.PredicateLabel, [AST.PredArgument], AST.RuleBody)
+parseRule :: Parser (AST.PredicateLabel, [AST.Argument], AST.RuleBody)
 parseRule = do
-    (lbl,args) <- parseUserPred
+    (lbl, args) <- parseUserPred
     reservedOp "<-"
     body <- sepBy parseBodyElement comma
-    dot
+    _ <- dot
     return (lbl, args, AST.RuleBody body)
 
 parseBodyElement :: Parser AST.RuleBodyElement
@@ -159,7 +159,7 @@ parseBodyElement =
     <|>
         AST.BuildInPredicate <$> parseBuildInPredicate
 
-parseUserPred :: Parser (AST.PredicateLabel, [AST.PredArgument])
+parseUserPred :: Parser (AST.PredicateLabel, [AST.Argument])
 parseUserPred = do
     lbl <- parsePredicateLabel
     args  <- option [] $ parens $ sepBy parseArg comma
@@ -167,13 +167,6 @@ parseUserPred = do
 
 parsePredicateLabel :: Parser AST.PredicateLabel
 parsePredicateLabel = AST.PredicateLabel <$> identifier
-
-parseArg :: Parser AST.PredArgument
-parseArg = AST.Object   . AST.ObjectStr <$> identifier
-           <|>
-           AST.Object   . AST.ObjectInt <$> integer
-           <|>
-           AST.Variable . AST.VarName   <$> variable
 
 parseBuildInPredicate :: Parser AST.BuildInPredicate
 parseBuildInPredicate = try parseBoolPredicate <|> parseRealPredicate
@@ -193,18 +186,24 @@ parseRealPredicate = do
     return $ AST.RealIneq op exprX exprY
 
 -- rfunc defs
-parseRFuncDef :: Parser (AST.RFuncLabel, AST.RFuncDef)
+parseRFuncDef :: Parser (AST.RFuncLabel, [AST.Argument], AST.RFuncDef)
 parseRFuncDef = do
-    lbl <- userRFuncL
+    (lbl, args) <- parseRFunc
     reservedOp "~"
     def <- parseFlip <|> parseNorm
-    return (lbl, def)
+    return (lbl, args, def)
+
+parseRFunc :: Parser (AST.RFuncLabel, [AST.Argument])
+parseRFunc = do
+    lbl  <- rFuncL
+    args <- option [] $ parens $ sepBy parseArg comma
+    return (lbl, args)
 
 parseFlip :: Parser AST.RFuncDef
 parseFlip = do
     reserved "flip"
     prob <- parens $ fromRational <$> rational
-    dot
+    _ <- dot
     return $ AST.Flip prob
 
 parseNorm :: Parser AST.RFuncDef
@@ -212,13 +211,20 @@ parseNorm = do
     reserved "norm"
     (m, d) <- parens $ do
          m <- rational
-         comma
+         _ <- comma
          d <- rational
          return (m, d)
-    dot
+    _ <- dot
     return $ AST.RealDist
         (doubleToProb . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
         (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
+
+parseArg :: Parser AST.Argument
+parseArg = AST.Object   . AST.ObjectStr <$> identifier
+           <|>
+           AST.Object   . AST.ObjectInt <$> integer
+           <|>
+           AST.Variable . AST.VarName   <$> variable
 
 -- expressions
 bExpression :: Parser (AST.Expr Bool)
@@ -228,28 +234,28 @@ bOperators = []
 
 bTerm =  (reserved "true"  >> return (AST.BoolConstant True))
      <|> (reserved "false" >> return (AST.BoolConstant False))
-     <|> fmap AST.UserRFunc userRFuncL
+     <|> uncurry AST.RFunc <$> parseRFunc
 
-rExpression :: Parser (AST.Expr AST.RealN)
+rExpression :: Parser (AST.Expr RealN)
 rExpression = buildExpressionParser rOperators rTerm
 
 rOperators = [ [Infix  (reservedOp "+"   >> return AST.RealSum) AssocLeft] ]
 
-rTerm =  fmap AST.RealConstant rational
-     <|> fmap AST.UserRFunc userRFuncL
+rTerm =  AST.RealConstant <$> rational
+     <|> uncurry AST.RFunc <$> parseRFunc
 
 -- queries
-parseQuery :: Parser (AST.PredicateLabel, [AST.PredArgument])
+parseQuery :: Parser (AST.PredicateLabel, [AST.Argument])
 parseQuery = do
     reserved "query"
     query <- parseUserPred
-    dot
+    _ <- dot
     return query
 
 -- evidence
-parseEvidence :: Parser (AST.PredicateLabel, [AST.PredArgument])
+parseEvidence :: Parser (AST.PredicateLabel, [AST.Argument])
 parseEvidence = do
     reserved "evidence"
     evidence <- parseUserPred
-    dot
+    _ <- dot
     return evidence

@@ -52,4 +52,4 @@ main = do
                 putStrLn $ printf "%f %f %f" (now-begin) (probToDouble l) (probToDouble u) )
             return ()
 
-        curTime = fmap (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) getPOSIXTime
+        curTime = (\x -> (fromIntegral (round (x*1000)::Int)::Double)/1000.0) <$> getPOSIXTime

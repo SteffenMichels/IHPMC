@@ -32,7 +32,7 @@ executable ihpmc_float
         Grounder
         Interval
         Exception
-    ghc-options: -Werror -rtsopts -Wall -fno-warn-unused-do-bind
+    ghc-options: -Werror -rtsopts -Wall -O2
 
 executable ihpmc_exact
     main-is: Main.hs
@@ -61,4 +61,4 @@ executable ihpmc_exact
         Grounder
         Interval
         Exception
-    ghc-options: -Werror -rtsopts -Wall -fno-warn-unused-do-bind
+    ghc-options: -Werror -rtsopts -Wall -O2

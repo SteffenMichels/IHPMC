@@ -22,12 +22,11 @@
 module Main where
 import BasicTypes
 import System.Environment (getArgs)
-import Parser
-import Grounder
+import qualified Parser
+import qualified Grounder
 import Exception
 import Text.Printf (printf, PrintfArg)
-import IHPMC
-import qualified AST
+import qualified IHPMC
 import Options (Options(..))
 import qualified Options
 import Control.Monad.Exception.Synchronous
@@ -58,14 +57,14 @@ main = do
         printIfSet "Stopping if error bound is at most %f." $ probToDouble <$> errBound
         printIfSet "Stopping after %ims." timeout
         src <- doIO $ readFile modelFile
-        ast <- returnExceptional $ parsePclp src
-        ((queries, mbEvidence), f) <- return $ groundPclp ast $ heuristicsCacheComputations $ AST.rFuncDefs ast
+        ast <- returnExceptional $ Parser.parsePclp src
+        ((queries, mbEvidence, rFuncDefs), f) <- return $ Grounder.groundPclp ast IHPMC.heuristicsCacheComputations
         let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                                  || maybe False (>= (u-l)/2) errBound
                                                  || maybe False (<= t)       timeout
         results <- case mbEvidence of
-            Nothing -> ihpmc         (getFirst queries)    stopPred repInterval (AST.rFuncDefs ast) f
-            Just ev -> ihpmcEvidence (getFirst queries) ev stopPred repInterval (AST.rFuncDefs ast) f
+            Nothing -> IHPMC.ihpmc         (getFirst queries)    stopPred repInterval rFuncDefs f
+            Just ev -> IHPMC.ihpmcEvidence (getFirst queries) ev stopPred repInterval rFuncDefs f
         forM_
             results
             (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2.0) (probToDouble (u-l)/2))

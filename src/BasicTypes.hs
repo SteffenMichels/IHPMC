@@ -28,6 +28,7 @@ module BasicTypes
     , doubleToProb
     , probToDouble
     , getFirst
+    , RealN
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
@@ -94,6 +95,8 @@ instance Fractional Probability
 
 data ProbabilityBounds = ProbabilityBounds Probability Probability deriving (Eq, Show, Generic)
 instance Hashable ProbabilityBounds
+
+data RealN -- phantom for real numbered expression etc.
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set

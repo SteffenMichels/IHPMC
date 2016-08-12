@@ -50,7 +50,7 @@ import Exception
 --import Debug.Trace (trace)
 
 -- number of rfs in primitives, split points + scores
-data CachedSplitPoints = CachedSplitPoints Int (HashMap (AST.RFuncLabel, SplitPoint) Double) deriving (Eq, Generic)
+data CachedSplitPoints = CachedSplitPoints Int (HashMap (Formula.PropRFuncLabel, SplitPoint) Double) deriving (Eq, Generic)
 instance Hashable CachedSplitPoints
 type FState = State (Formula CachedSplitPoints)
 
@@ -62,7 +62,7 @@ untilFinished _ _ = False
 
 ihpmc :: Formula.NodeRef
       -> (Int -> ProbabilityBounds -> Int -> Bool)
-      -> Maybe Int -> HashMap AST.RFuncLabel [AST.RFuncDef]
+      -> Maybe Int -> HashMap Formula.PropRFuncLabel AST.RFuncDef
       -> Formula CachedSplitPoints
       -> ExceptionalT String IO [(Int,ProbabilityBounds)]
 ihpmc (Formula.RefDeterministic v) _ _ _ _= let p = if v then 1.0 else 0.0 in return [(1, ProbabilityBounds p p)]
@@ -90,7 +90,7 @@ ihpmcEvidence :: Formula.NodeRef
               -> Formula.NodeRef
               -> (Int -> ProbabilityBounds -> Int -> Bool)
               -> Maybe Int
-              -> HashMap AST.RFuncLabel [AST.RFuncDef]
+              -> HashMap Formula.PropRFuncLabel AST.RFuncDef
               -> Formula CachedSplitPoints
               -> ExceptionalT String IO [(Int,ProbabilityBounds)]
 ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = doIO getTime >>= \t -> evalStateT (do
@@ -101,7 +101,7 @@ ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = doIO getTime
     where
     queryRef sign = case query of
         Formula.RefComposed qSign label                 -> Formula.RefComposed (sign == qSign) label
-        Formula.RefBuildInPredicate prd prevChoicesReal -> Formula.RefBuildInPredicate (if sign then prd else AST.negatePred prd) prevChoicesReal
+        Formula.RefBuildInPredicate prd prevChoicesReal -> Formula.RefBuildInPredicate (if sign then prd else Formula.negatePred prd) prevChoicesReal
         Formula.RefDeterministic val                    -> Formula.RefDeterministic (val == sign)
     initHPT e = case Formula.entryRef e of
         Formula.RefDeterministic v -> HPT.Finished $ if v then 1.0 else 0.0
@@ -135,7 +135,7 @@ ihpmcEvidence query evidence finishPred mbRepInterval rfuncDefs f = doIO getTime
         return hpt'
     iterate' (HPT.Finished _) = error "IHPMC.ihpmcEvidence"
 
-ihpmcIterate :: HPTNode -> Double -> HashMap AST.RFuncLabel [AST.RFuncDef] -> FState HPT
+ihpmcIterate :: HPTNode -> Double -> HashMap Formula.PropRFuncLabel AST.RFuncDef -> FState HPT
 ihpmcIterate hptNode partChoiceProb rfuncDefs = do
     (hptNode', bounds@(ProbabilityBounds l u), score) <- iterateNode hptNode partChoiceProb
     return $ if l == u then HPT.Finished l
@@ -172,7 +172,7 @@ ihpmcIterate hptNode partChoiceProb rfuncDefs = do
         case Nothing of --decompose ref f of
             Nothing -> case splitPoint of
                 DiscreteSplit -> case Map.lookup splitRF rfuncDefs of
-                    Just (AST.Flip p:_) -> do
+                    Just (AST.Flip p) -> do
                         leftEntry  <- state $ Formula.conditionBool fEntry splitRF True
                         rightEntry <- state $ Formula.conditionBool fEntry splitRF False
                         let left  = toHPTNode p leftEntry
@@ -180,7 +180,7 @@ ihpmcIterate hptNode partChoiceProb rfuncDefs = do
                         return (HPT.ChoiceBool splitRF p left right, combineProbsChoice p left right, combineScoresChoice left right)
                     _ -> error ("undefined rfunc " ++ show splitRF)
                 ContinuousSplit splitPoint' -> case Map.lookup splitRF rfuncDefs of
-                    Just (AST.RealDist cdf _:_) -> do
+                    Just (AST.RealDist cdf _) -> do
                         leftEntry  <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval curLower (Open splitPoint')
                         rightEntry <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval (Open splitPoint') curUpper
                         let left  = toHPTNode p leftEntry
@@ -271,7 +271,7 @@ decompose ref f = Nothingcase Formula.entryNode $ Formula.augmentWithEntry ref f
             Formula.RefComposed sign _ -> sign
             _                      -> error "nodes other than composed ones have to sign"-}
 
-heuristicsCacheComputations :: HashMap AST.RFuncLabel [AST.RFuncDef] -> Formula.CacheComputations CachedSplitPoints
+heuristicsCacheComputations :: HashMap Formula.PropRFuncLabel AST.RFuncDef -> Formula.CacheComputations CachedSplitPoints
 heuristicsCacheComputations rfDefs = Formula.CacheComputations
     { Formula.cachedInfoComposed      = heuristicComposed
     , Formula.cachedInfoBuildInPred   = heuristicBuildInPred rfDefs
@@ -281,14 +281,14 @@ heuristicsCacheComputations rfDefs = Formula.CacheComputations
 heuristicDeterministic :: Bool -> CachedSplitPoints
 heuristicDeterministic = const $ CachedSplitPoints 0 Map.empty
 
-heuristicBuildInPred :: HashMap AST.RFuncLabel [AST.RFuncDef] -> HashMap AST.RFuncLabel Interval -> AST.BuildInPredicate -> CachedSplitPoints
+heuristicBuildInPred :: HashMap Formula.PropRFuncLabel AST.RFuncDef -> HashMap Formula.PropRFuncLabel Interval -> Formula.PropBuildInPredicate -> CachedSplitPoints
 heuristicBuildInPred rfDefs prevChoicesReal prd =
-        let predRfs = AST.predRandomFunctions prd
+        let predRfs = Formula.predRandomFunctions prd
             nRfs    = Set.size predRfs
         in case prd of
-            (AST.BoolEq{})                -> CachedSplitPoints nRfs $ Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
-            (AST.Constant _)              -> CachedSplitPoints nRfs Map.empty
-            (AST.RealIneq op exprX exprY) -> CachedSplitPoints
+            (Formula.BoolEq{})                -> CachedSplitPoints nRfs $ Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
+            (Formula.Constant _)              -> CachedSplitPoints nRfs Map.empty
+            (Formula.RealIneq op exprX exprY) -> CachedSplitPoints
                 nRfs
                 ( snd $ foldl
                     (\(nSols, splitPs) (rfs, nSols', splitPs') -> if any (\rf -> Map.lookupDefault nRfs rf nSols < length rfs) rfs
@@ -302,7 +302,7 @@ heuristicBuildInPred rfDefs prevChoicesReal prd =
                 equalSplits = Map.fromList [(rf,equalSplit rf) | rf <- Set.toList predRfs]
                     where
                         equalSplit rf = case Map.lookup rf rfDefs of
-                            Just (AST.RealDist cdf icdf:_) -> icdf ((pUntilLower + pUntilUpper) / 2.0)
+                            Just (AST.RealDist cdf icdf) -> icdf ((pUntilLower + pUntilUpper) / 2.0)
                                 where
                                 pUntilLower = cdf' cdf True  curLower
                                 pUntilUpper = cdf' cdf False curUpper
@@ -333,7 +333,7 @@ heuristicBuildInPred rfDefs prevChoicesReal prd =
                             where
                             extremePoints  = Set.map (\rf' -> (rf', Map.lookupDefault (Interval.Interval Inf Inf) rf' choices)) predRfs
                             corners        = Interval.corners $ Set.toList extremePoints
-                            checkedCorners = map (AST.checkRealIneqPred op exprX exprY) corners
+                            checkedCorners = map (Formula.checkRealIneqPred op exprX exprY) corners
                     reduction (rf:rfs') corner choices = pDiff rf chLeft * reduction rfs' corner chLeft + pDiff rf chRight * reduction rfs' corner chRight
                         where
                         splitP  = splitPoint rf corner
@@ -346,15 +346,15 @@ heuristicBuildInPred rfDefs prevChoicesReal prd =
                                                     ) / fromIntegral nRfs'
                         where
                         evalVals = Map.union remRfsCornerPts equalSplits
-                        rfOnLeft = Set.member rf $ AST.exprRandomFunctions exprX
+                        rfOnLeft = Set.member rf $ Formula.exprRandomFunctions exprX
                         equalSplit rf' = Map.lookupDefault (error "IHPMC.splitPoint") rf' equalSplits
 
-                        sumExpr :: AST.Expr AST.RealN -> Map.HashMap AST.RFuncLabel Rational-> Rational
-                        sumExpr (AST.RealConstant c) _ = c
-                        sumExpr (AST.UserRFunc rf') vals
+                        sumExpr :: Formula.PropExpr RealN -> Map.HashMap Formula.PropRFuncLabel Rational-> Rational
+                        sumExpr (Formula.RealConstant c) _ = c
+                        sumExpr (Formula.RFunc rf') vals
                             | rf' == rf = 0
                             | otherwise = fromMaybe (error "IHPMC.sumExpr: Just expected") $ Map.lookup rf' vals
-                        sumExpr (AST.RealSum x y) vals = sumExpr x vals + sumExpr y vals
+                        sumExpr (Formula.RealSum x y) vals = sumExpr x vals + sumExpr y vals
 
                     nRfs' = length rfs
 
@@ -378,7 +378,7 @@ heuristicBuildInPred rfDefs prevChoicesReal prd =
                     pUntilUpper = cdf' cdf False curUpper
                     Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
                     cdf = case Map.lookup rf rfDefs of
-                        Just (AST.RealDist cdf'' _:_) -> cdf''
+                        Just (AST.RealDist cdf'' _) -> cdf''
                         _ -> error "IHPMC.heuristicBuildInPred.cdf"
 
 heuristicComposed :: HashSet CachedSplitPoints -> CachedSplitPoints
@@ -388,9 +388,9 @@ heuristicComposed = Set.foldr
                         )
                         (CachedSplitPoints 0 Map.empty)
     where
-    combineSplitPoints :: HashMap (AST.RFuncLabel, SplitPoint) Double
-                       -> HashMap (AST.RFuncLabel, SplitPoint) Double
-                       -> HashMap (AST.RFuncLabel, SplitPoint) Double
+    combineSplitPoints :: HashMap (Formula.PropRFuncLabel, SplitPoint) Double
+                       -> HashMap (Formula.PropRFuncLabel, SplitPoint) Double
+                       -> HashMap (Formula.PropRFuncLabel, SplitPoint) Double
     combineSplitPoints = Map.unionWith (+)
 
 cdf' :: (Rational -> Probability) -> Bool -> IntervalLimit -> Probability
@@ -399,4 +399,4 @@ cdf' cdf _ (Open x)   = cdf x
 cdf' cdf _ (Closed x) = cdf x
 
 getTime :: IO Int
-getTime = fmap (\x -> fromIntegral (round (x*1000)::Int)) getPOSIXTime
+getTime = (\x -> fromIntegral (round (x*1000)::Int)) <$> getPOSIXTime
