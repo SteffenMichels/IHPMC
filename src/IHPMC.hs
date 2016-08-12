@@ -286,100 +286,102 @@ heuristicBuildInPred rfDefs prevChoicesReal prd =
         let predRfs = Formula.predRandomFunctions prd
             nRfs    = Set.size predRfs
         in case prd of
-            (Formula.BoolEq{})                -> CachedSplitPoints nRfs $ Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
-            (Formula.Constant _)              -> CachedSplitPoints nRfs Map.empty
-            (Formula.RealIneq op exprX exprY) -> CachedSplitPoints
-                nRfs
-                ( snd $ foldl
-                    (\(nSols, splitPs) (rfs, nSols', splitPs') -> if any (\rf -> Map.lookupDefault nRfs rf nSols < length rfs) rfs
-                                                                  then (nSols, splitPs)
-                                                                  else (Map.union nSols nSols', Map.unionWith (+) splitPs splitPs')
-                    )
-                    (Map.empty, Map.empty)
-                    (splitPoints <$> subsequences (Set.toList predRfs))
-                )
-                where
-                equalSplits = Map.fromList [(rf,equalSplit rf) | rf <- Set.toList predRfs]
-                    where
-                        equalSplit rf = case Map.lookup rf rfDefs of
-                            Just (AST.RealDist cdf icdf) -> icdf ((pUntilLower + pUntilUpper) / 2.0)
-                                where
-                                pUntilLower = cdf' cdf True  curLower
-                                pUntilUpper = cdf' cdf False curUpper
-                                Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
-                            _ -> error "IHPMC.equalSplit failed"
-                splitPoints rfs
-                    | null rfs || null result = (rfs, Map.empty,                             result)
-                    | otherwise               = (rfs, Map.fromList [(rf, nRfs') | rf <- rfs], result)
-                    where
-                    result = Map.filterWithKey notOnBoundary $ foldr
-                        (Map.unionWith (+))
-                        Map.empty
-                        [ Map.fromList [ ((rf, ContinuousSplit $ splitPoint rf corner), probToDouble $ reduction rfs corner prevChoicesReal)
-                                       | rf <- rfs
-                                       ]
-                        | corner <- remRfsCorners
-                        ]
-
-                    notOnBoundary (rf, ContinuousSplit p) _ =    (Interval.rat2IntervLimPoint p ~> Interval.toPoint Lower lower) == Just True
-                                                              && (Interval.rat2IntervLimPoint p ~< Interval.toPoint Upper upper) == Just True
-                        where
-                        Interval.Interval lower upper = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
-                    notOnBoundary (_, DiscreteSplit) _ = error "IHPMC.heuristicBuildInPred.notOnBoundary"
-
-                    reduction [] _ choices
-                        | all ((==) $ Just True) checkedCorners || all ((==) $ Just False) checkedCorners = product [pDiff rf choices | rf <- Set.toList remainingRfs]
-                        | otherwise                                                                       = 0.0
-                            where
-                            extremePoints  = Set.map (\rf' -> (rf', Map.lookupDefault (Interval.Interval Inf Inf) rf' choices)) predRfs
-                            corners        = Interval.corners $ Set.toList extremePoints
-                            checkedCorners = map (Formula.checkRealIneqPred op exprX exprY) corners
-                    reduction (rf:rfs') corner choices = pDiff rf chLeft * reduction rfs' corner chLeft + pDiff rf chRight * reduction rfs' corner chRight
-                        where
-                        splitP  = splitPoint rf corner
-                        Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
-                        chLeft  = Map.insert rf (Interval.Interval curLower (Open splitP)) choices
-                        chRight = Map.insert rf (Interval.Interval (Open splitP) curUpper) choices
-
-                    splitPoint rf remRfsCornerPts = (   (fromIntegral nRfs' - 1.0)*equalSplit rf
-                                                      + (if rfOnLeft then 1.0 else -1.0) * (sumExpr exprY evalVals - sumExpr exprX evalVals)
-                                                    ) / fromIntegral nRfs'
-                        where
-                        evalVals = Map.union remRfsCornerPts equalSplits
-                        rfOnLeft = Set.member rf $ Formula.exprRandomFunctions exprX
-                        equalSplit rf' = Map.lookupDefault (error "IHPMC.splitPoint") rf' equalSplits
-
-                        sumExpr :: Formula.PropExpr RealN -> Map.HashMap Formula.PropRFuncLabel Rational-> Rational
-                        sumExpr (Formula.ConstantExpr (Formula.RealConstant c)) _ = c
-                        sumExpr (Formula.RFunc rf') vals
-                            | rf' == rf = 0
-                            | otherwise = fromMaybe (error "IHPMC.sumExpr: Just expected") $ Map.lookup rf' vals
-                        sumExpr (Formula.RealSum x y) vals = sumExpr x vals + sumExpr y vals
-
-                    nRfs' = length rfs
-
-                    remRfsCorners = Set.foldr
-                        (\rf corners -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
-                                            mbX                   = Interval.pointRational (Interval.toPoint Lower l)
-                                            mbY                   = Interval.pointRational (Interval.toPoint Upper u)
-                                            add mbC               = case mbC of
-                                                                       Nothing -> []
-                                                                       Just c  -> Map.insert rf c <$> corners
-                                        in  add mbX ++ add mbY
+            (Formula.BuildInPredicateBool{}) -> CachedSplitPoints nRfs $ Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
+            (Formula.BuildInPredicateReal rPrd) -> case rPrd of
+                (Formula.Equality{}) -> error "IHPMC: real equality not implemented"
+                (Formula.Constant _)              -> CachedSplitPoints nRfs Map.empty
+                (Formula.RealIneq op exprX exprY) -> CachedSplitPoints
+                    nRfs
+                    ( snd $ foldl
+                        (\(nSols, splitPs) (rfs, nSols', splitPs') -> if any (\rf -> Map.lookupDefault nRfs rf nSols < length rfs) rfs
+                                                                      then (nSols, splitPs)
+                                                                      else (Map.union nSols nSols', Map.unionWith (+) splitPs splitPs')
                         )
-                        [Map.empty]
-                        remainingRfs
-
-                    remainingRfs = Set.difference predRfs $ Set.fromList rfs
-
-                pDiff rf choices = pUntilUpper - pUntilLower
+                        (Map.empty, Map.empty)
+                        (splitPoints <$> subsequences (Set.toList predRfs))
+                    )
                     where
-                    pUntilLower = cdf' cdf True  curLower
-                    pUntilUpper = cdf' cdf False curUpper
-                    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
-                    cdf = case Map.lookup rf rfDefs of
-                        Just (AST.RealDist cdf'' _) -> cdf''
-                        _ -> error "IHPMC.heuristicBuildInPred.cdf"
+                    equalSplits = Map.fromList [(rf,equalSplit rf) | rf <- Set.toList predRfs]
+                        where
+                            equalSplit rf = case Map.lookup rf rfDefs of
+                                Just (AST.RealDist cdf icdf) -> icdf ((pUntilLower + pUntilUpper) / 2.0)
+                                    where
+                                    pUntilLower = cdf' cdf True  curLower
+                                    pUntilUpper = cdf' cdf False curUpper
+                                    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
+                                _ -> error "IHPMC.equalSplit failed"
+                    splitPoints rfs
+                        | null rfs || null result = (rfs, Map.empty,                             result)
+                        | otherwise               = (rfs, Map.fromList [(rf, nRfs') | rf <- rfs], result)
+                        where
+                        result = Map.filterWithKey notOnBoundary $ foldr
+                            (Map.unionWith (+))
+                            Map.empty
+                            [ Map.fromList [ ((rf, ContinuousSplit $ splitPoint rf corner), probToDouble $ reduction rfs corner prevChoicesReal)
+                                           | rf <- rfs
+                                           ]
+                            | corner <- remRfsCorners
+                            ]
+
+                        notOnBoundary (rf, ContinuousSplit p) _ =    (Interval.rat2IntervLimPoint p ~> Interval.toPoint Lower lower) == Just True
+                                                                  && (Interval.rat2IntervLimPoint p ~< Interval.toPoint Upper upper) == Just True
+                            where
+                            Interval.Interval lower upper = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
+                        notOnBoundary (_, DiscreteSplit) _ = error "IHPMC.heuristicBuildInPred.notOnBoundary"
+
+                        reduction [] _ choices
+                            | all ((==) $ Just True) checkedCorners || all ((==) $ Just False) checkedCorners = product [pDiff rf choices | rf <- Set.toList remainingRfs]
+                            | otherwise                                                                       = 0.0
+                                where
+                                extremePoints  = Set.map (\rf' -> (rf', Map.lookupDefault (Interval.Interval Inf Inf) rf' choices)) predRfs
+                                corners        = Interval.corners $ Set.toList extremePoints
+                                checkedCorners = map (Formula.checkRealIneqPred op exprX exprY) corners
+                        reduction (rf:rfs') corner choices = pDiff rf chLeft * reduction rfs' corner chLeft + pDiff rf chRight * reduction rfs' corner chRight
+                            where
+                            splitP  = splitPoint rf corner
+                            Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
+                            chLeft  = Map.insert rf (Interval.Interval curLower (Open splitP)) choices
+                            chRight = Map.insert rf (Interval.Interval (Open splitP) curUpper) choices
+
+                        splitPoint rf remRfsCornerPts = (   (fromIntegral nRfs' - 1.0)*equalSplit rf
+                                                          + (if rfOnLeft then 1.0 else -1.0) * (sumExpr exprY evalVals - sumExpr exprX evalVals)
+                                                        ) / fromIntegral nRfs'
+                            where
+                            evalVals = Map.union remRfsCornerPts equalSplits
+                            rfOnLeft = Set.member rf $ Formula.exprRandomFunctions exprX
+                            equalSplit rf' = Map.lookupDefault (error "IHPMC.splitPoint") rf' equalSplits
+
+                            sumExpr :: Formula.PropExpr RealN -> Map.HashMap Formula.PropRFuncLabel Rational-> Rational
+                            sumExpr (Formula.ConstantExpr (Formula.RealConstant c)) _ = c
+                            sumExpr (Formula.RFunc rf') vals
+                                | rf' == rf = 0
+                                | otherwise = fromMaybe (error "IHPMC.sumExpr: Just expected") $ Map.lookup rf' vals
+                            sumExpr (Formula.RealSum x y) vals = sumExpr x vals + sumExpr y vals
+
+                        nRfs' = length rfs
+
+                        remRfsCorners = Set.foldr
+                            (\rf corners -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
+                                                mbX                   = Interval.pointRational (Interval.toPoint Lower l)
+                                                mbY                   = Interval.pointRational (Interval.toPoint Upper u)
+                                                add mbC               = case mbC of
+                                                                           Nothing -> []
+                                                                           Just c  -> Map.insert rf c <$> corners
+                                            in  add mbX ++ add mbY
+                            )
+                            [Map.empty]
+                            remainingRfs
+
+                        remainingRfs = Set.difference predRfs $ Set.fromList rfs
+
+                    pDiff rf choices = pUntilUpper - pUntilLower
+                        where
+                        pUntilLower = cdf' cdf True  curLower
+                        pUntilUpper = cdf' cdf False curUpper
+                        Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
+                        cdf = case Map.lookup rf rfDefs of
+                            Just (AST.RealDist cdf'' _) -> cdf''
+                            _ -> error "IHPMC.heuristicBuildInPred.cdf"
 
 heuristicComposed :: HashSet CachedSplitPoints -> CachedSplitPoints
 heuristicComposed = Set.foldr

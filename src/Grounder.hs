@@ -113,7 +113,6 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
             updateDomains (AST.BuildInPredicate bip) doms = case bip of
                 AST.BoolEq   _ exprX exprY -> updateDomains'' exprX $ updateDomains'' exprY doms
                 AST.RealIneq _ exprX exprY -> updateDomains'' exprX $ updateDomains'' exprY doms
-                AST.Constant _             -> doms
                 where
                 updateDomains'' :: AST.Expr a -> HashSet (HashMap AST.VarName AST.ObjectLabel) -> HashSet (HashMap AST.VarName AST.ObjectLabel)
                 updateDomains'' (AST.ConstantExpr _)      doms' = doms'
@@ -236,7 +235,6 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                         (AST.BuildInPredicate bip)      -> AST.BuildInPredicate $ case bip of
                             AST.BoolEq   eq exprX exprY -> AST.BoolEq   eq (replaceExpr exprX) (replaceExpr exprY)
                             AST.RealIneq op exprX exprY -> AST.RealIneq op (replaceExpr exprX) (replaceExpr exprY)
-                            AST.Constant _              -> bip
                         where
                         replace' arg = if arg == y then x else arg
 
@@ -259,7 +257,6 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                 (exprX', vars2ids')  <- replaceEVarsExpr exprX vars2ids
                                 (exprY', vars2ids'') <- replaceEVarsExpr exprY vars2ids'
                                 return (AST.RealIneq op exprX' exprY', vars2ids'')
-                            AST.Constant _ -> return (bip, vars2ids)
                         return (AST.BuildInPredicate bip':els, vars2ids')
                             where
                             replaceEVarsExpr :: AST.Expr a -> HashMap AST.VarName Integer -> State GroundingState (AST.Expr a, HashMap AST.VarName Integer)
@@ -341,9 +338,8 @@ toPropPredLabel (AST.PredicateLabel label) objs mbInt = Formula.PropPredicateLab
 
 toPropBuildInPred :: AST.BuildInPredicate -> Valuation -> Formula.PropBuildInPredicate
 toPropBuildInPred bip valuation = case bip of
-    AST.BoolEq   eq exprX exprY -> Formula.BoolEq   eq (toPropExpr exprX) (toPropExpr exprY)
-    AST.RealIneq op exprX exprY -> Formula.RealIneq op (toPropExpr exprX) (toPropExpr exprY)
-    AST.Constant cnst           -> Formula.Constant cnst
+    AST.BoolEq   eq exprX exprY -> Formula.BuildInPredicateBool $ Formula.Equality   eq (toPropExpr exprX) (toPropExpr exprY)
+    AST.RealIneq op exprX exprY -> Formula.BuildInPredicateReal $ Formula.RealIneq op (toPropExpr exprX) (toPropExpr exprY)
     where
     toPropExpr :: AST.Expr a -> Formula.PropExpr a
     toPropExpr (AST.ConstantExpr cExpr)       = Formula.ConstantExpr $ toPropExpr' cExpr

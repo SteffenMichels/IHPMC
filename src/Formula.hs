@@ -31,6 +31,7 @@ module Formula
     , PropPredicateLabel(..)
     , PropRFuncLabel(..)
     , PropBuildInPredicate(..)
+    , TypedPropBuildInPred(..)
     , PropExpr(..)
     , PropConstantExpr(..)
     , negatePred
@@ -244,8 +245,9 @@ conditionBool origNodeEntry rf val f@Formula{nodes, labels2ids, buildinCache, ca
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no rfunctions"
     where
         conditionPred :: PropBuildInPredicate -> PropBuildInPredicate
-        conditionPred (BoolEq eq exprL exprR) = BoolEq eq (conditionExpr exprL) (conditionExpr exprR)
+        conditionPred (BuildInPredicateBool (Equality eq exprL exprR)) = BuildInPredicateBool $ Equality eq (conditionExpr exprL) (conditionExpr exprR)
             where
+            conditionExpr :: PropExpr Bool -> PropExpr Bool
             conditionExpr expr@(RFunc exprRFuncLabel)
                 | exprRFuncLabel == rf = ConstantExpr $ BoolConstant val
                 | otherwise            = expr
@@ -285,14 +287,14 @@ conditionReal origNodeEntry rf interv f@Formula{nodes, labels2ids, buildinCache,
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no rfunctions"
     where
         conditionPred :: PropBuildInPredicate -> HashMap PropRFuncLabel Interval -> PropBuildInPredicate
-        conditionPred prd@(RealIneq op left right) otherRealChoices
+        conditionPred prd@(BuildInPredicateReal (RealIneq op left right)) otherRealChoices
             -- check if choice is made for all 'rFuncs' in 'prd'
             | length conditions == Set.size predRFuncs = conditionPred'
             | otherwise = prd
             where
             conditionPred'
-                | all ((==) $ Just True)  checkedPreds = Constant True
-                | all ((==) $ Just False) checkedPreds = Constant False
+                | all ((==) $ Just True)  checkedPreds = BuildInPredicateReal $ Constant True
+                | all ((==) $ Just False) checkedPreds = BuildInPredicateReal $ Constant False
                 | otherwise                            = prd
 
             checkedPreds = map (checkRealIneqPred op left right) crns
@@ -353,17 +355,33 @@ instance Hashable PropPredicateLabel
 newtype PropRFuncLabel = PropRFuncLabel String deriving (Eq, Show, Generic)
 instance Hashable PropRFuncLabel
 
-data PropBuildInPredicate = BoolEq Bool (PropExpr Bool)  (PropExpr Bool)
-                          | RealIneq AST.IneqOp (PropExpr RealN) (PropExpr RealN)
-                          | Constant Bool
+data PropBuildInPredicate = BuildInPredicateBool (TypedPropBuildInPred Bool)
+                          | BuildInPredicateReal (TypedPropBuildInPred RealN)
                           deriving (Eq, Generic)
-
 instance Show PropBuildInPredicate
     where
-    show (BoolEq eq exprX exprY)   = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
+    show (BuildInPredicateBool b) = show b
+    show (BuildInPredicateReal r) = show r
+instance Hashable PropBuildInPredicate
+
+data TypedPropBuildInPred a
+    where
+    Equality :: Bool       -> PropExpr a     -> PropExpr a     -> TypedPropBuildInPred a
+    RealIneq :: AST.IneqOp -> PropExpr RealN -> PropExpr RealN -> TypedPropBuildInPred RealN
+    Constant :: Bool                                           -> TypedPropBuildInPred a
+
+deriving instance Eq (TypedPropBuildInPred a)
+instance Show (TypedPropBuildInPred a)
+    where
+    show (Equality eq exprX exprY) = printf "%s %s %s" (show exprX) (if eq then "=" else "/=") (show exprY)
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
     show (Constant cnst)           = show cnst
-instance Hashable PropBuildInPredicate
+instance Hashable (TypedPropBuildInPred a)
+    where
+    hash = Hashable.hashWithSalt 0
+    hashWithSalt salt (Equality eq exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt eq) exprX) exprY
+    hashWithSalt salt (RealIneq op exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt op) exprX) exprY
+    hashWithSalt salt (Constant b)              = Hashable.hashWithSalt salt b
 
 data PropExpr a
     where
@@ -401,9 +419,13 @@ instance Hashable (PropConstantExpr a)
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
 
 predRandomFunctions :: PropBuildInPredicate -> HashSet PropRFuncLabel
-predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions (Constant _)            = Set.empty
+predRandomFunctions (BuildInPredicateBool b) = predRandomFunctions' b
+predRandomFunctions (BuildInPredicateReal r) = predRandomFunctions' r
+
+predRandomFunctions' :: TypedPropBuildInPred a -> HashSet PropRFuncLabel
+predRandomFunctions' (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions' (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions' (Constant _)            = Set.empty
 
 exprRandomFunctions :: PropExpr t -> HashSet PropRFuncLabel
 exprRandomFunctions (RFunc label)    = Set.singleton label
@@ -411,15 +433,23 @@ exprRandomFunctions (ConstantExpr _) = Set.empty
 exprRandomFunctions (RealSum x y)    = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
 
 negatePred :: PropBuildInPredicate -> PropBuildInPredicate
-negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
-negatePred (RealIneq op exprX exprY) = RealIneq (AST.negateOp op) exprX exprY
-negatePred (Constant cnst)           = Constant $ not cnst
+negatePred (BuildInPredicateBool b) = BuildInPredicateBool $ negatePred' b
+negatePred (BuildInPredicateReal r) = BuildInPredicateReal $ negatePred' r
+
+negatePred' :: TypedPropBuildInPred a -> TypedPropBuildInPred a
+negatePred' (Equality eq exprX exprY) = Equality (not eq) exprX exprY
+negatePred' (RealIneq op exprX exprY) = RealIneq (AST.negateOp op) exprX exprY
+negatePred' (Constant cnst)           = Constant $ not cnst
 
 deterministicValue :: PropBuildInPredicate -> Maybe Bool
-deterministicValue (BoolEq eq (ConstantExpr left) (ConstantExpr right))   = Just $ (if eq then (==) else (/=)) left right
-deterministicValue (BoolEq eq (RFunc left) (RFunc right)) | left == right = Just eq
-deterministicValue (Constant val)                                         = Just val
-deterministicValue _                                                      = Nothing
+deterministicValue (BuildInPredicateBool b) = deterministicValue' b
+deterministicValue (BuildInPredicateReal r) = deterministicValue' r
+
+deterministicValue' :: TypedPropBuildInPred a -> Maybe Bool
+deterministicValue' (Equality eq (ConstantExpr left) (ConstantExpr right))   = Just $ (if eq then (==) else (/=)) left right
+deterministicValue' (Equality eq (RFunc left) (RFunc right)) | left == right = Just eq
+deterministicValue' (Constant val)                                           = Just val
+deterministicValue' _                                                        = Nothing
 
 checkRealIneqPred :: AST.IneqOp
                   -> PropExpr RealN

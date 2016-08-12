@@ -121,14 +121,12 @@ instance Hashable ObjectLabel
 
 data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
                       | RealIneq IneqOp (Expr RealN) (Expr RealN)
-                      | Constant Bool
                       deriving (Eq, Generic)
 
 instance Show BuildInPredicate
     where
     show (BoolEq eq exprX exprY)   = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
-    show (Constant cnst)           = show cnst
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
@@ -195,7 +193,6 @@ deterministicValue _                                                            
 predRandomFunctions :: BuildInPredicate -> HashSet (RFuncLabel, [Argument])
 predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions (Constant _)            = Set.empty
 
 exprRandomFunctions :: Expr t -> HashSet (RFuncLabel, [Argument])
 exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
