@@ -287,6 +287,8 @@ heuristicBuildInPred rfDefs prevChoicesReal prd =
             nRfs    = Set.size predRfs
         in case prd of
             (Formula.BuildInPredicateBool{}) -> CachedSplitPoints nRfs $ Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
+            (Formula.BuildInPredicateStr{}) -> error "IHMC: string-valued random functions not supported"
+            (Formula.BuildInPredicateInt{}) -> error "IHMC: integer-valued random functions not supported"
             (Formula.BuildInPredicateReal rPrd) -> case rPrd of
                 (Formula.Equality{}) -> error "IHPMC: real equality not implemented"
                 (Formula.Constant _)              -> CachedSplitPoints nRfs Map.empty

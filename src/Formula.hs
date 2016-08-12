@@ -357,11 +357,15 @@ instance Hashable PropRFuncLabel
 
 data PropBuildInPredicate = BuildInPredicateBool (TypedPropBuildInPred Bool)
                           | BuildInPredicateReal (TypedPropBuildInPred RealN)
+                          | BuildInPredicateStr  (TypedPropBuildInPred String)
+                          | BuildInPredicateInt  (TypedPropBuildInPred Integer)
                           deriving (Eq, Generic)
 instance Show PropBuildInPredicate
     where
     show (BuildInPredicateBool b) = show b
     show (BuildInPredicateReal r) = show r
+    show (BuildInPredicateStr  s) = show s
+    show (BuildInPredicateInt  i) = show i
 instance Hashable PropBuildInPredicate
 
 data TypedPropBuildInPred a
@@ -421,6 +425,8 @@ instance Hashable (PropConstantExpr a)
 predRandomFunctions :: PropBuildInPredicate -> HashSet PropRFuncLabel
 predRandomFunctions (BuildInPredicateBool b) = predRandomFunctions' b
 predRandomFunctions (BuildInPredicateReal r) = predRandomFunctions' r
+predRandomFunctions (BuildInPredicateStr  s) = predRandomFunctions' s
+predRandomFunctions (BuildInPredicateInt  i) = predRandomFunctions' i
 
 predRandomFunctions' :: TypedPropBuildInPred a -> HashSet PropRFuncLabel
 predRandomFunctions' (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
@@ -435,6 +441,8 @@ exprRandomFunctions (RealSum x y)    = Set.union (exprRandomFunctions x) (exprRa
 negatePred :: PropBuildInPredicate -> PropBuildInPredicate
 negatePred (BuildInPredicateBool b) = BuildInPredicateBool $ negatePred' b
 negatePred (BuildInPredicateReal r) = BuildInPredicateReal $ negatePred' r
+negatePred (BuildInPredicateStr  s) = BuildInPredicateStr  $ negatePred' s
+negatePred (BuildInPredicateInt  i) = BuildInPredicateInt  $ negatePred' i
 
 negatePred' :: TypedPropBuildInPred a -> TypedPropBuildInPred a
 negatePred' (Equality eq exprX exprY) = Equality (not eq) exprX exprY
@@ -444,6 +452,8 @@ negatePred' (Constant cnst)           = Constant $ not cnst
 deterministicValue :: PropBuildInPredicate -> Maybe Bool
 deterministicValue (BuildInPredicateBool b) = deterministicValue' b
 deterministicValue (BuildInPredicateReal r) = deterministicValue' r
+deterministicValue (BuildInPredicateStr  s) = deterministicValue' s
+deterministicValue (BuildInPredicateInt  i) = deterministicValue' i
 
 deterministicValue' :: TypedPropBuildInPred a -> Maybe Bool
 deterministicValue' (Equality eq (ConstantExpr left) (ConstantExpr right))   = Just $ (if eq then (==) else (/=)) left right
