@@ -44,8 +44,8 @@ data HPT     = Unfinished HPTNode ProbabilityBounds Double
              deriving (Show, Eq, Generic)
 instance Hashable HPT
 data HPTNode = Leaf Formula.NodeRef
-             | ChoiceBool Formula.PropRFuncLabel Probability HPT HPT
-             | ChoiceReal Formula.PropRFuncLabel Probability Rational HPT HPT
+             | ChoiceBool Formula.PropRFunc Probability HPT HPT
+             | ChoiceReal Formula.PropRFunc Probability Rational HPT HPT
              | Decomposition Formula.NodeType [HPT]
              deriving (Show, Eq, Generic)
 instance Hashable HPTNode
@@ -79,16 +79,16 @@ exportAsDot path hpt = do
             doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
-        Unfinished (ChoiceBool (Formula.PropRFuncLabel rf)  prob left right) _ scr -> do
+        Unfinished (ChoiceBool rf  prob left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) rf) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) rf) right counter' file
-        Unfinished (ChoiceReal (Formula.PropRFuncLabel rf) prob splitPoint left right) _ scr -> do
+            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) (show rf)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) (show rf)) right counter' file
+        Unfinished (ChoiceReal rf prob splitPoint left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) rf (fromRat splitPoint::Float)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) rf (fromRat splitPoint::Float)) right counter' file
+            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) (show rf) (fromRat splitPoint::Float)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) (show rf) (fromRat splitPoint::Float)) right counter' file
         Unfinished (Decomposition op psts) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel

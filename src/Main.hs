@@ -59,14 +59,14 @@ main = do
         printIfSet "Stopping after %ims." timeout
         src <- doIO $ readFile modelFile
         ast <- returnExceptional $ Parser.parsePclp src
-        ((queries, mbEvidence, rFuncDefs), f) <- return $ Grounder.groundPclp ast IHPMC.heuristicsCacheComputations
+        ((queries, mbEvidence), f) <- return $ Grounder.groundPclp ast IHPMC.heuristicsCacheComputations
         whenJust formExpPath $ \path -> Formula.exportAsDot path f
         let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                                  || maybe False (>= (u-l)/2) errBound
                                                  || maybe False (<= t)       timeout
         results <- case mbEvidence of
-            Nothing -> IHPMC.ihpmc         (getFirst queries)    stopPred repInterval rFuncDefs f
-            Just ev -> IHPMC.ihpmcEvidence (getFirst queries) ev stopPred repInterval rFuncDefs f
+            Nothing -> IHPMC.ihpmc         (getFirst queries)    stopPred repInterval f
+            Just ev -> IHPMC.ihpmcEvidence (getFirst queries) ev stopPred repInterval f
         forM_
             results
             (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2.0) (probToDouble (u-l)/2))

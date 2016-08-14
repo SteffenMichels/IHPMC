@@ -29,6 +29,7 @@ module Formula
     , ComposedId(..)
     , Conditions(..)
     , PropPredicateLabel(..)
+    , PropRFunc(..)
     , PropRFuncLabel(..)
     , PropBuildInPredicate(..)
     , TypedPropBuildInPred(..)
@@ -75,7 +76,7 @@ import Numeric (fromRat)
 
 -- INTERFACE
 data Node = Composed NodeType (HashSet NodeRef)
-          | BuildInPredicate PropBuildInPredicate (HashMap PropRFuncLabel Interval) -- store only real choices, as bool choices eliminate rfs
+          | BuildInPredicate PropBuildInPredicate (HashMap PropRFunc Interval) -- store only real choices, as bool choices eliminate rfs
           | Deterministic Bool
           deriving (Show, Eq)
 
@@ -83,7 +84,7 @@ data RefWithNode cachedInfo = RefWithNode
     { entryRef        :: NodeRef
     , entryNode       :: Node
     , entryLabel      :: Maybe ComposedLabel
-    , entryRFuncs     :: HashSet PropRFuncLabel
+    , entryRFuncs     :: HashSet PropRFunc
     , entryCachedInfo :: cachedInfo
     } deriving (Eq)
 instance Hashable (RefWithNode cachedInfo)
@@ -187,7 +188,7 @@ entryRefWithNode sign i (FormulaEntry op children rFuncs cachedInfo) = RefWithNo
     , entryCachedInfo = cachedInfo
     }-}
 
-predRefWithNode :: PropBuildInPredicate -> HashMap PropRFuncLabel Interval -> cachedInfo -> RefWithNode cachedInfo
+predRefWithNode :: PropBuildInPredicate -> HashMap PropRFunc Interval -> cachedInfo -> RefWithNode cachedInfo
 predRefWithNode prd prevChoicesReal cachedInfo = RefWithNode
     { entryRef        = RefBuildInPredicate prd prevChoicesReal
     , entryNode       = BuildInPredicate prd prevChoicesReal
@@ -216,7 +217,7 @@ entryChoices entry = case entryRef entry of
 
 conditionBool :: (Hashable cachedInfo, Eq cachedInfo)
               => RefWithNode cachedInfo
-              -> PropRFuncLabel
+              -> PropRFunc
               -> Bool
               -> Formula cachedInfo
               -> (RefWithNode cachedInfo, Formula cachedInfo)
@@ -249,15 +250,15 @@ conditionBool origNodeEntry rf val f@Formula{nodes, labels2ids, buildinCache, ca
         conditionPred (BuildInPredicateBool (Equality eq exprL exprR)) = BuildInPredicateBool $ Equality eq (conditionExpr exprL) (conditionExpr exprR)
             where
             conditionExpr :: PropExpr Bool -> PropExpr Bool
-            conditionExpr expr@(RFunc exprRFuncLabel)
-                | exprRFuncLabel == rf = ConstantExpr $ BoolConstant val
-                | otherwise            = expr
+            conditionExpr expr@(RFunc exprRFunc)
+                | exprRFunc == rf = ConstantExpr $ BoolConstant val
+                | otherwise       = expr
             conditionExpr expr = expr
         conditionPred prd = prd
 
 conditionReal :: (Hashable cachedInfo, Eq cachedInfo)
               => RefWithNode cachedInfo
-              -> PropRFuncLabel
+              -> PropRFunc
               -> Interval
               -> Formula cachedInfo
               -> (RefWithNode cachedInfo, Formula cachedInfo)
@@ -287,7 +288,7 @@ conditionReal origNodeEntry rf interv f@Formula{nodes, labels2ids, buildinCache,
             condPred = conditionPred prd prevChoicesReal
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no rfunctions"
     where
-        conditionPred :: PropBuildInPredicate -> HashMap PropRFuncLabel Interval -> PropBuildInPredicate
+        conditionPred :: PropBuildInPredicate -> HashMap PropRFunc Interval -> PropBuildInPredicate
         conditionPred prd@(BuildInPredicateReal (RealIneq op left right)) otherRealChoices
             -- check if choice is made for all 'rFuncs' in 'prd'
             | length conditions == Set.size predRFuncs = conditionPred'
@@ -334,11 +335,11 @@ exportAsDot path Formula{nodes} = do
 
 -- FORMULA STORAGE
 data Formula cachedInfo = Formula
-    { nodes        :: HashMap ComposedId (ComposedLabel, FormulaEntry cachedInfo)            -- graph representing formulas
-    , freshCounter :: Int                                                                    -- counter for fresh nodes
-    , labels2ids   :: HashMap ComposedLabel ComposedId                                       -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
-    , buildinCache :: HashMap (PropBuildInPredicate, HashMap PropRFuncLabel Interval) cachedInfo -- cache for buildin predicates
-    , cacheComps   :: CacheComputations cachedInfo                                           -- how cached information attached to formulas is computed
+    { nodes        :: HashMap ComposedId (ComposedLabel, FormulaEntry cachedInfo)           -- graph representing formulas
+    , freshCounter :: Int                                                                   -- counter for fresh nodes
+    , labels2ids   :: HashMap ComposedLabel ComposedId                                      -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
+    , buildinCache :: HashMap (PropBuildInPredicate, HashMap PropRFunc Interval) cachedInfo -- cache for buildin predicates
+    , cacheComps   :: CacheComputations cachedInfo                                          -- how cached information attached to formulas is computed
     }
 
 newtype ComposedId = ComposedId Int deriving (Eq, Generic)
@@ -353,7 +354,23 @@ data ComposedLabel = ComposedLabel
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
 newtype PropPredicateLabel = PropPredicateLabel String deriving (Eq, Generic)
 instance Hashable PropPredicateLabel
-newtype PropRFuncLabel = PropRFuncLabel String deriving (Eq, Show, Generic)
+
+data PropRFunc = PropRFunc PropRFuncLabel AST.RFuncDef
+instance Eq PropRFunc
+    where
+    PropRFunc x _ == PropRFunc y _ = x == y
+instance Show PropRFunc
+    where
+    show (PropRFunc l _ ) = show l
+instance Hashable PropRFunc
+    where
+    hash = Hashable.hashWithSalt 0
+    hashWithSalt salt (PropRFunc l _) = Hashable.hashWithSalt salt l
+
+newtype PropRFuncLabel = PropRFuncLabel String deriving (Eq, Generic)
+instance Show PropRFuncLabel
+    where
+    show (PropRFuncLabel l) = l
 instance Hashable PropRFuncLabel
 
 data PropBuildInPredicate = BuildInPredicateBool (TypedPropBuildInPred Bool)
@@ -391,15 +408,15 @@ instance Hashable (TypedPropBuildInPred a)
 data PropExpr a
     where
     ConstantExpr :: PropConstantExpr a               -> PropExpr a
-    RFunc        :: PropRFuncLabel                   -> PropExpr a -- type depends on user input, has to be typechecked at runtime
+    RFunc        :: PropRFunc                        -> PropExpr a -- type depends on user input, has to be typechecked at runtime
     RealSum      :: PropExpr RealN -> PropExpr RealN -> PropExpr RealN
 
 deriving instance Eq (PropExpr a)
 instance Show (PropExpr a)
     where
-    show (ConstantExpr cExpr)           = show cExpr
-    show (RFunc (PropRFuncLabel label)) = printf "~%s" label
-    show (RealSum x y)                  = printf "%s + %s" (show x) (show y)
+    show (ConstantExpr cExpr) = show cExpr
+    show (RFunc label)        = printf "~%s" $ show label
+    show (RealSum x y)        = printf "%s + %s" (show x) (show y)
 instance Hashable (PropExpr a)
     where
     hash = Hashable.hashWithSalt 0
@@ -431,18 +448,18 @@ instance Hashable (PropConstantExpr a)
 
 data RealN -- phantom for real numbered expression etc.
 
-predRandomFunctions :: PropBuildInPredicate -> HashSet PropRFuncLabel
+predRandomFunctions :: PropBuildInPredicate -> HashSet PropRFunc
 predRandomFunctions (BuildInPredicateBool b) = predRandomFunctions' b
 predRandomFunctions (BuildInPredicateReal r) = predRandomFunctions' r
 predRandomFunctions (BuildInPredicateStr  s) = predRandomFunctions' s
 predRandomFunctions (BuildInPredicateInt  i) = predRandomFunctions' i
 
-predRandomFunctions' :: TypedPropBuildInPred a -> HashSet PropRFuncLabel
+predRandomFunctions' :: TypedPropBuildInPred a -> HashSet PropRFunc
 predRandomFunctions' (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions' (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions' (Constant _)            = Set.empty
 
-exprRandomFunctions :: PropExpr t -> HashSet PropRFuncLabel
+exprRandomFunctions :: PropExpr t -> HashSet PropRFunc
 exprRandomFunctions (RFunc label)    = Set.singleton label
 exprRandomFunctions (ConstantExpr _) = Set.empty
 exprRandomFunctions (RealSum x y)    = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
@@ -473,7 +490,7 @@ deterministicValue' _                                                        = N
 checkRealIneqPred :: AST.IneqOp
                   -> PropExpr RealN
                   -> PropExpr RealN
-                  -> Map.HashMap PropRFuncLabel Interval.IntervalLimitPoint
+                  -> Map.HashMap PropRFunc Interval.IntervalLimitPoint
                   -> Maybe Bool -- result may be undetermined -> Nothing
 checkRealIneqPred op left right point = case op of
     AST.Lt   -> evalLeft ~<  evalRight
@@ -484,13 +501,13 @@ checkRealIneqPred op left right point = case op of
     evalLeft  = eval left  point
     evalRight = eval right point
 
-eval :: PropExpr RealN -> HashMap PropRFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (RFunc rf@(PropRFuncLabel rfStr)) point = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
-eval (ConstantExpr (RealConstant r)) _       = Interval.rat2IntervLimPoint r
-eval (RealSum x y)    point                  = eval x point + eval y point
+eval :: PropExpr RealN -> HashMap PropRFunc Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
+eval (RFunc rf) point                  = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" $ show rf) rf point
+eval (ConstantExpr (RealConstant r)) _ = Interval.rat2IntervLimPoint r
+eval (RealSum x y)    point            = eval x point + eval y point
 
 -- conditioned formulas
-data Conditions = Conditions (HashMap PropRFuncLabel Bool) (HashMap PropRFuncLabel Interval)
+data Conditions = Conditions (HashMap PropRFunc Bool) (HashMap PropRFunc Interval)
     deriving (Eq)
 
 instance Show ComposedLabel
@@ -500,7 +517,7 @@ instance Show ComposedLabel
         label
         (List.intercalate "," ((showCondBool <$> Map.toList bConds) ++ (showCondReal <$> Map.toList rConds)))
         where
-            showCondBool (PropRFuncLabel rf, val)    = printf "%s=%s"    rf $ show val
+            showCondBool (PropRFunc rf _, val) = printf "%s=%s" (show rf) (show val)
 
 instance Hashable ComposedLabel
     where
@@ -510,13 +527,13 @@ instance Hashable ComposedLabel
 uncondComposedLabel :: PropPredicateLabel -> ComposedLabel
 uncondComposedLabel label = ComposedLabel label (Conditions Map.empty Map.empty) $ Hashable.hash label
 
-condComposedLabelBool :: PropRFuncLabel -> Bool -> ComposedLabel -> ComposedLabel
+condComposedLabelBool :: PropRFunc -> Bool -> ComposedLabel -> ComposedLabel
 condComposedLabelBool rf val (ComposedLabel name (Conditions bConds rConds) hash) = ComposedLabel name (Conditions bConds' rConds) hash'
     where
     bConds' = Map.insert rf val bConds
     hash'   = hash + Hashable.hashWithSalt (Hashable.hash rf) val
 
-condComposedLabelReal :: PropRFuncLabel -> Interval -> ComposedLabel -> ComposedLabel
+condComposedLabelReal :: PropRFunc -> Interval -> ComposedLabel -> ComposedLabel
 condComposedLabelReal rf interv (ComposedLabel name (Conditions bConds rConds) hash) = ComposedLabel name (Conditions bConds rConds') hash'
     where
     rConds' = Map.insert rf interv rConds
@@ -526,14 +543,14 @@ labelId :: ComposedLabel -> Formula cachedInfo -> Maybe ComposedId
 labelId label Formula{labels2ids} = Map.lookup label labels2ids
 
 -- the FormulaEntry contains composed node, plus additional, redundant, cached information to avoid recomputations
-data FormulaEntry cachedInfo = FormulaEntry NodeType (HashSet NodeRef) (HashSet PropRFuncLabel) cachedInfo
+data FormulaEntry cachedInfo = FormulaEntry NodeType (HashSet NodeRef) (HashSet PropRFunc) cachedInfo
 
 data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
 
 -- node refs are used for optimisation, to avoid looking up leaves (build in preds and deterministic nodes) in the graph
 data NodeRef = RefComposed Bool ComposedId
-             | RefBuildInPredicate PropBuildInPredicate (HashMap PropRFuncLabel Interval) -- store only real choices, as bool choices eliminate rfs
+             | RefBuildInPredicate PropBuildInPredicate (HashMap PropRFunc Interval) -- store only real choices, as bool choices eliminate rfs
              | RefDeterministic Bool
              deriving (Eq, Generic)
 instance Hashable NodeRef
@@ -546,21 +563,21 @@ instance Show NodeRef
                                                    (List.intercalate ",\n" (showCondReal <$> Map.toList rConds))
     show (RefDeterministic val)              = show val
 
-showCondReal :: (PropRFuncLabel, Interval) -> String
-showCondReal (PropRFuncLabel rf, Interval.Interval l r) = printf "%s in (%s,%s)" rf (show l) (show r)
+showCondReal :: (PropRFunc, Interval) -> String
+showCondReal (rf, Interval.Interval l r) = printf "%s in (%s,%s)" (show rf) (show l) (show r)
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed      :: HashSet cachedInfo                                      -> cachedInfo
-    , cachedInfoBuildInPred   :: HashMap PropRFuncLabel Interval -> PropBuildInPredicate -> cachedInfo
-    , cachedInfoDeterministic :: Bool                                                    -> cachedInfo
+    { cachedInfoComposed      :: HashSet cachedInfo                                 -> cachedInfo
+    , cachedInfoBuildInPred   :: HashMap PropRFunc Interval -> PropBuildInPredicate -> cachedInfo
+    , cachedInfoDeterministic :: Bool                                               -> cachedInfo
     }
 
 -- to avoid recomputation
-cachedInfoBuildInPredCached :: HashMap PropRFuncLabel Interval
+cachedInfoBuildInPredCached :: HashMap PropRFunc Interval
                             -> PropBuildInPredicate
-                            -> (HashMap PropRFuncLabel Interval -> PropBuildInPredicate -> cachedInfo)
-                            -> HashMap (PropBuildInPredicate, HashMap PropRFuncLabel Interval) cachedInfo
-                            -> (cachedInfo, HashMap (PropBuildInPredicate, HashMap PropRFuncLabel Interval) cachedInfo)
+                            -> (HashMap PropRFunc Interval -> PropBuildInPredicate -> cachedInfo)
+                            -> HashMap (PropBuildInPredicate, HashMap PropRFunc Interval) cachedInfo
+                            -> (cachedInfo, HashMap (PropBuildInPredicate, HashMap PropRFunc Interval) cachedInfo)
 cachedInfoBuildInPredCached conds prd infoComp cache = case Map.lookup (prd,conds) cache of
     Just cachedInfo -> (cachedInfo, cache)
     Nothing         -> let cachedInfo = infoComp conds prd

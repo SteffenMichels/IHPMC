@@ -56,17 +56,17 @@ data GroundingState = GroundingState
 
 groundPclp :: (Eq cachedInfo, Hashable cachedInfo)
            => AST
-           -> (HashMap Formula.PropRFuncLabel AST.RFuncDef -> Formula.CacheComputations cachedInfo)
-           -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef, HashMap Formula.PropRFuncLabel AST.RFuncDef), Formula cachedInfo)
+           -> Formula.CacheComputations cachedInfo
+           -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef), Formula cachedInfo)
 groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules, AST.rFuncDefs=rFuncDefs} cachedInfoComps =
     runState (do groundedQueries <- foldrM (\query gQueries -> do ref <- headFormula query
                                                                   return $ Set.insert ref gQueries
                                            ) Set.empty queries'
                  case mbEvidence of
-                    Nothing -> return (groundedQueries, Nothing, groundedRfDefs)
+                    Nothing -> return (groundedQueries, Nothing)
                     Just ev -> do groundedEvidence <- headFormula $ second assumeAllArgsGrounded ev
-                                  return (groundedQueries, Just groundedEvidence, groundedRfDefs)
-             ) (Formula.empty $ cachedInfoComps groundedRfDefs)
+                                  return (groundedQueries, Just groundedEvidence)
+             ) (Formula.empty cachedInfoComps)
     where
     -- unwrap object arguments of query and evidence, assuming they are grounded
     queries'    = Set.map (second assumeAllArgsGrounded)     queries
@@ -381,9 +381,9 @@ toPropBuildInPred bip valuation rfDefs = case bip of
     toPropExpr :: AST.Expr -> PropExprWithType
     toPropExpr (AST.ConstantExpr cnst) = toPropExprConst cnst
     toPropExpr (AST.RFunc label args)  = case Map.lookup propRFuncLabel rfDefs of
-        Just (AST.Flip _)       -> ExprBool $ Formula.RFunc propRFuncLabel
-        Just (AST.RealDist _ _) -> ExprReal $ Formula.RFunc propRFuncLabel
-        Nothing                 -> error "Grounder: RF not found"
+        Just def@(AST.Flip _)       -> ExprBool $ Formula.RFunc $ Formula.PropRFunc propRFuncLabel def
+        Just def@(AST.RealDist _ _) -> ExprReal $ Formula.RFunc $ Formula.PropRFunc propRFuncLabel def
+        Nothing                     -> error "Grounder: RF not found"
         where
         propRFuncLabel = toPropRFuncLabel label $ applyValuation valuation args False
     toPropExpr (AST.RealSum exprX exprY) = toPropExprPairReal Formula.RealSum exprX exprY
