@@ -30,7 +30,6 @@ module AST
     , RFuncDef(..)
     , Expr(..)
     , ConstantExpr(..)
-    , RealN
     , IneqOp(..)
     , VarName(..)
     , ObjectLabel(..)
@@ -51,7 +50,6 @@ import Text.Printf (printf)
 import Data.List (intercalate)
 import Data.Char (toLower)
 import Data.Hashable (Hashable)
-import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
 import Numeric (fromRat)
 --import Interval ((~<), (~>), (~<=), (~>=))
@@ -119,13 +117,13 @@ instance Hashable VarName
 data ObjectLabel  = ObjectStr String | ObjectInt Integer deriving (Eq, Show, Generic)
 instance Hashable ObjectLabel
 
-data BuildInPredicate = BoolEq Bool (Expr Bool) (Expr Bool)
-                      | RealIneq IneqOp (Expr RealN) (Expr RealN)
+data BuildInPredicate = Equality Bool Expr Expr
+                      | RealIneq IneqOp Expr Expr
                       deriving (Eq, Generic)
 
 instance Show BuildInPredicate
     where
-    show (BoolEq eq exprX exprY)   = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
+    show (Equality eq exprX exprY) = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
     show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
 instance Hashable BuildInPredicate
 
@@ -138,40 +136,31 @@ instance Show IneqOp
     show GtEq = ">="
 instance Hashable IneqOp
 
-data Expr a
-    where
-    ConstantExpr :: ConstantExpr a           -> Expr a
-    RFunc        :: RFuncLabel -> [Argument] -> Expr a -- type depends on user input, has to be typechecked at runtime
-    RealSum      :: Expr RealN -> Expr RealN -> Expr RealN
+data Expr = ConstantExpr ConstantExpr
+          | RFunc        RFuncLabel [Argument]
+          | RealSum      Expr Expr
+          deriving (Eq, Generic)
 
-deriving instance Eq (Expr a)
-instance Show (Expr a)
+instance Show Expr
     where
     show (ConstantExpr cnst)             = show cnst
     show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ intercalate ", " $ show <$> args
     show (RealSum x y)                   = printf "%s + %s" (show x) (show y)
-instance Hashable (Expr a)
-    where
-    hash = Hashable.hashWithSalt 0
-    hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
-    hashWithSalt salt (RFunc r args)       = Hashable.hashWithSalt (Hashable.hashWithSalt salt r) args
-    hashWithSalt salt (RealSum x y)        = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
+instance Hashable Expr
 
-data ConstantExpr a
-    where
-    BoolConstant :: Bool     -> ConstantExpr Bool
-    RealConstant :: Rational -> ConstantExpr RealN
+data ConstantExpr = BoolConstant Bool
+                  | RealConstant Rational
+                  | StrConstant  String
+                  | IntConstant  Integer
+                  deriving (Eq, Generic)
 
-deriving instance Eq (ConstantExpr a)
-instance Show (ConstantExpr a)
+instance Show ConstantExpr
     where
     show (BoolConstant cnst) = printf "%s" (toLower <$> show cnst)
     show (RealConstant cnst) = printf "%f" (fromRat cnst::Float)
-instance Hashable (ConstantExpr a)
-    where
-    hash = Hashable.hashWithSalt 0
-    hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
-    hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
+    show (StrConstant  cnst) = cnst
+    show (IntConstant  cnst) = show cnst
+instance Hashable ConstantExpr
 
 {-negatePred :: BuildInPredicate -> BuildInPredicate
 negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
@@ -191,10 +180,10 @@ deterministicValue (Constant val)                                               
 deterministicValue _                                                                      = Nothing-}
 
 predRandomFunctions :: BuildInPredicate -> HashSet (RFuncLabel, [Argument])
-predRandomFunctions (BoolEq _ left right)   = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 
-exprRandomFunctions :: Expr t -> HashSet (RFuncLabel, [Argument])
+exprRandomFunctions :: Expr -> HashSet (RFuncLabel, [Argument])
 exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
 exprRandomFunctions (ConstantExpr _)   = Set.empty
 exprRandomFunctions (RealSum x y)      = Set.union (exprRandomFunctions x) (exprRandomFunctions y)

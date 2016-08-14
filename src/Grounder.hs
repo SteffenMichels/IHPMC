@@ -111,10 +111,10 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
 
             updateDomains :: AST.RuleBodyElement -> HashSet (HashMap AST.VarName AST.ObjectLabel) -> HashSet (HashMap AST.VarName AST.ObjectLabel)
             updateDomains (AST.BuildInPredicate bip) doms = case bip of
-                AST.BoolEq   _ exprX exprY -> updateDomains'' exprX $ updateDomains'' exprY doms
+                AST.Equality _ exprX exprY -> updateDomains'' exprX $ updateDomains'' exprY doms
                 AST.RealIneq _ exprX exprY -> updateDomains'' exprX $ updateDomains'' exprY doms
                 where
-                updateDomains'' :: AST.Expr a -> HashSet (HashMap AST.VarName AST.ObjectLabel) -> HashSet (HashMap AST.VarName AST.ObjectLabel)
+                updateDomains'' :: AST.Expr -> HashSet (HashMap AST.VarName AST.ObjectLabel) -> HashSet (HashMap AST.VarName AST.ObjectLabel)
                 updateDomains'' (AST.ConstantExpr _)      doms' = doms'
                 updateDomains'' (AST.RealSum exprX exprY) doms' = updateDomains'' exprX $ updateDomains'' exprY doms'
                 updateDomains'' (AST.RFunc label' args')  doms' = Set.fromList $ updateDomains' label' args' (Set.toList doms') allRFGroundings
@@ -156,7 +156,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
 
     elementFormula :: (Eq cachedInfo, Hashable cachedInfo) => AST.RuleBodyElement -> Valuation -> FState cachedInfo Formula.NodeRef
     elementFormula (AST.UserPredicate label args) valuation = headFormula (label, applyValuation valuation args False)
-    elementFormula (AST.BuildInPredicate prd)     valuation = return $ Formula.RefBuildInPredicate (toPropBuildInPred prd valuation) Map.empty
+    elementFormula (AST.BuildInPredicate prd)     valuation = return $ Formula.RefBuildInPredicate (toPropBuildInPred prd valuation groundedRfDefs) Map.empty
 
     GroundingState{predGroundings = allPredGroundings, rfGroundings = allRFGroundings} = Set.foldr
         (\(label,args) -> execState $ allGroundings' $ Seq.singleton $ AST.UserPredicate label $ AST.Object <$> args)
@@ -233,12 +233,12 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                     replace x y el = case el of
                         (AST.UserPredicate label' args) -> AST.UserPredicate label' $ replace' <$> args
                         (AST.BuildInPredicate bip)      -> AST.BuildInPredicate $ case bip of
-                            AST.BoolEq   eq exprX exprY -> AST.BoolEq   eq (replaceExpr exprX) (replaceExpr exprY)
+                            AST.Equality eq exprX exprY -> AST.Equality   eq (replaceExpr exprX) (replaceExpr exprY)
                             AST.RealIneq op exprX exprY -> AST.RealIneq op (replaceExpr exprX) (replaceExpr exprY)
                         where
                         replace' arg = if arg == y then x else arg
 
-                        replaceExpr :: AST.Expr a -> AST.Expr a
+                        replaceExpr :: AST.Expr -> AST.Expr
                         replaceExpr cnst@(AST.ConstantExpr _)      = cnst
                         replaceExpr      (AST.RealSum exprX exprY) = AST.RealSum (replaceExpr exprX) (replaceExpr exprY)
                         replaceExpr      (AST.RFunc label' args)   = AST.RFunc label' $ replace' <$> args
@@ -249,17 +249,17 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                  -> State GroundingState ([AST.RuleBodyElement], HashMap AST.VarName Integer)
                     replaceEVars (els,vars2ids) (AST.BuildInPredicate bip) = do
                         (bip', vars2ids') <- case bip of
-                            AST.BoolEq eq exprX exprY -> do
+                            AST.Equality eq exprX exprY -> do
                                 (exprX', vars2ids')  <- replaceEVarsExpr exprX vars2ids
                                 (exprY', vars2ids'') <- replaceEVarsExpr exprY vars2ids'
-                                return (AST.BoolEq eq exprX' exprY', vars2ids'')
+                                return (AST.Equality eq exprX' exprY', vars2ids'')
                             AST.RealIneq op exprX exprY -> do
                                 (exprX', vars2ids')  <- replaceEVarsExpr exprX vars2ids
                                 (exprY', vars2ids'') <- replaceEVarsExpr exprY vars2ids'
                                 return (AST.RealIneq op exprX' exprY', vars2ids'')
                         return (AST.BuildInPredicate bip':els, vars2ids')
                             where
-                            replaceEVarsExpr :: AST.Expr a -> HashMap AST.VarName Integer -> State GroundingState (AST.Expr a, HashMap AST.VarName Integer)
+                            replaceEVarsExpr :: AST.Expr -> HashMap AST.VarName Integer -> State GroundingState (AST.Expr, HashMap AST.VarName Integer)
                             replaceEVarsExpr cnst@(AST.ConstantExpr _)      vars2ids' = return (cnst, vars2ids')
                             replaceEVarsExpr      (AST.RealSum exprX exprY) vars2ids' = do
                                 (exprX', vars2ids'')  <- replaceEVarsExpr exprX vars2ids'
@@ -331,30 +331,82 @@ matchArgs givenArgs args = Valuation <$> foldr match (Just Map.empty) (zip given
 -- turn constructs from ordinary ones (with arguments) to propositional ones (after grounding)
 toPropPredLabel :: AST.PredicateLabel -> [AST.ObjectLabel] -> Maybe Int -> Formula.PropPredicateLabel
 toPropPredLabel (AST.PredicateLabel label) objs mbInt = Formula.PropPredicateLabel $ printf
-    "%s(%s)%s"
+    "%s%s%s"
     label
-    (intercalate "," $ objLabelStr <$> objs)
+    (if null objs then "" else printf "(%s)" (intercalate "," $ objLabelStr <$> objs))
     (maybe "" show mbInt)
 
-toPropBuildInPred :: AST.BuildInPredicate -> Valuation -> Formula.PropBuildInPredicate
-toPropBuildInPred bip valuation = case bip of
-    AST.BoolEq   eq exprX exprY -> Formula.BuildInPredicateBool $ Formula.Equality   eq (toPropExpr exprX) (toPropExpr exprY)
-    AST.RealIneq op exprX exprY -> Formula.BuildInPredicateReal $ Formula.RealIneq op (toPropExpr exprX) (toPropExpr exprY)
-    where
-    toPropExpr :: AST.Expr a -> Formula.PropExpr a
-    toPropExpr (AST.ConstantExpr cExpr)       = Formula.ConstantExpr $ toPropExpr' cExpr
-    toPropExpr (AST.RFunc        label args)  = Formula.RFunc $ toPropRFuncLabel label $ applyValuation valuation args False
-    toPropExpr (AST.RealSum      exprX exprY) = Formula.RealSum (toPropExpr exprX) (toPropExpr exprY)
+data PropExprWithType = ExprBool (Formula.PropExpr Bool)
+                      | ExprReal (Formula.PropExpr Formula.RealN)
+                      | ExprStr  (Formula.PropExpr String)
+                      | ExprInt  (Formula.PropExpr Integer)
 
-    toPropExpr' :: AST.ConstantExpr a -> Formula.PropConstantExpr a
-    toPropExpr' (AST.BoolConstant cnst) = Formula.BoolConstant cnst
-    toPropExpr' (AST.RealConstant cnst) = Formula.RealConstant cnst
+instance Show PropExprWithType
+    where
+    show expr = printf "'%s' (of type %s)" exprStr typeStr
+        where
+        (exprStr, typeStr) = case expr of
+            ExprBool expr' -> (show expr', "Bool")
+            ExprReal expr' -> (show expr', "Real")
+            ExprStr  expr' -> (show expr', "String")
+            ExprInt  expr' -> (show expr', "Integer")
+
+toPropBuildInPred :: AST.BuildInPredicate
+                  -> Valuation
+                  -> HashMap Formula.PropRFuncLabel AST.RFuncDef
+                  -> Formula.PropBuildInPredicate
+toPropBuildInPred bip valuation rfDefs = case bip of
+    AST.Equality eq exprX exprY -> toPropBuildInPred'     (Formula.Equality eq) exprX exprY
+    AST.RealIneq op exprX exprY -> toPropBuildInPredReal' (Formula.RealIneq op) exprX exprY
+    where
+    toPropBuildInPred' :: (forall a. Formula.PropExpr a -> Formula.PropExpr a -> Formula.TypedPropBuildInPred a)
+                       -> AST.Expr
+                       -> AST.Expr
+                       -> Formula.PropBuildInPredicate
+    toPropBuildInPred' bipConstructor exprX exprY = case (toPropExpr exprX, toPropExpr exprY) of
+        (ExprReal exprX', ExprReal exprY') -> Formula.BuildInPredicateReal $ bipConstructor exprX' exprY'
+        (ExprBool exprX', ExprBool exprY') -> Formula.BuildInPredicateBool $ bipConstructor exprX' exprY'
+        (ExprInt  exprX', ExprInt  exprY') -> Formula.BuildInPredicateInt  $ bipConstructor exprX' exprY'
+        (ExprStr  exprX', ExprStr  exprY') -> Formula.BuildInPredicateStr  $ bipConstructor exprX' exprY'
+        (exprX',          exprY')          -> error $ printf "Types of expressions %s and %s do not match." (show exprX') (show exprY')
+
+    toPropBuildInPredReal' :: (Formula.PropExpr Formula.RealN -> Formula.PropExpr Formula.RealN -> Formula.TypedPropBuildInPred Formula.RealN)
+                           -> AST.Expr
+                           -> AST.Expr
+                           -> Formula.PropBuildInPredicate
+    toPropBuildInPredReal' bipConstructor exprX exprY = case (toPropExpr exprX, toPropExpr exprY) of
+        (ExprReal exprX', ExprReal exprY') -> Formula.BuildInPredicateReal $ bipConstructor exprX' exprY'
+        _                                  -> error "type error"
+
+    toPropExpr :: AST.Expr -> PropExprWithType
+    toPropExpr (AST.ConstantExpr cnst) = toPropExprConst cnst
+    toPropExpr (AST.RFunc label args)  = case Map.lookup propRFuncLabel rfDefs of
+        Just (AST.Flip _)       -> ExprBool $ Formula.RFunc propRFuncLabel
+        Just (AST.RealDist _ _) -> ExprReal $ Formula.RFunc propRFuncLabel
+        Nothing                 -> error "Grounder: RF not found"
+        where
+        propRFuncLabel = toPropRFuncLabel label $ applyValuation valuation args False
+    toPropExpr (AST.RealSum exprX exprY) = toPropExprPairReal Formula.RealSum exprX exprY
+
+    toPropExprConst :: AST.ConstantExpr -> PropExprWithType
+    toPropExprConst (AST.BoolConstant cnst) = ExprBool $ Formula.ConstantExpr $ Formula.BoolConstant cnst
+    toPropExprConst (AST.RealConstant cnst) = ExprReal $ Formula.ConstantExpr $ Formula.RealConstant cnst
+    toPropExprConst (AST.StrConstant  cnst) = ExprStr  $ Formula.ConstantExpr $ Formula.StrConstant  cnst
+    toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ Formula.ConstantExpr $ Formula.IntConstant  cnst
+
+    toPropExprPairReal :: (Formula.PropExpr Formula.RealN -> Formula.PropExpr Formula.RealN -> Formula.PropExpr Formula.RealN)
+                       -> AST.Expr
+                       -> AST.Expr
+                       -> PropExprWithType
+    toPropExprPairReal exprConstructor exprX exprY = case (toPropExpr exprX, toPropExpr exprY) of
+        (ExprReal exprX', ExprReal exprY') -> ExprReal $ exprConstructor exprX' exprY'
+        _                                  -> error "type error"
 
 toPropRFuncLabel :: AST.RFuncLabel -> [AST.ObjectLabel] -> Formula.PropRFuncLabel
 toPropRFuncLabel (AST.RFuncLabel label) objs = Formula.PropRFuncLabel $ printf
-    "%s(%s)"
+    "%s%s"
     label
-    (intercalate "," $ objLabelStr <$> objs)
+    (if null objs then "" else printf "(%s)" (intercalate "," $ objLabelStr <$> objs))
 
 objLabelStr :: AST.ObjectLabel -> String
 objLabelStr (AST.ObjectStr str) = str

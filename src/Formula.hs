@@ -34,6 +34,7 @@ module Formula
     , TypedPropBuildInPred(..)
     , PropExpr(..)
     , PropConstantExpr(..)
+    , RealN
     , negatePred
     , predRandomFunctions
     , exprRandomFunctions
@@ -410,17 +411,25 @@ data PropConstantExpr a
     where
     BoolConstant :: Bool     -> PropConstantExpr Bool
     RealConstant :: Rational -> PropConstantExpr RealN
+    StrConstant  :: String   -> PropConstantExpr String
+    IntConstant  :: Integer  -> PropConstantExpr Integer
 
 deriving instance Eq (PropConstantExpr a)
 instance Show (PropConstantExpr a)
     where
     show (BoolConstant cnst) = printf "%s" (toLower <$> show cnst)
     show (RealConstant cnst) = printf "%f" (fromRat cnst::Float)
+    show (StrConstant  cnst) = cnst
+    show (IntConstant  cnst) = show cnst
 instance Hashable (PropConstantExpr a)
     where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
+    hashWithSalt salt (StrConstant  s) = Hashable.hashWithSalt salt s
+    hashWithSalt salt (IntConstant  i) = Hashable.hashWithSalt salt i
+
+data RealN -- phantom for real numbered expression etc.
 
 predRandomFunctions :: PropBuildInPredicate -> HashSet PropRFuncLabel
 predRandomFunctions (BuildInPredicateBool b) = predRandomFunctions' b

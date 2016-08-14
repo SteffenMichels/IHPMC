@@ -176,7 +176,7 @@ parseBoolPredicate = do
     exprX <- bExpression
     reservedOp "="
     exprY <- bExpression
-    return (AST.BoolEq True exprX exprY)
+    return (AST.Equality True exprX exprY)
 
 parseRealPredicate :: Parser AST.BuildInPredicate
 parseRealPredicate = do
@@ -227,7 +227,7 @@ parseArg = AST.Object   . AST.ObjectStr <$> identifier
            AST.Variable . AST.VarName   <$> variable
 
 -- expressions
-bExpression :: Parser (AST.Expr Bool)
+bExpression :: Parser AST.Expr
 bExpression = buildExpressionParser bOperators bTerm
 
 bOperators = []
@@ -236,10 +236,10 @@ bTerm =  (reserved "true"  >> return (AST.ConstantExpr $ AST.BoolConstant True))
      <|> (reserved "false" >> return (AST.ConstantExpr $ AST.BoolConstant False))
      <|> uncurry AST.RFunc <$> parseRFunc
 
-rExpression :: Parser (AST.Expr RealN)
+rExpression :: Parser AST.Expr
 rExpression = buildExpressionParser rOperators rTerm
 
-rOperators = [ [Infix  (reservedOp "+"   >> return AST.RealSum) AssocLeft] ]
+rOperators = [ [Infix  (reservedOp "+" >> return AST.RealSum) AssocLeft] ]
 
 rTerm =  AST.ConstantExpr . AST.RealConstant  <$> rational
      <|> uncurry AST.RFunc                    <$> parseRFunc

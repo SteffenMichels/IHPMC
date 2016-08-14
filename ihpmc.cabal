@@ -19,7 +19,7 @@ executable ihpmc_float
         time -any
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
-                EmptyDataDecls NamedFieldPuns ExistentialQuantification
+                EmptyDataDecls NamedFieldPuns Rank2Types
     hs-source-dirs: src
     other-modules:
         Options
@@ -48,7 +48,7 @@ executable ihpmc_exact
         explicit-exception -any,
         time -any
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
-                EmptyDataDecls NamedFieldPuns ExistentialQuantification
+                EmptyDataDecls NamedFieldPuns Rank2Types
     hs-source-dirs: src
     other-modules:
         Options

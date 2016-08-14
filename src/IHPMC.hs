@@ -353,7 +353,7 @@ heuristicBuildInPred rfDefs prevChoicesReal prd =
                             rfOnLeft = Set.member rf $ Formula.exprRandomFunctions exprX
                             equalSplit rf' = Map.lookupDefault (error "IHPMC.splitPoint") rf' equalSplits
 
-                            sumExpr :: Formula.PropExpr RealN -> Map.HashMap Formula.PropRFuncLabel Rational-> Rational
+                            sumExpr :: Formula.PropExpr Formula.RealN -> Map.HashMap Formula.PropRFuncLabel Rational-> Rational
                             sumExpr (Formula.ConstantExpr (Formula.RealConstant c)) _ = c
                             sumExpr (Formula.RFunc rf') vals
                                 | rf' == rf = 0
