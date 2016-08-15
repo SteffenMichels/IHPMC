@@ -34,7 +34,7 @@ module Interval
     ) where
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
-import qualified Data.HashMap.Lazy as Map
+import qualified Data.HashMap.Strict as Map
 import Text.Printf (printf)
 import Numeric (fromRat)
 

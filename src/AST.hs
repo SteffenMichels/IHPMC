@@ -42,8 +42,8 @@ module AST
     --, onBoundary
     ) where
 import BasicTypes
-import Data.HashMap.Lazy (HashMap)
-import qualified Data.HashMap.Lazy as Map
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Text.Printf (printf)

@@ -26,12 +26,12 @@ import AST (AST)
 import qualified AST
 import Formula (Formula)
 import qualified Formula
-import Data.HashMap.Lazy (HashMap)
-import qualified Data.HashMap.Lazy as Map
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Control.Monad.State.Strict
-import Control.Arrow (first, second)
+import Control.Arrow (second)
 import Data.Hashable (Hashable)
 import Text.Printf (printf)
 import Data.List (intercalate)
@@ -41,7 +41,6 @@ import qualified Data.Sequence as Seq
 import Data.Maybe (catMaybes, isJust)
 import GHC.Generics (Generic)
 
-type FState cachedInfo = State (Formula cachedInfo)
 newtype Valuation = Valuation (HashMap AST.VarName AST.ObjectLabel) deriving (Show, Eq, Generic)
 instance Hashable Valuation
 data GroundingState = GroundingState
@@ -76,13 +75,13 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                                      AST.Object olabel -> olabel
                                  )
 
-    headFormula :: (Eq cachedInfo, Hashable cachedInfo) => (AST.PredicateLabel, [AST.ObjectLabel]) -> FState cachedInfo Formula.NodeRef
+    headFormula :: (Eq cachedInfo, Hashable cachedInfo) => (AST.PredicateLabel, [AST.ObjectLabel]) -> Formula.FState cachedInfo Formula.NodeRef
     headFormula (label@(AST.PredicateLabel lStr), args) =
-        do mbNodeId <- Formula.labelId labelWithArgs <$> get
+        do mbNodeId <- Formula.labelId labelWithArgs
            case mbNodeId of
                Just nodeId -> return $ Formula.RefComposed True nodeId
                _ -> do (fBodies,_) <- foldM (ruleFormulas label args) (Set.empty, 0::Int) headRules
-                       state $ first Formula.entryRef . Formula.insert (Left labelWithArgs) True Formula.Or fBodies
+                       Formula.entryRef <$> Formula.insert (Left labelWithArgs) True Formula.Or fBodies
         where
         labelWithArgs = Formula.uncondComposedLabel $ toPropPredLabel label args Nothing
         headRules     = Map.lookupDefault (error $ printf "head '%s/%i' undefined" lStr nArgs) (label, nArgs) rules
@@ -93,11 +92,11 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                  -> [AST.ObjectLabel]
                  -> (HashSet Formula.NodeRef, Int)
                  -> ([AST.Argument], AST.RuleBody)
-                 -> FState cachedInfo (HashSet Formula.NodeRef, Int)
+                 -> Formula.FState cachedInfo (HashSet Formula.NodeRef, Int)
     ruleFormulas label givenArgs (fBodies, counter) (args, body) = case completeValuation <$> matchArgs givenArgs args of
         Nothing         -> return (fBodies, counter) -- given arguments do not match definition OR domain of other vars in rule is empty, do not add anything to set of bodies
         Just valuations -> foldrM (\val (fBodies', counter') -> do newChild <- bodyFormula (toPropPredLabel label givenArgs $ Just counter') body val
-                                                                   return (Set.insert newChild fBodies', counter' + 1)
+                                                                   return (Set.insert newChild fBodies', succ counter')
                                   )
                                   (fBodies, counter)
                                   valuations
@@ -145,16 +144,16 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                 => Formula.PropPredicateLabel
                 -> AST.RuleBody
                 -> Valuation
-                -> FState cachedInfo Formula.NodeRef
+                -> Formula.FState cachedInfo Formula.NodeRef
     bodyFormula label (AST.RuleBody elements) valuation = case elements of
         []              -> error "Grounder.bodyFormula: empty rule body?"
         [singleElement] -> elementFormula singleElement valuation
         elements'       -> do fChildren <- foldrM (\el fChildren -> do newChild <- elementFormula el valuation
                                                                        return $ Set.insert newChild fChildren
                                                   ) Set.empty elements'
-                              state $ first Formula.entryRef . Formula.insert (Left $ Formula.uncondComposedLabel label) True Formula.And fChildren
+                              Formula.entryRef <$> Formula.insert (Left $ Formula.uncondComposedLabel label) True Formula.And fChildren
 
-    elementFormula :: (Eq cachedInfo, Hashable cachedInfo) => AST.RuleBodyElement -> Valuation -> FState cachedInfo Formula.NodeRef
+    elementFormula :: (Eq cachedInfo, Hashable cachedInfo) => AST.RuleBodyElement -> Valuation -> Formula.FState cachedInfo Formula.NodeRef
     elementFormula (AST.UserPredicate label args) valuation = headFormula (label, applyValuation valuation args False)
     elementFormula (AST.BuildInPredicate prd)     valuation = return $ Formula.RefBuildInPredicate (toPropBuildInPred prd valuation groundedRfDefs) Map.empty
 
@@ -279,7 +278,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                     replaceEVarsArgs (args', vars2ids') (AST.Variable var@(AST.VarName _)) = case Map.lookup var vars2ids' of
                         Just i -> return ((AST.Variable $ AST.VarName $ show i):args', vars2ids')
                         Nothing -> do
-                            i <- state (\st -> let i = varCount st in (i, st{varCount = i + 1}))
+                            i <- state (\st -> let i = varCount st in (i, st{varCount = succ i}))
                             return ((AST.Variable $ AST.TempVar i):args', Map.insert var i vars2ids')
                     replaceEVarsArgs (args', vars2ids') arg = return (arg:args', vars2ids')
                 where

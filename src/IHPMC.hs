@@ -34,8 +34,8 @@ import Data.HashSet (HashSet)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import qualified Data.HashSet as Set
-import Data.HashMap.Lazy (HashMap)
-import qualified Data.HashMap.Lazy as Map
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Map
 import qualified AST
 import GHC.Exts (sortWith)
 import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~>), (~<))
@@ -52,7 +52,7 @@ import Exception
 -- number of rfs in primitives, split points + scores
 data CachedSplitPoints = CachedSplitPoints Int (HashMap (Formula.PropRFunc, SplitPoint) Double) deriving (Eq, Generic)
 instance Hashable CachedSplitPoints
-type FState = State (Formula CachedSplitPoints)
+type FState = Formula.FState CachedSplitPoints
 
 data SplitPoint = DiscreteSplit | ContinuousSplit Rational deriving (Eq, Show, Generic)
 instance Hashable SplitPoint
@@ -69,7 +69,7 @@ ihpmc (Formula.RefDeterministic v) _ _ _ = let p = if v then 1.0 else 0.0 in ret
 ihpmc query finishPred mbRepInterval f = do
     t <- doIO getTime
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query) f
-        where-- $ unsafePerformIO (runExceptionalT (Formula.exportAsDot "/tmp/o.dot" f) >> return f) where
+        where
         ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int,ProbabilityBounds)]
         ihpmc' i startTime lastReportedTime hptNode = do
             f'        <- get
@@ -83,8 +83,8 @@ ihpmc query finishPred mbRepInterval f = do
                     if finishPred i bounds (curTime - startTime)
                         then return [(i,bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" hpt >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i,bounds)])
                         else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                            then ihpmc' (i + 1) startTime curTime hptNode' >>= \bs -> return ((i,bounds) : bs)
-                            else ihpmc' (i + 1) startTime lastReportedTime hptNode'
+                            then ihpmc' (succ i) startTime curTime hptNode' >>= \bs -> return ((i,bounds) : bs)
+                            else ihpmc' (succ i) startTime lastReportedTime hptNode'
 
 ihpmcEvidence :: Formula.NodeRef
               -> Formula.NodeRef
@@ -92,11 +92,15 @@ ihpmcEvidence :: Formula.NodeRef
               -> Maybe Int
               -> Formula CachedSplitPoints
               -> ExceptionalT String IO [(Int,ProbabilityBounds)]
-ihpmcEvidence query evidence finishPred mbRepInterval f = doIO getTime >>= \t -> evalStateT (do
-        queryAndEvidence    <- state $ Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.fromList [queryRef True,  evidence])
-        negQueryAndEvidence <- state $ Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.fromList [queryRef False, evidence])
-        ihpmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)
-    ) f
+ihpmcEvidence query evidence finishPred mbRepInterval f = do
+    t <- doIO getTime
+    let ((queryAndEvidence, negQueryAndEvidence), f') = runState (do
+                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.fromList [queryRef True,  evidence])
+                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.fromList [queryRef False, evidence])
+                return (qe, nqe)
+            )
+            f
+    evalStateT (ihpmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)) f'
     where
     queryRef sign = case query of
         Formula.RefComposed qSign label                 -> Formula.RefComposed (sign == qSign) label
@@ -124,8 +128,8 @@ ihpmcEvidence query evidence finishPred mbRepInterval f = doIO getTime >>= \t ->
 
         recurse qe' nqe' curTime =
             if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-            then ihpmc' (i + 1) startTime curTime qe' nqe' >>= \bs -> return ((i,bounds) : bs)
-            else ihpmc' (i + 1) startTime lastReportedTime qe' nqe'
+            then ihpmc' (succ i) startTime curTime qe' nqe' >>= \bs -> return ((i,bounds) : bs)
+            else ihpmc' (succ i) startTime lastReportedTime qe' nqe'
 
     iterate' :: HPT -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) HPT
     iterate' (HPT.Unfinished hptNode _ _) = do
@@ -168,21 +172,21 @@ ihpmcIterate hptNode partChoiceProb = do
                 HPT.Unfinished hptNode' _ _ -> hptNode'
                 _                           -> error "finished node should not be selected for iteration"
     iterateNode (HPT.Leaf ref) _ = do
-        fEntry <- state $ Formula.augmentWithEntry ref
+        fEntry <- Formula.augmentWithEntry ref
         case Nothing of --decompose ref f of
             Nothing -> case splitPoint of
                 DiscreteSplit -> case rfDef of
                     AST.Flip p -> do
-                        leftEntry  <- state $ Formula.conditionBool fEntry splitRF True
-                        rightEntry <- state $ Formula.conditionBool fEntry splitRF False
+                        leftEntry  <- Formula.conditionBool fEntry splitRF True
+                        rightEntry <- Formula.conditionBool fEntry splitRF False
                         let left  = toHPTNode p leftEntry
                         let right = toHPTNode (1.0 - p) rightEntry
                         return (HPT.ChoiceBool splitRF p left right, combineProbsChoice p left right, combineScoresChoice left right)
                     _ -> error "IHPMC: wrong RF def"
                 ContinuousSplit splitPoint' -> case rfDef of
                     AST.RealDist cdf _ -> do
-                        leftEntry  <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval curLower (Open splitPoint')
-                        rightEntry <- state $ Formula.conditionReal fEntry splitRF $ Interval.Interval (Open splitPoint') curUpper
+                        leftEntry  <- Formula.conditionReal fEntry splitRF $ Interval.Interval curLower (Open splitPoint')
+                        rightEntry <- Formula.conditionReal fEntry splitRF $ Interval.Interval (Open splitPoint') curUpper
                         let left  = toHPTNode p leftEntry
                         let right = toHPTNode (1.0 - p) rightEntry
                         return (HPT.ChoiceReal splitRF p splitPoint' left right, combineProbsChoice p left right, combineScoresChoice left right)

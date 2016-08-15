@@ -26,7 +26,7 @@ module Parser
     ) where
 import AST (AST)
 import qualified AST
-import qualified Data.HashMap.Lazy as Map
+import qualified Data.HashMap.Strict as Map
 import qualified Data.HashSet as Set
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
