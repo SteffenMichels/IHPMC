@@ -47,8 +47,6 @@ import Data.Char (toLower)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import Numeric (fromRat)
---import Interval ((~<), (~>), (~<=), (~>=))
---import qualified Interval
 
 data AST = AST
     { rFuncDefs :: HashMap (RFuncLabel, Int) [([Argument], RFuncDef)] -- first matching def applies
@@ -107,7 +105,11 @@ data Argument = Variable VarName
 instance Hashable Argument
 data VarName = VarName String
              | TempVar Integer
-             deriving (Eq, Show, Generic)
+             deriving (Eq, Generic)
+instance Show VarName
+    where
+    show (VarName str) = str
+    show (TempVar i)   = printf "_%i" i
 instance Hashable VarName
 data ObjectLabel  = ObjectStr String | ObjectInt Integer deriving (Eq, Show, Generic)
 instance Hashable ObjectLabel
@@ -133,6 +135,7 @@ instance Hashable IneqOp
 
 data Expr = ConstantExpr ConstantExpr
           | RFunc        RFuncLabel [Argument]
+          | Var          VarName
           | Sum          Expr Expr
           deriving (Eq, Generic)
 
@@ -140,6 +143,7 @@ instance Show Expr
     where
     show (ConstantExpr cnst)             = show cnst
     show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ intercalate ", " $ show <$> args
+    show (Var var)                       = show var
     show (Sum x y)                       = printf "%s + %s" (show x) (show y)
 instance Hashable Expr
 
@@ -170,5 +174,6 @@ predRandomFunctions (Ineq     _ left right) = Set.union (exprRandomFunctions lef
 
 exprRandomFunctions :: Expr -> HashSet (RFuncLabel, [Argument])
 exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
+exprRandomFunctions (Var _)            = Set.empty
 exprRandomFunctions (ConstantExpr _)   = Set.empty
 exprRandomFunctions (Sum x y)          = Set.union (exprRandomFunctions x) (exprRandomFunctions y)

@@ -226,17 +226,19 @@ expression = buildExpressionParser operators term
 
 operators = [ [Infix  (reservedOp "+" >> return AST.Sum) AssocLeft] ]
 
-term = (reserved "true"  >>          return (AST.ConstantExpr $ AST.BoolConstant True))
+term = const (AST.ConstantExpr $ AST.BoolConstant True)  <$> reserved "true"
        <|>
-       (reserved "false" >>          return (AST.ConstantExpr $ AST.BoolConstant False))
+       const (AST.ConstantExpr $ AST.BoolConstant False) <$> reserved "false"
        <|>
-       AST.ConstantExpr . AST.StrConstant  <$> identifier
+       AST.ConstantExpr . AST.StrConstant                <$> identifier
        <|>
-       AST.ConstantExpr . AST.RealConstant <$> try rational
+       AST.ConstantExpr . AST.RealConstant               <$> try rational
        <|>
-       AST.ConstantExpr . AST.IntConstant  <$> integer
+       AST.ConstantExpr . AST.IntConstant                <$> integer
        <|>
-       uncurry AST.RFunc <$> parseRFunc
+       uncurry AST.RFunc                                 <$> parseRFunc
+       <|>
+       AST.Var . AST.VarName                             <$> variable
 
 -- queries
 parseQuery :: Parser (AST.PredicateLabel, [AST.Argument])
