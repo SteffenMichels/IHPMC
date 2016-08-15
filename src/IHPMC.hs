@@ -72,9 +72,7 @@ ihpmc query finishPred mbRepInterval f = do
         where
         ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int,ProbabilityBounds)]
         ihpmc' i startTime lastReportedTime hptNode = do
-            f'        <- get
-            (hpt,f'') <- return $ runState (ihpmcIterate hptNode 1.0) f'
-            put f''
+            hpt <- state $ runState (ihpmcIterate hptNode 1.0)
             case hpt of
                 (HPT.Finished _)              -> return [(i,HPT.bounds hpt)]
                 (HPT.Unfinished hptNode' _ _) -> do
@@ -132,11 +130,7 @@ ihpmcEvidence query evidence finishPred mbRepInterval f = do
             else ihpmc' (succ i) startTime lastReportedTime qe' nqe'
 
     iterate' :: HPT -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) HPT
-    iterate' (HPT.Unfinished hptNode _ _) = do
-        f'         <- get
-        (hpt',f'') <- return $ runState (ihpmcIterate hptNode 1.0) f'
-        put f''
-        return hpt'
+    iterate' (HPT.Unfinished hptNode _ _) = state $ runState (ihpmcIterate hptNode 1.0)
     iterate' (HPT.Finished _) = error "IHPMC.ihpmcEvidence"
 
 ihpmcIterate :: HPTNode -> Double -> FState HPT
