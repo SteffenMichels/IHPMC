@@ -33,13 +33,8 @@ module AST
     , IneqOp(..)
     , VarName(..)
     , ObjectLabel(..)
-    --, deterministicValue
     , predRandomFunctions
-    --, exprRandomFunctions
-    --, negatePred
     , negateOp
-    --, checkRealIneqPred
-    --, onBoundary
     ) where
 import BasicTypes
 import Data.HashMap.Strict (HashMap)
@@ -118,13 +113,13 @@ data ObjectLabel  = ObjectStr String | ObjectInt Integer deriving (Eq, Show, Gen
 instance Hashable ObjectLabel
 
 data BuildInPredicate = Equality Bool Expr Expr
-                      | RealIneq IneqOp Expr Expr
+                      | Ineq     IneqOp Expr Expr
                       deriving (Eq, Generic)
 
 instance Show BuildInPredicate
     where
-    show (Equality eq exprX exprY) = printf "%s %s %s"  (show exprX) (if eq then "=" else "/=") (show exprY)
-    show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
+    show (Equality eq exprX exprY) = printf "%s %s %s" (show exprX) (if eq then "=" else "/=") (show exprY)
+    show (Ineq     op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
@@ -138,14 +133,14 @@ instance Hashable IneqOp
 
 data Expr = ConstantExpr ConstantExpr
           | RFunc        RFuncLabel [Argument]
-          | RealSum      Expr Expr
+          | Sum          Expr Expr
           deriving (Eq, Generic)
 
 instance Show Expr
     where
     show (ConstantExpr cnst)             = show cnst
     show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ intercalate ", " $ show <$> args
-    show (RealSum x y)                   = printf "%s + %s" (show x) (show y)
+    show (Sum x y)                       = printf "%s + %s" (show x) (show y)
 instance Hashable Expr
 
 data ConstantExpr = BoolConstant Bool
@@ -162,10 +157,6 @@ instance Show ConstantExpr
     show (IntConstant  cnst) = show cnst
 instance Hashable ConstantExpr
 
-{-negatePred :: BuildInPredicate -> BuildInPredicate
-negatePred (BoolEq eq exprX exprY)   = BoolEq (not eq) exprX exprY
-negatePred (RealIneq op exprX exprY) = RealIneq (negateOp op) exprX exprY
-negatePred (Constant cnst)           = Constant $ not cnst-}
 
 negateOp :: IneqOp -> IneqOp
 negateOp Lt   = GtEq
@@ -173,42 +164,11 @@ negateOp LtEq = Gt
 negateOp Gt   = LtEq
 negateOp GtEq = Lt
 
-{-deterministicValue :: BuildInPredicate -> Maybe Bool
-deterministicValue (BoolEq eq (BoolConstant left) (BoolConstant right))                   = Just $ (if eq then (==) else (/=)) left right
-deterministicValue (BoolEq eq (RFunc x argsX) (RFunc y argsY)) | x == y && argsX == argsY = Just eq
-deterministicValue (Constant val)                                                         = Just val
-deterministicValue _                                                                      = Nothing-}
-
 predRandomFunctions :: BuildInPredicate -> HashSet (RFuncLabel, [Argument])
 predRandomFunctions (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions (Ineq     _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 
 exprRandomFunctions :: Expr -> HashSet (RFuncLabel, [Argument])
 exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
 exprRandomFunctions (ConstantExpr _)   = Set.empty
-exprRandomFunctions (RealSum x y)      = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
-
-{-checkRealIneqPred :: IneqOp
-                  -> Expr RealN
-                  -> Expr RealN
-                  -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint
-                  -> Maybe Bool -- result may be undetermined -> Nothing
-checkRealIneqPred op left right point = case op of
-    AST.Lt   -> evalLeft ~<  evalRight
-    AST.LtEq -> evalLeft ~<= evalRight
-    AST.Gt   -> evalLeft ~>  evalRight
-    AST.GtEq -> evalLeft ~>= evalRight
-    where
-    evalLeft  = eval left  point
-    evalRight = eval right point
-
-onBoundary :: Expr RealN -> Expr RealN -> Map.HashMap RFuncLabel Interval.IntervalLimitPoint -> Bool
-onBoundary left right point = Interval.nullInfte evalLeft == Interval.nullInfte evalRight
-    where
-    evalLeft  = eval left  point
-    evalRight = eval right point
-
-eval :: Expr RealN -> HashMap RFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (RFunc rf@(RFuncLabel rfStr) _) point = undefined--Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" rfStr) rf point
-eval (RealConstant r) _                  = Interval.rat2IntervLimPoint r
-eval (RealSum x y)    point              = eval x point + eval y point-}
+exprRandomFunctions (Sum x y)          = Set.union (exprRandomFunctions x) (exprRandomFunctions y)

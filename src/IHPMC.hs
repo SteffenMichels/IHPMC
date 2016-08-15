@@ -295,8 +295,8 @@ heuristicBuildInPred prevChoicesReal prd =
             (Formula.BuildInPredicateInt{}) -> error "IHMC: integer-valued random functions not supported"
             (Formula.BuildInPredicateReal rPrd) -> case rPrd of
                 (Formula.Equality{}) -> error "IHPMC: real equality not implemented"
-                (Formula.Constant _)              -> CachedSplitPoints nRfs Map.empty
-                (Formula.RealIneq op exprX exprY) -> CachedSplitPoints
+                (Formula.Constant _) -> CachedSplitPoints nRfs Map.empty
+                (Formula.Ineq op exprX exprY) -> CachedSplitPoints
                     nRfs
                     ( snd $ foldl
                         (\(nSols, splitPs) (rfs, nSols', splitPs') -> if any (\rf -> Map.lookupDefault nRfs rf nSols < length rfs) rfs
@@ -362,7 +362,7 @@ heuristicBuildInPred prevChoicesReal prd =
                             sumExpr (Formula.RFunc rf') vals
                                 | rf' == rf = 0
                                 | otherwise = fromMaybe (error "IHPMC.sumExpr: Just expected") $ Map.lookup rf' vals
-                            sumExpr (Formula.RealSum x y) vals = sumExpr x vals + sumExpr y vals
+                            sumExpr (Formula.Sum x y) vals = sumExpr x vals + sumExpr y vals
 
                         nRfs' = length rfs
 

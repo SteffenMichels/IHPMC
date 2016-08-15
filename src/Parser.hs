@@ -169,21 +169,15 @@ parsePredicateLabel :: Parser AST.PredicateLabel
 parsePredicateLabel = AST.PredicateLabel <$> identifier
 
 parseBuildInPredicate :: Parser AST.BuildInPredicate
-parseBuildInPredicate = try parseBoolPredicate <|> parseRealPredicate
-
-parseBoolPredicate :: Parser AST.BuildInPredicate
-parseBoolPredicate = do
-    exprX <- bExpression
-    reservedOp "="
-    exprY <- bExpression
-    return (AST.Equality True exprX exprY)
-
-parseRealPredicate :: Parser AST.BuildInPredicate
-parseRealPredicate = do
-    exprX <- rExpression
-    op    <- realIneqOp
-    exprY <- rExpression
-    return $ AST.RealIneq op exprX exprY
+parseBuildInPredicate = do
+    exprX <- expression
+    constr <- (reservedOp "="  >>         return (AST.Equality True))
+              <|>
+              (reservedOp "/=" >>         return (AST.Equality False))
+              <|>
+              (realIneqOp      >>= \op -> return $ AST.Ineq op)
+    exprY <- expression
+    return $ constr exprX exprY
 
 -- rfunc defs
 parseRFuncDef :: Parser (AST.RFuncLabel, [AST.Argument], AST.RFuncDef)
@@ -227,22 +221,22 @@ parseArg = AST.Object   . AST.ObjectStr <$> identifier
            AST.Variable . AST.VarName   <$> variable
 
 -- expressions
-bExpression :: Parser AST.Expr
-bExpression = buildExpressionParser bOperators bTerm
+expression :: Parser AST.Expr
+expression = buildExpressionParser operators term
 
-bOperators = []
+operators = [ [Infix  (reservedOp "+" >> return AST.Sum) AssocLeft] ]
 
-bTerm =  (reserved "true"  >> return (AST.ConstantExpr $ AST.BoolConstant True))
-     <|> (reserved "false" >> return (AST.ConstantExpr $ AST.BoolConstant False))
-     <|> uncurry AST.RFunc <$> parseRFunc
-
-rExpression :: Parser AST.Expr
-rExpression = buildExpressionParser rOperators rTerm
-
-rOperators = [ [Infix  (reservedOp "+" >> return AST.RealSum) AssocLeft] ]
-
-rTerm =  AST.ConstantExpr . AST.RealConstant  <$> rational
-     <|> uncurry AST.RFunc                    <$> parseRFunc
+term = (reserved "true"  >>          return (AST.ConstantExpr $ AST.BoolConstant True))
+       <|>
+       (reserved "false" >>          return (AST.ConstantExpr $ AST.BoolConstant False))
+       <|>
+       AST.ConstantExpr . AST.StrConstant  <$> identifier
+       <|>
+       AST.ConstantExpr . AST.RealConstant <$> try rational
+       <|>
+       AST.ConstantExpr . AST.IntConstant  <$> integer
+       <|>
+       uncurry AST.RFunc <$> parseRFunc
 
 -- queries
 parseQuery :: Parser (AST.PredicateLabel, [AST.Argument])

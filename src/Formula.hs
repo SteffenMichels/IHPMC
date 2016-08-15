@@ -24,6 +24,7 @@ module Formula
     , Node(..)
     , NodeType(..)
     , NodeRef(..) -- TODO: constructors should not be exposed
+    , refBuildInPredicate
     , RefWithNode(entryRef,entryNode,entryRFuncs,entryCachedInfo)
     , CacheComputations(..)
     , ComposedId(..)
@@ -36,6 +37,7 @@ module Formula
     , PropExpr(..)
     , PropConstantExpr(..)
     , RealN
+    , Addition
     , FState
     , negatePred
     , predRandomFunctions
@@ -108,7 +110,7 @@ insert :: (Hashable cachedInfo, Eq cachedInfo)
        -> HashSet NodeRef
        -> FState cachedInfo (RefWithNode cachedInfo)
 insert labelOrConds sign op children = do
-    (simplifiedNode, simplifiedSign) <- simplify $ Composed op children
+    (simplifiedNode, simplifiedSign) <- simplify op children
     children' <- foldM
         (\cs c -> do
             e <- augmentWithEntry c
@@ -128,7 +130,7 @@ insert labelOrConds sign op children = do
                     Deterministic _        -> Set.empty
                     BuildInPredicate prd _ -> predRandomFunctions prd
                     Composed _ _           -> Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
-            modify (\f -> f{ nodes       = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
+            modify (\f -> f{ nodes        = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
                            , freshCounter = succ freshCounter
                            , labels2ids   = Map.insert label (ComposedId freshCounter) labels2ids
                            }
@@ -142,12 +144,8 @@ insert labelOrConds sign op children = do
         BuildInPredicate prd rConds -> return $ predRefWithNode (if sign then prd else negatePred prd) rConds cachedInfo
         Deterministic val           -> return $ deterministicRefWithNode (val == sign) cachedInfo
     where
-    simplify :: Node -> FState cachedInfo (Node, Bool)
-    simplify node@(Deterministic _) = return (node, error "Formula.simplify")
-    simplify node@(BuildInPredicate prd _) = return $ case deterministicValue prd of
-        Just val -> (Deterministic val, undefined)
-        Nothing  -> (node, undefined)
-    simplify (Composed operator childRefs) = case nChildren of
+    simplify :: NodeType -> HashSet NodeRef -> FState cachedInfo (Node, Bool)
+    simplify operator childRefs = case nChildren of
         0 -> return (Deterministic filterValue, True)
         1 -> do
             let onlyChild = getFirst newChildRefs
@@ -196,15 +194,6 @@ tryAugmentWithEntry (RefBuildInPredicate prd prevChoicesReal) = state (\f@Formul
 tryAugmentWithEntry (RefDeterministic val) = do
     Formula{cacheComps} <- get
     return $ Just $ deterministicRefWithNode val $ cachedInfoDeterministic cacheComps val
-
-{-entryRefWithNode :: Bool -> ComposedId -> FormulaEntry cachedInfo -> RefWithNode cachedInfo
-entryRefWithNode sign i (FormulaEntry op children rFuncs cachedInfo) = RefWithNode
-    { entryRef        = RefComposed sign i
-    , entryNode       = Composed op children
-    , entryLabel      = Nothing
-    , entryRFuncs     = rFuncs
-    , entryCachedInfo = cachedInfo
-    }-}
 
 predRefWithNode :: PropBuildInPredicate -> HashMap PropRFunc Interval -> cachedInfo -> RefWithNode cachedInfo
 predRefWithNode prd prevChoicesReal cachedInfo = RefWithNode
@@ -319,7 +308,7 @@ conditionReal origNodeEntry rf interv
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no rfunctions"
     where
         conditionPred :: PropBuildInPredicate -> HashMap PropRFunc Interval -> PropBuildInPredicate
-        conditionPred prd@(BuildInPredicateReal (RealIneq op left right)) otherRealChoices
+        conditionPred prd@(BuildInPredicateReal (Ineq op left right)) otherRealChoices
             -- check if choice is made for all 'rFuncs' in 'prd'
             | length conditions == Set.size predRFuncs = conditionPred'
             | otherwise = prd
@@ -336,9 +325,9 @@ conditionReal origNodeEntry rf interv
         conditionPred prd _ = prd
 
 negate :: NodeRef -> NodeRef
-negate (Formula.RefComposed sign label)                  = Formula.RefComposed         (not sign) label
-negate (Formula.RefBuildInPredicate prd prevChoicesReal) = Formula.RefBuildInPredicate (negatePred prd) prevChoicesReal
-negate (Formula.RefDeterministic val)                    = Formula.RefDeterministic    (not val)
+negate (RefComposed sign label)                  = RefComposed         (not sign) label
+negate (RefBuildInPredicate prd prevChoicesReal) = RefBuildInPredicate (negatePred prd) prevChoicesReal
+negate (RefDeterministic val)                    = RefDeterministic    (not val)
 
 exportAsDot :: FilePath -> Formula cachedInfo -> ExceptionalT String IO ()
 exportAsDot path Formula{nodes} = do
@@ -418,41 +407,41 @@ instance Hashable PropBuildInPredicate
 
 data TypedPropBuildInPred a
     where
-    Equality :: Bool       -> PropExpr a     -> PropExpr a     -> TypedPropBuildInPred a
-    RealIneq :: AST.IneqOp -> PropExpr RealN -> PropExpr RealN -> TypedPropBuildInPred RealN
-    Constant :: Bool                                           -> TypedPropBuildInPred a
+    Equality :: Bool       -> PropExpr a -> PropExpr a -> TypedPropBuildInPred a
+    Ineq     :: AST.IneqOp -> PropExpr a -> PropExpr a -> TypedPropBuildInPred a
+    Constant :: Bool                                   -> TypedPropBuildInPred a
 
 deriving instance Eq (TypedPropBuildInPred a)
 instance Show (TypedPropBuildInPred a)
     where
     show (Equality eq exprX exprY) = printf "%s %s %s" (show exprX) (if eq then "=" else "/=") (show exprY)
-    show (RealIneq op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
+    show (Ineq     op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
     show (Constant cnst)           = show cnst
 instance Hashable (TypedPropBuildInPred a)
     where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (Equality eq exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt eq) exprX) exprY
-    hashWithSalt salt (RealIneq op exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt op) exprX) exprY
+    hashWithSalt salt (Ineq     op exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt op) exprX) exprY
     hashWithSalt salt (Constant b)              = Hashable.hashWithSalt salt b
 
 data PropExpr a
     where
-    ConstantExpr :: PropConstantExpr a               -> PropExpr a
-    RFunc        :: PropRFunc                        -> PropExpr a -- type depends on user input, has to be typechecked at runtime
-    RealSum      :: PropExpr RealN -> PropExpr RealN -> PropExpr RealN
+    ConstantExpr ::               PropConstantExpr a       -> PropExpr a
+    RFunc        ::               PropRFunc                -> PropExpr a -- type depends on user input, has to be typechecked at runtime
+    Sum          :: Addition a => PropExpr a -> PropExpr a -> PropExpr a
 
 deriving instance Eq (PropExpr a)
 instance Show (PropExpr a)
     where
     show (ConstantExpr cExpr) = show cExpr
     show (RFunc label)        = printf "~%s" $ show label
-    show (RealSum x y)        = printf "%s + %s" (show x) (show y)
+    show (Sum x y)            = printf "%s + %s" (show x) (show y)
 instance Hashable (PropExpr a)
     where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
     hashWithSalt salt (RFunc r)            = Hashable.hashWithSalt salt r
-    hashWithSalt salt (RealSum x y)        = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
+    hashWithSalt salt (Sum x y)            = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
 
 data PropConstantExpr a
     where
@@ -475,8 +464,19 @@ instance Hashable (PropConstantExpr a)
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
     hashWithSalt salt (StrConstant  s) = Hashable.hashWithSalt salt s
     hashWithSalt salt (IntConstant  i) = Hashable.hashWithSalt salt i
+instance Ord (PropConstantExpr a)
+    where
+    BoolConstant x <= BoolConstant y = x <= y
+    RealConstant x <= RealConstant y = x <= y
+    StrConstant  x <= StrConstant  y = x <= y
+    IntConstant  x <= IntConstant  y = x <= y
+    _              <= _              = error "Formula.Ord.PropConstantExpr"
 
 data RealN -- phantom for real numbered expression etc.
+
+class Addition a
+instance Addition Integer
+instance Addition RealN
 
 predRandomFunctions :: PropBuildInPredicate -> HashSet PropRFunc
 predRandomFunctions (BuildInPredicateBool b) = predRandomFunctions' b
@@ -486,13 +486,13 @@ predRandomFunctions (BuildInPredicateInt  i) = predRandomFunctions' i
 
 predRandomFunctions' :: TypedPropBuildInPred a -> HashSet PropRFunc
 predRandomFunctions' (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions' (RealIneq _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
+predRandomFunctions' (Ineq     _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions' (Constant _)            = Set.empty
 
 exprRandomFunctions :: PropExpr t -> HashSet PropRFunc
 exprRandomFunctions (RFunc label)    = Set.singleton label
 exprRandomFunctions (ConstantExpr _) = Set.empty
-exprRandomFunctions (RealSum x y)    = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
+exprRandomFunctions (Sum x y)        = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
 
 negatePred :: PropBuildInPredicate -> PropBuildInPredicate
 negatePred (BuildInPredicateBool b) = BuildInPredicateBool $ negatePred' b
@@ -502,7 +502,7 @@ negatePred (BuildInPredicateInt  i) = BuildInPredicateInt  $ negatePred' i
 
 negatePred' :: TypedPropBuildInPred a -> TypedPropBuildInPred a
 negatePred' (Equality eq exprX exprY) = Equality (not eq) exprX exprY
-negatePred' (RealIneq op exprX exprY) = RealIneq (AST.negateOp op) exprX exprY
+negatePred' (Ineq     op exprX exprY) = Ineq (AST.negateOp op) exprX exprY
 negatePred' (Constant cnst)           = Constant $ not cnst
 
 deterministicValue :: PropBuildInPredicate -> Maybe Bool
@@ -514,6 +514,13 @@ deterministicValue (BuildInPredicateInt  i) = deterministicValue' i
 deterministicValue' :: TypedPropBuildInPred a -> Maybe Bool
 deterministicValue' (Equality eq (ConstantExpr left) (ConstantExpr right))   = Just $ (if eq then (==) else (/=)) left right
 deterministicValue' (Equality eq (RFunc left) (RFunc right)) | left == right = Just eq
+deterministicValue' (Ineq     op (ConstantExpr left) (ConstantExpr right))   = Just evalPred
+    where
+    evalPred = case op of
+        AST.Lt   -> left <  right
+        AST.LtEq -> left <= right
+        AST.Gt   -> left >  right
+        AST.GtEq -> left >= right
 deterministicValue' (Constant val)                                           = Just val
 deterministicValue' _                                                        = Nothing
 
@@ -534,7 +541,7 @@ checkRealIneqPred op left right point = case op of
 eval :: PropExpr RealN -> HashMap PropRFunc Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
 eval (RFunc rf) point                  = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" $ show rf) rf point
 eval (ConstantExpr (RealConstant r)) _ = Interval.rat2IntervLimPoint r
-eval (RealSum x y)    point            = eval x point + eval y point
+eval (Sum x y) point                   = eval x point + eval y point
 
 -- conditioned formulas
 data Conditions = Conditions (HashMap PropRFunc Bool) (HashMap PropRFunc Interval)
@@ -595,6 +602,31 @@ instance Show NodeRef
 
 showCondReal :: (PropRFunc, Interval) -> String
 showCondReal (rf, Interval.Interval l r) = printf "%s in (%s,%s)" (show rf) (show l) (show r)
+
+refBuildInPredicate :: PropBuildInPredicate -> NodeRef
+refBuildInPredicate prd = case deterministicValue simplifiedPrd of
+    Just val -> RefDeterministic val
+    Nothing  -> RefBuildInPredicate simplifiedPrd Map.empty
+    where
+    simplifiedPrd = case prd of
+        BuildInPredicateBool prd' -> BuildInPredicateBool $ simplifiedPrd' prd'
+        BuildInPredicateReal prd' -> BuildInPredicateReal $ simplifiedPrd' prd'
+        BuildInPredicateInt  prd' -> BuildInPredicateInt  $ simplifiedPrd' prd'
+        BuildInPredicateStr  prd' -> BuildInPredicateStr  $ simplifiedPrd' prd'
+
+    simplifiedPrd' (Equality eq exprX exprY) = Equality eq (simplifiedExpr exprX) (simplifiedExpr exprY)
+    simplifiedPrd' (Ineq     op exprX exprY) = Ineq     op (simplifiedExpr exprX) (simplifiedExpr exprY)
+    simplifiedPrd' prd'                      = prd'
+
+    simplifiedExpr (Sum exprX exprY) = case (simplifiedExpr exprX, simplifiedExpr exprY) of
+        (ConstantExpr x, ConstantExpr y) -> ConstantExpr (add x y)
+        (exprX',         exprY')         -> Sum exprX' exprY'
+    simplifiedExpr expr              = expr
+
+    add :: Addition a => PropConstantExpr a -> PropConstantExpr a -> PropConstantExpr a
+    add (RealConstant x) (RealConstant y) = RealConstant (x + y)
+    add (IntConstant  x) (IntConstant  y) = IntConstant  (x + y)
+    add _                _                = error "Formula.refBuildInPredicate"
 
 data CacheComputations cachedInfo = CacheComputations
     { cachedInfoComposed      :: HashSet cachedInfo                                 -> cachedInfo
