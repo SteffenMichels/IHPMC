@@ -111,32 +111,32 @@ parsePclp src =
             , AST.queries   = Set.empty
             , AST.evidence  = Nothing
             }
-    in mapException show (fromEither (parse (parseTheory initialState) "PCLP theory" src))
+    in mapException show (fromEither (parse (theory initialState) "PCLP theory" src))
 
-parseTheory :: AST -> Parser AST
-parseTheory ast = whiteSpace >>
+theory :: AST -> Parser AST
+theory ast = whiteSpace >>
     (     try ( do -- query
-            query <- parseQuery
-            let ast' = ast {AST.queries = Set.insert query $ AST.queries ast}
-            parseTheory ast'
+            q <- query
+            let ast' = ast {AST.queries = Set.insert q $ AST.queries ast}
+            theory ast'
           )
       <|> try (do --evidence
-            evidence <- parseEvidence
+            e <- evidence
             -- TODO: handle multiple evidence statements
-            let ast' = ast {AST.evidence = Just evidence}
-            parseTheory ast'
+            let ast' = ast {AST.evidence = Just e}
+            theory ast'
           )
       <|> ( do -- random function definition
-            (lbl, args, def) <- parseRFuncDef
+            (lbl, args, def) <- rFuncDef
             -- put together defs with same signature
             let ast' = ast {AST.rFuncDefs = Map.insertWith (++) (lbl, length args) [(args, def)] (AST.rFuncDefs ast)}
-            parseTheory ast'
+            theory ast'
           )
       <|> ( do -- rule
-            (lbl, args, body) <- parseRule
+            (lbl, args, body) <- rule
             -- put together rules with same head
             let ast' = ast {AST.rules = Map.insertWith Set.union (lbl, length args) (Set.singleton (args, body)) (AST.rules ast)}
-            parseTheory ast'
+            theory ast'
           )
       <|> ( do -- end of input
                 eof
@@ -145,63 +145,60 @@ parseTheory ast = whiteSpace >>
     )
 
 -- rules
-parseRule :: Parser (AST.PredicateLabel, [AST.Argument], AST.RuleBody)
-parseRule = do
-    (lbl, args) <- parseUserPred
+rule :: Parser (AST.PredicateLabel, [AST.Argument], AST.RuleBody)
+rule = do
+    (lbl, args) <- userPred
     reservedOp "<-"
-    body <- sepBy parseBodyElement comma
+    body <- sepBy bodyElement comma
     _ <- dot
     return (lbl, args, AST.RuleBody body)
 
-parseBodyElement :: Parser AST.RuleBodyElement
-parseBodyElement =
-        uncurry AST.UserPredicate <$> parseUserPred
-    <|>
-        AST.BuildInPredicate <$> parseBuildInPredicate
+bodyElement :: Parser AST.RuleBodyElement
+bodyElement =
+        uncurry AST.UserPredicate <$> userPred
+    <|> AST.BuildInPredicate      <$> buildInPredicate
 
-parseUserPred :: Parser (AST.PredicateLabel, [AST.Argument])
-parseUserPred = do
-    lbl <- parsePredicateLabel
-    args  <- option [] $ parens $ sepBy parseArg comma
+userPred :: Parser (AST.PredicateLabel, [AST.Argument])
+userPred = do
+    lbl  <- predicateLabel
+    args <- option [] $ parens $ sepBy argument comma
     return (lbl, args)
 
-parsePredicateLabel :: Parser AST.PredicateLabel
-parsePredicateLabel = AST.PredicateLabel <$> identifier
+predicateLabel :: Parser AST.PredicateLabel
+predicateLabel = AST.PredicateLabel <$> identifier
 
-parseBuildInPredicate :: Parser AST.BuildInPredicate
-parseBuildInPredicate = do
+buildInPredicate :: Parser AST.BuildInPredicate
+buildInPredicate = do
     exprX <- expression
-    constr <- (reservedOp "="  >>         return (AST.Equality True))
-              <|>
-              (reservedOp "/=" >>         return (AST.Equality False))
-              <|>
-              (realIneqOp      >>= \op -> return $ AST.Ineq op)
+    constr <-     (reservedOp "="  >>         return (AST.Equality True))
+              <|> (reservedOp "/=" >>         return (AST.Equality False))
+              <|> (realIneqOp      >>= \op -> return $ AST.Ineq op)
     exprY <- expression
     return $ constr exprX exprY
 
 -- rfunc defs
-parseRFuncDef :: Parser (AST.RFuncLabel, [AST.Argument], AST.RFuncDef)
-parseRFuncDef = do
-    (lbl, args) <- parseRFunc
+rFuncDef :: Parser (AST.RFuncLabel, [AST.Argument], AST.RFuncDef)
+rFuncDef = do
+    (lbl, args) <- rFunc
     reservedOp "~"
-    def <- parseFlip <|> parseNorm
+    def <- flipDef <|> normDef
     return (lbl, args, def)
 
-parseRFunc :: Parser (AST.RFuncLabel, [AST.Argument])
-parseRFunc = do
+rFunc :: Parser (AST.RFuncLabel, [AST.Argument])
+rFunc = do
     lbl  <- rFuncL
-    args <- option [] $ parens $ sepBy parseArg comma
+    args <- option [] $ parens $ sepBy argument comma
     return (lbl, args)
 
-parseFlip :: Parser AST.RFuncDef
-parseFlip = do
+flipDef :: Parser AST.RFuncDef
+flipDef = do
     reserved "flip"
     prob <- parens $ fromRational <$> rational
     _ <- dot
     return $ AST.Flip prob
 
-parseNorm :: Parser AST.RFuncDef
-parseNorm = do
+normDef :: Parser AST.RFuncDef
+normDef = do
     reserved "norm"
     (m, d) <- parens $ do
          m <- rational
@@ -213,8 +210,8 @@ parseNorm = do
         (doubleToProb . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
         (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
 
-parseArg :: Parser AST.Argument
-parseArg = AST.Object   . AST.ObjectStr <$> identifier
+argument :: Parser AST.Argument
+argument = AST.Object   . AST.ObjectStr <$> identifier
            <|>
            AST.Object   . AST.ObjectInt <$> integer
            <|>
@@ -226,32 +223,29 @@ expression = buildExpressionParser operators term
 
 operators = [ [Infix  (reservedOp "+" >> return AST.Sum) AssocLeft] ]
 
-term = const (AST.ConstantExpr $ AST.BoolConstant True)  <$> reserved "true"
-       <|>
-       const (AST.ConstantExpr $ AST.BoolConstant False) <$> reserved "false"
-       <|>
-       AST.ConstantExpr . AST.StrConstant                <$> identifier
-       <|>
-       AST.ConstantExpr . AST.RealConstant               <$> try rational
-       <|>
-       AST.ConstantExpr . AST.IntConstant                <$> integer
-       <|>
-       uncurry AST.RFunc                                 <$> parseRFunc
-       <|>
-       AST.Var . AST.VarName                             <$> variable
+term =     AST.ConstantExpr      <$> constantExpression
+       <|> uncurry AST.RFunc     <$> rFunc
+       <|> AST.Var . AST.VarName <$> variable
+
+constantExpression :: Parser AST.ConstantExpr
+constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
+                     <|> const (AST.BoolConstant False) <$> reserved "false"
+                     <|> AST.StrConstant                <$> identifier
+                     <|> AST.RealConstant               <$> try rational
+                     <|> AST.IntConstant                <$> integer
 
 -- queries
-parseQuery :: Parser (AST.PredicateLabel, [AST.Argument])
-parseQuery = do
+query :: Parser (AST.PredicateLabel, [AST.Argument])
+query = do
     reserved "query"
-    query <- parseUserPred
+    q <- userPred
     _ <- dot
-    return query
+    return q
 
 -- evidence
-parseEvidence :: Parser (AST.PredicateLabel, [AST.Argument])
-parseEvidence = do
+evidence :: Parser (AST.PredicateLabel, [AST.Argument])
+evidence = do
     reserved "evidence"
-    evidence <- parseUserPred
+    e <- userPred
     _ <- dot
-    return evidence
+    return e
