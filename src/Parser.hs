@@ -155,8 +155,8 @@ rule = do
 
 bodyElement :: Parser AST.RuleBodyElement
 bodyElement =
-        uncurry AST.UserPredicate <$> userPred
-    <|> AST.BuildInPredicate      <$> buildInPredicate
+        AST.BuildInPredicate      <$> try buildInPredicate
+    <|> uncurry AST.UserPredicate <$> userPred
 
 userPred :: Parser (AST.PredicateLabel, [AST.Argument])
 userPred = do
@@ -211,11 +211,8 @@ normDef = do
         (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
 
 argument :: Parser AST.Argument
-argument = AST.Object   . AST.ObjectStr <$> identifier
-           <|>
-           AST.Object   . AST.ObjectInt <$> integer
-           <|>
-           AST.Variable . AST.VarName   <$> variable
+argument =     AST.Constant               <$> constantExpression
+           <|> AST.Variable . AST.VarName <$> variable
 
 -- expressions
 expression :: Parser AST.Expr

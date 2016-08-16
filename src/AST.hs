@@ -32,7 +32,6 @@ module AST
     , ConstantExpr(..)
     , IneqOp(..)
     , VarName(..)
-    , ObjectLabel(..)
     , predRandomFunctions
     , negateOp
     ) where
@@ -100,9 +99,10 @@ instance Show RuleBodyElement where
 instance Hashable RuleBodyElement
 
 data Argument = Variable VarName
-              | Object ObjectLabel
+              | Constant ConstantExpr
               deriving (Eq, Show, Generic)
 instance Hashable Argument
+
 data VarName = VarName String
              | TempVar Integer
              deriving (Eq, Generic)
@@ -111,8 +111,6 @@ instance Show VarName
     show (VarName str) = str
     show (TempVar i)   = printf "_%i" i
 instance Hashable VarName
-data ObjectLabel  = ObjectStr String | ObjectInt Integer deriving (Eq, Show, Generic)
-instance Hashable ObjectLabel
 
 data BuildInPredicate = Equality Bool Expr Expr
                       | Ineq     IneqOp Expr Expr

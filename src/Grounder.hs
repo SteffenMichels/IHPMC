@@ -41,11 +41,11 @@ import qualified Data.Sequence as Seq
 import Data.Maybe (catMaybes, isJust)
 import GHC.Generics (Generic)
 
-newtype Valuation = Valuation (HashMap AST.VarName AST.ObjectLabel) deriving (Show, Eq, Generic)
+newtype Valuation = Valuation (HashMap AST.VarName AST.ConstantExpr) deriving (Show, Eq, Generic)
 instance Hashable Valuation
 data GroundingState = GroundingState
-    { predGroundings :: HashMap (AST.PredicateLabel, Int) (HashSet [AST.ObjectLabel])
-    , rfGroundings   :: HashMap (AST.RFuncLabel,     Int) (HashSet [AST.ObjectLabel])
+    { predGroundings :: HashMap (AST.PredicateLabel, Int) (HashSet [AST.ConstantExpr])
+    , rfGroundings   :: HashMap (AST.RFuncLabel,     Int) (HashSet [AST.ConstantExpr])
     , varCount       :: Integer
     , valuation      :: Valuation
     , provenGoals    :: HashMap (AST.PredicateLabel, Int) (HashSet [AST.Argument])
@@ -72,10 +72,10 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
     mbEvidence' =          second assumeAllArgsGrounded  <$> mbEvidence
     assumeAllArgsGrounded = fmap (\x -> case x of
                                      AST.Variable _    -> error "only grounded query/evidence allowed"
-                                     AST.Object olabel -> olabel
+                                     AST.Constant cnst -> cnst
                                  )
 
-    headFormula :: (Eq cachedInfo, Hashable cachedInfo) => (AST.PredicateLabel, [AST.ObjectLabel]) -> Formula.FState cachedInfo Formula.NodeRef
+    headFormula :: (Eq cachedInfo, Hashable cachedInfo) => (AST.PredicateLabel, [AST.ConstantExpr]) -> Formula.FState cachedInfo Formula.NodeRef
     headFormula (label@(AST.PredicateLabel lStr), args) =
         do mbNodeId <- Formula.labelId labelWithArgs
            case mbNodeId of
@@ -89,7 +89,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
 
     ruleFormulas :: (Eq cachedInfo, Hashable cachedInfo)
                  => AST.PredicateLabel
-                 -> [AST.ObjectLabel]
+                 -> [AST.ConstantExpr]
                  -> (HashSet Formula.NodeRef, Int)
                  -> ([AST.Argument], AST.RuleBody)
                  -> Formula.FState cachedInfo (HashSet Formula.NodeRef, Int)
@@ -108,12 +108,12 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
             inBodyOnlyValuations = foldr updateDomains (Set.singleton Map.empty) bodyElements
             AST.RuleBody bodyElements = body
 
-            updateDomains :: AST.RuleBodyElement -> HashSet (HashMap AST.VarName AST.ObjectLabel) -> HashSet (HashMap AST.VarName AST.ObjectLabel)
+            updateDomains :: AST.RuleBodyElement -> HashSet (HashMap AST.VarName AST.ConstantExpr) -> HashSet (HashMap AST.VarName AST.ConstantExpr)
             updateDomains (AST.BuildInPredicate bip) doms = case bip of
                 AST.Equality _ exprX exprY -> updateDomains'' exprX $ updateDomains'' exprY doms
                 AST.Ineq     _ exprX exprY -> updateDomains'' exprX $ updateDomains'' exprY doms
                 where
-                updateDomains'' :: AST.Expr -> HashSet (HashMap AST.VarName AST.ObjectLabel) -> HashSet (HashMap AST.VarName AST.ObjectLabel)
+                updateDomains'' :: AST.Expr -> HashSet (HashMap AST.VarName AST.ConstantExpr) -> HashSet (HashMap AST.VarName AST.ConstantExpr)
                 updateDomains'' (AST.ConstantExpr _)     doms' = doms'
                 updateDomains'' (AST.Sum exprX exprY)    doms' = updateDomains'' exprX $ updateDomains'' exprY doms'
                 updateDomains'' (AST.Var _)              doms' = doms'
@@ -123,18 +123,18 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
             updateDomains' :: (Eq label, Hashable label)
                            => label
                            -> [AST.Argument]
-                           -> [HashMap AST.VarName AST.ObjectLabel]
-                           -> HashMap (label, Int) (HashSet [AST.ObjectLabel])
-                           -> [HashMap AST.VarName AST.ObjectLabel]
+                           -> [HashMap AST.VarName AST.ConstantExpr]
+                           -> HashMap (label, Int) (HashSet [AST.ConstantExpr])
+                           -> [HashMap AST.VarName AST.ConstantExpr]
             updateDomains' label' args' doms grnds = do
                 valuation' <- doms
                 catMaybes [ foldr (\(grArg, arg) mbVal -> do
                                       val <- mbVal
                                       case (grArg, arg) of
-                                          (AST.Object objX,  objY) -> if objX == objY then return val else Nothing
-                                          (AST.Variable var, objX) -> case Map.lookup var val of
-                                              Nothing   -> return $ Map.insert var objX val
-                                              Just objY -> if objX == objY then return val else Nothing
+                                          (AST.Constant cnstX, cnstY) -> if cnstX == cnstY then return val else Nothing
+                                          (AST.Variable var,   cnstX) -> case Map.lookup var val of
+                                              Nothing    -> return $ Map.insert var cnstX val
+                                              Just cnstY -> if cnstX == cnstY then return val else Nothing
                                   )
                                   (Just valuation')
                                   (zip args' grArgs)
@@ -159,7 +159,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
     elementFormula (AST.BuildInPredicate prd)     valuation = return $ Formula.refBuildInPredicate $ toPropBuildInPred prd valuation groundedRfDefs
 
     GroundingState{predGroundings = allPredGroundings, rfGroundings = allRFGroundings} = Set.foldr
-        (\(label,args) -> execState $ allGroundings' $ Seq.singleton $ AST.UserPredicate label $ AST.Object <$> args)
+        (\(label,args) -> execState $ allGroundings' $ Seq.singleton $ AST.UserPredicate label $ AST.Constant <$> args)
         GroundingState{ predGroundings = Map.empty
                       , rfGroundings   = Map.empty
                       , varCount       = 0
@@ -246,9 +246,8 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                         replaceExpr       (AST.RFunc label' args) = AST.RFunc label' $ replace' <$> args
                         replaceExpr vexpr@(AST.Var var)
                             | var == y = case x of
-                                AST.Object (AST.ObjectStr obj) -> AST.ConstantExpr $ AST.StrConstant obj
-                                AST.Object (AST.ObjectInt int) -> AST.ConstantExpr $ AST.IntConstant int
-                                AST.Variable v                 -> AST.Var v
+                                AST.Constant cnst -> AST.ConstantExpr cnst
+                                AST.Variable v    -> AST.Var v
                             | otherwise = vexpr
 
                     -- replace existentially quantified (occuring in body, but not head) variables
@@ -304,8 +303,8 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                 match _       Nothing    _       = return Nothing
                 match updFunc (Just els) argPair = case argPair of
                     (x,              AST.Variable y) -> return $ Just $ updFunc x y els
-                    (AST.Object x,   AST.Object y)   -> return $ if x == y then Just els else Nothing
-                    (AST.Variable x, AST.Object y)   -> do
+                    (AST.Constant x, AST.Constant y) -> return $ if x == y then Just els else Nothing
+                    (AST.Variable x, AST.Constant y) -> do
                         st <- get
                         let Valuation valu = valuation st
                         case Map.lookup x valu of
@@ -316,7 +315,7 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
     groundedRfDefs = Map.foldrWithKey addDef Map.empty allRFGroundings
         where
         addDef :: (AST.RFuncLabel, Int)
-               -> HashSet [AST.ObjectLabel]
+               -> HashSet [AST.ConstantExpr]
                -> HashMap Formula.PropRFuncLabel AST.RFuncDef
                -> HashMap Formula.PropRFuncLabel AST.RFuncDef
         addDef (label, nArgs) grnds defs = Set.foldr fstDef defs grnds
@@ -329,25 +328,25 @@ groundPclp AST.AST {AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rule
                 matchingDefs = filter (\(defArgs, _) -> isJust $ matchArgs args defArgs) rfDefs
 
 -- initial valuation based on matching given arguments with head/rf definition
-matchArgs :: [AST.ObjectLabel] -> [AST.Argument] -> Maybe Valuation
+matchArgs :: [AST.ConstantExpr] -> [AST.Argument] -> Maybe Valuation
 matchArgs givenArgs args = Valuation <$> foldr match (Just Map.empty) (zip givenArgs args)
     where
     match (given, req) mbVal = do
         val <- mbVal
         case req of
-            AST.Object cnst -> if given == cnst then return val
-                                                else Nothing
+            AST.Constant cnst -> if given == cnst then return val
+                                                  else Nothing
             AST.Variable var -> case Map.lookup var val of
                                     Nothing                   -> return $ Map.insert var given val
                                     Just cnst | cnst == given -> return val
                                     _                         -> Nothing
 
 -- turn constructs from ordinary ones (with arguments) to propositional ones (after grounding)
-toPropPredLabel :: AST.PredicateLabel -> [AST.ObjectLabel] -> Maybe Int -> Formula.PropPredicateLabel
-toPropPredLabel (AST.PredicateLabel label) objs mbInt = Formula.PropPredicateLabel $ printf
+toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> Maybe Int -> Formula.PropPredicateLabel
+toPropPredLabel (AST.PredicateLabel label) args mbInt = Formula.PropPredicateLabel $ printf
     "%s%s%s"
     label
-    (if null objs then "" else printf "(%s)" (intercalate "," $ objLabelStr <$> objs))
+    (if null args then "" else printf "(%s)" (intercalate "," $ show <$> args))
     (maybe "" show mbInt)
 
 data PropExprWithType = ExprBool (Formula.PropExpr Bool)
@@ -394,9 +393,8 @@ toPropBuildInPred bip valuation rfDefs = case bip of
         propRFuncLabel = toPropRFuncLabel label $ applyValuation valuation args
     toPropExpr (AST.Sum exprX exprY) = toPropExprPairAdd Formula.Sum exprX exprY
     toPropExpr (AST.Var var) = let (Valuation valu) = valuation in case Map.lookup var valu of
-        Just (AST.ObjectInt int) -> ExprInt $ Formula.ConstantExpr $ Formula.IntConstant int
-        Just (AST.ObjectStr str) -> ExprStr $ Formula.ConstantExpr $ Formula.StrConstant str
-        Nothing                  -> error $ printf "Cannot determine ground value for variable '%s' in expression '%s'." (show var) (show bip)
+        Just cnst -> toPropExprConst cnst
+        Nothing   -> error $ printf "Cannot determine ground value for variable '%s' in expression '%s'." (show var) (show bip)
 
     toPropExprConst :: AST.ConstantExpr -> PropExprWithType
     toPropExprConst (AST.BoolConstant cnst) = ExprBool $ Formula.ConstantExpr $ Formula.BoolConstant cnst
@@ -413,18 +411,14 @@ toPropBuildInPred bip valuation rfDefs = case bip of
         (ExprInt  exprX', ExprInt  exprY') -> ExprInt  $ exprConstructor exprX' exprY'
         _                                  -> error "type error"
 
-toPropRFuncLabel :: AST.RFuncLabel -> [AST.ObjectLabel] -> Formula.PropRFuncLabel
-toPropRFuncLabel (AST.RFuncLabel label) objs = Formula.PropRFuncLabel $ printf
+toPropRFuncLabel :: AST.RFuncLabel -> [AST.ConstantExpr] -> Formula.PropRFuncLabel
+toPropRFuncLabel (AST.RFuncLabel label) args = Formula.PropRFuncLabel $ printf
     "%s%s"
     label
-    (if null objs then "" else printf "(%s)" (intercalate "," $ objLabelStr <$> objs))
+    (if null args then "" else printf "(%s)" (intercalate "," $ show <$> args))
 
-objLabelStr :: AST.ObjectLabel -> String
-objLabelStr (AST.ObjectStr str) = str
-objLabelStr (AST.ObjectInt int) = show int
-
-applyValuation :: Valuation -> [AST.Argument] -> [AST.ObjectLabel]
+applyValuation :: Valuation -> [AST.Argument] -> [AST.ConstantExpr]
 applyValuation (Valuation val) args = applyValuation' <$> args
     where
-    applyValuation' (AST.Object l)   = l
+    applyValuation' (AST.Constant c) = c
     applyValuation' (AST.Variable v) = Map.lookupDefault (error $ printf "Grounder.groundElement: no valuation for variable '%s'" $ show v) v val
