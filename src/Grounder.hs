@@ -64,8 +64,8 @@ ground AST.AST{AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules, AS
     mbEvidence' =         toPropPred <$> mbEvidence
     toPropPred (label, args) = toPropPredLabel label $ toPropArgs args
 
-    GroundingState{groundedRules = groundedRules'} = Set.foldr
-        (\(label,args) -> execState $ computeGroundings $ Seq.singleton $ AST.UserPredicate label args)
+    GroundingState{groundedRules = groundedRules'} = foldl'
+        (\st (label,args) -> execState (computeGroundings $ Seq.singleton $ AST.UserPredicate label args) st)
         GroundingState{ groundedRules    = Map.empty
                       , groundedRfDefs   = Map.empty
                       , varCounter       = 0
@@ -94,11 +94,11 @@ ground AST.AST{AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules, AS
         addGroundingBody (args, body) = do
             groundedBody <- toPropRuleBody body rfDefs
             modify (\st -> st{groundedRules= Map.insertWith
-                    Set.union
-                    (toPropPredLabel label $ toPropArgs args)
-                    (Set.singleton groundedBody)
-                    (groundedRules st)
-                })
+                Set.union
+                (toPropPredLabel label $ toPropArgs args)
+                (Set.singleton groundedBody)
+                (groundedRules st)
+            })
 
     computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> State GroundingState ()
     computeGroundingsGoal goal remaining = case goal of

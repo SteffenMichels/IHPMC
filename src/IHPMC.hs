@@ -19,6 +19,8 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE Strict #-}
+
 module IHPMC
     ( ihpmc
     , ihpmcEvidence
@@ -45,6 +47,7 @@ import Control.Monad.State.Strict
 import Data.List (maximumBy, subsequences)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Exception
+import Data.Foldable (foldl')
 --import Exception
 --import System.IO.Unsafe (unsafePerformIO)
 --import Debug.Trace (trace)
@@ -220,14 +223,14 @@ combineProbsChoice p left right = ProbabilityBounds ((leftLower - rightLower) * 
     ProbabilityBounds rightLower rightUpper = HPT.bounds right
 
 combineProbsDecomp :: Formula.NodeType -> [HPT] -> ProbabilityBounds
-combineProbsDecomp Formula.And dec = foldr
-    (\hpt (ProbabilityBounds l u) -> let ProbabilityBounds l' u' = HPT.bounds hpt in ProbabilityBounds (l' * l) (u' * u))
+combineProbsDecomp Formula.And dec = foldl'
+    (\(ProbabilityBounds l u) hpt -> let ProbabilityBounds l' u' = HPT.bounds hpt in ProbabilityBounds (l' * l) (u' * u))
     (ProbabilityBounds 1.0 1.0)
     dec
 combineProbsDecomp Formula.Or dec  = ProbabilityBounds (1.0 - nl) (1.0 - nu)
     where
-    ProbabilityBounds nl nu = foldr
-        (\hpt (ProbabilityBounds l u) -> let ProbabilityBounds l' u' = HPT.bounds hpt in ProbabilityBounds (l * (1.0 - l')) (u * (1.0 - u')))
+    ProbabilityBounds nl nu = foldl'
+        (\(ProbabilityBounds l u) hpt -> let ProbabilityBounds l' u' = HPT.bounds hpt in ProbabilityBounds (l * (1.0 - l')) (u * (1.0 - u')))
         (ProbabilityBounds 1.0 1.0)
         dec
 
@@ -235,7 +238,7 @@ combineScoresChoice :: HPT -> HPT -> Double
 combineScoresChoice left right = max (HPT.score left) (HPT.score right)
 
 combineScoresDecomp :: [HPT] -> Double
-combineScoresDecomp            = foldr (\hpt score -> max score $ HPT.score hpt) 0.0
+combineScoresDecomp = foldl' (\score hpt -> max score $ HPT.score hpt) 0.0
 
 {-decompose :: Formula.NodeRef -> Formula CachedSplitPoints -> Maybe (Formula.NodeType, Formula.NodeType, Bool, HashSet (HashSet Formula.NodeRef))
 decompose ref f = Nothingcase Formula.entryNode $ Formula.augmentWithEntry ref f of
@@ -258,7 +261,7 @@ decompose ref f = Nothingcase Formula.entryNode $ Formula.augmentWithEntry ref f
             where
                 (withSharedRFs, withoutSharedRFs) = List.partition (not . Set.null . Set.intersection curRFs . Formula.entryRFuncs) $ Set.toList children
                 cur'      = Set.union cur $ Set.fromList withSharedRFs
-                curRFs'   = Set.foldr (\c curRFs -> Set.union curRFs $ Formula.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
+                curRFs'   = foldr (\c curRFs -> Set.union curRFs $ Formula.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
                 children' = Set.fromList withoutSharedRFs
         decOp op
             | sign = op
@@ -284,7 +287,7 @@ heuristicBuildInPred prevChoicesReal prd =
         let predRfs = GroundedAST.predRandomFunctions prd
             nRfs    = Set.size predRfs
         in case prd of
-            (GroundedAST.BuildInPredicateBool{}) -> CachedSplitPoints nRfs $ Set.foldr (\rf -> Map.insert (rf, DiscreteSplit) 1.0) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
+            (GroundedAST.BuildInPredicateBool{}) -> CachedSplitPoints nRfs $ foldl' (\pts rf -> Map.insert (rf, DiscreteSplit) 1.0 pts) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
             (GroundedAST.BuildInPredicateStr{}) -> error "IHMC: string-valued random functions not supported"
             (GroundedAST.BuildInPredicateInt{}) -> error "IHMC: integer-valued random functions not supported"
             (GroundedAST.BuildInPredicateReal rPrd) -> case rPrd of
@@ -292,7 +295,7 @@ heuristicBuildInPred prevChoicesReal prd =
                 (GroundedAST.Constant _) -> CachedSplitPoints nRfs Map.empty
                 (GroundedAST.Ineq op exprX exprY) -> CachedSplitPoints
                     nRfs
-                    ( snd $ foldl
+                    ( snd $ foldl'
                         (\(nSols, splitPs) (rfs, nSols', splitPs') -> if any (\rf -> Map.lookupDefault nRfs rf nSols < length rfs) rfs
                                                                       then (nSols, splitPs)
                                                                       else (Map.union nSols nSols', Map.unionWith (+) splitPs splitPs')
@@ -314,7 +317,7 @@ heuristicBuildInPred prevChoicesReal prd =
                         | null rfs || null result = (rfs, Map.empty,                             result)
                         | otherwise               = (rfs, Map.fromList [(rf, nRfs') | rf <- rfs], result)
                         where
-                        result = Map.filterWithKey notOnBoundary $ foldr
+                        result = Map.filterWithKey notOnBoundary $ foldl'
                             (Map.unionWith (+))
                             Map.empty
                             [ Map.fromList [ ((rf, ContinuousSplit $ splitPoint rf corner), probToDouble $ reduction rfs corner prevChoicesReal)
@@ -360,8 +363,8 @@ heuristicBuildInPred prevChoicesReal prd =
 
                         nRfs' = length rfs
 
-                        remRfsCorners = Set.foldr
-                            (\rf corners -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
+                        remRfsCorners = foldl'
+                            (\corners rf -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) rf prevChoicesReal
                                                 mbX                   = Interval.pointRational (Interval.toPoint Lower l)
                                                 mbY                   = Interval.pointRational (Interval.toPoint Upper u)
                                                 add mbC               = case mbC of
@@ -384,7 +387,7 @@ heuristicBuildInPred prevChoicesReal prd =
                             _ -> error "IHPMC.heuristicBuildInPred.cdf"
 
 heuristicComposed :: HashSet CachedSplitPoints -> CachedSplitPoints
-heuristicComposed = Set.foldr
+heuristicComposed = foldr
                         ( \(CachedSplitPoints rfsInPrims splitPoints) (CachedSplitPoints rfsInPrims' splitPoints') ->
                           CachedSplitPoints (rfsInPrims + rfsInPrims') $ combineSplitPoints splitPoints splitPoints'
                         )

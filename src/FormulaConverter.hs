@@ -19,6 +19,8 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE Strict #-}
+
 module FormulaConverter ( convert
                         ) where
 import GroundedAST (GroundedAST(..))
@@ -27,7 +29,7 @@ import Formula (Formula)
 import qualified Formula
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import qualified Data.HashMap.Lazy as Map
+import qualified Data.HashMap.Strict as Map
 import Data.Hashable (Hashable)
 import Control.Monad.State.Strict
 import Data.Foldable (foldrM)

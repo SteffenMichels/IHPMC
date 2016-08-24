@@ -58,6 +58,7 @@ import qualified Data.List as List
 import Interval (Interval)
 import qualified Interval
 import Control.Monad.State.Strict
+import Data.Foldable (foldl')
 
 -- INTERFACE
 data Node = Composed NodeType (HashSet NodeRef)
@@ -110,8 +111,8 @@ insert labelOrConds sign op children = do
                     Left label' -> label'
                     Right conds -> let label' = GroundedAST.PredicateLabel $ show freshCounter
                                    in  ComposedLabel label' conds $ Hashable.hash label' -- only use label as hash (ignore conds) as node is unique anyhow
-            let rFuncs = Set.foldr (\child rfuncs -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
-            modify (\f -> f{ nodes        = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
+            let rFuncs = foldl' (\rfuncs child -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
+            modify' (\f -> f{ nodes        = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
                            , freshCounter = succ freshCounter
                            , labels2ids   = Map.insert label (ComposedId freshCounter) labels2ids
                            }
@@ -234,7 +235,7 @@ conditionBool origNodeEntry rf val
                 Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cacheComps val'
                 Nothing -> do
                     let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached prevChoicesReal prd (cachedInfoBuildInPred cacheComps) buildinCache
-                    modify (\f -> f {buildinCache=buildinCache'})
+                    modify' (\f -> f {buildinCache=buildinCache'})
                     return $ predRefWithNode condPred prevChoicesReal cachedInfo
             where
             condPred = conditionPred prd
@@ -282,7 +283,7 @@ conditionReal origNodeEntry rf interv
                 Nothing  -> do
                     let choices = Map.insert rf interv prevChoicesReal
                     let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached choices prd (cachedInfoBuildInPred cacheComps) buildinCache
-                    modify (\f -> f {buildinCache=buildinCache'})
+                    modify' (\f -> f {buildinCache=buildinCache'})
                     return $ predRefWithNode condPred choices cachedInfo
             where
             condPred = conditionPred prd prevChoicesReal

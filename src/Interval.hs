@@ -19,6 +19,8 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE Strict #-}
+
 module Interval
     ( IntervalLimit(..)
     , IntervalLimitPoint(..)
@@ -37,6 +39,7 @@ import GHC.Generics (Generic)
 import qualified Data.HashMap.Strict as Map
 import Text.Printf (printf)
 import Numeric (fromRat)
+import Data.Foldable (foldl')
 
 data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic)
 
@@ -189,8 +192,8 @@ oneArgIndet _     Indet = True
 oneArgIndet _     _     = False
 
 corners :: (Eq k, Hashable k) => [(k, Interval)] -> [Map.HashMap k IntervalLimitPoint]
-corners choices = foldr
-        ( \(rf, Interval l u) crnrs ->
+corners choices = foldl'
+        ( \crnrs (rf, Interval l u) ->
           [Map.insert rf (Interval.toPoint Lower l) c | c <- crnrs] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- crnrs]
         )
         [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]]

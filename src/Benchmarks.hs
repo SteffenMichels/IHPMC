@@ -25,7 +25,7 @@ import qualified AST
 import System.IO
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import qualified Data.HashMap.Lazy as Map
+import qualified Data.HashMap.Strict as Map
 import Text.Printf (printf)
 import Data.List (intercalate)
 import BasicTypes
