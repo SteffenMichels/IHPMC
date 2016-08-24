@@ -145,9 +145,9 @@ theory ast = whiteSpace >>
     )
 
 -- rules
-rule :: Parser (AST.PredicateLabel, [AST.Argument], AST.RuleBody)
+rule :: Parser (AST.PredicateLabel, [AST.HeadArgument], AST.RuleBody)
 rule = do
-    (lbl, args) <- userPred
+    (lbl, args) <- userPred headArgument
     reservedOp "<-"
     body <- sepBy bodyElement comma
     _ <- dot
@@ -156,10 +156,10 @@ rule = do
 bodyElement :: Parser AST.RuleBodyElement
 bodyElement =
         AST.BuildInPredicate      <$> try buildInPredicate
-    <|> uncurry AST.UserPredicate <$> userPred
+    <|> uncurry AST.UserPredicate <$> userPred expression
 
-userPred :: Parser (AST.PredicateLabel, [AST.Argument])
-userPred = do
+userPred :: Parser arg -> Parser (AST.PredicateLabel, [arg])
+userPred argument = do
     lbl  <- predicateLabel
     args <- option [] $ parens $ sepBy argument comma
     return (lbl, args)
@@ -177,15 +177,15 @@ buildInPredicate = do
     return $ constr exprX exprY
 
 -- rfunc defs
-rFuncDef :: Parser (AST.RFuncLabel, [AST.Argument], AST.RFuncDef)
+rFuncDef :: Parser (AST.RFuncLabel, [AST.HeadArgument], AST.RFuncDef)
 rFuncDef = do
-    (lbl, args) <- rFunc
+    (lbl, args) <- rFunc headArgument
     reservedOp "~"
     def <- flipDef <|> normDef
     return (lbl, args, def)
 
-rFunc :: Parser (AST.RFuncLabel, [AST.Argument])
-rFunc = do
+rFunc :: Parser arg -> Parser (AST.RFuncLabel, [arg])
+rFunc argument = do
     lbl  <- rFuncL
     args <- option [] $ parens $ sepBy argument comma
     return (lbl, args)
@@ -210,9 +210,9 @@ normDef = do
         (doubleToProb . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
         (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
 
-argument :: Parser AST.Argument
-argument =     AST.Constant               <$> constantExpression
-           <|> AST.Variable . AST.VarName <$> variable
+headArgument :: Parser AST.HeadArgument
+headArgument =     AST.ArgConstant               <$> constantExpression
+               <|> AST.ArgVariable . AST.VarName <$> variable
 
 -- expressions
 expression :: Parser AST.Expr
@@ -220,9 +220,9 @@ expression = buildExpressionParser operators term
 
 operators = [ [Infix  (reservedOp "+" >> return AST.Sum) AssocLeft] ]
 
-term =     AST.ConstantExpr      <$> constantExpression
-       <|> uncurry AST.RFunc     <$> rFunc
-       <|> AST.Var . AST.VarName <$> variable
+term =     AST.ConstantExpr           <$> constantExpression
+       <|> uncurry AST.RFunc          <$> rFunc expression
+       <|> AST.Variable . AST.VarName <$> variable
 
 constantExpression :: Parser AST.ConstantExpr
 constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
@@ -232,17 +232,17 @@ constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
                      <|> AST.IntConstant                <$> integer
 
 -- queries
-query :: Parser (AST.PredicateLabel, [AST.Argument])
+query :: Parser (AST.PredicateLabel, [AST.Expr])
 query = do
     reserved "query"
-    q <- userPred
+    q <- userPred expression
     _ <- dot
     return q
 
 -- evidence
-evidence :: Parser (AST.PredicateLabel, [AST.Argument])
+evidence :: Parser (AST.PredicateLabel, [AST.Expr])
 evidence = do
     reserved "evidence"
-    e <- userPred
+    e <- userPred expression
     _ <- dot
     return e

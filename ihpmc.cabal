@@ -19,9 +19,10 @@ executable ihpmc_float
         time -any
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
-                EmptyDataDecls NamedFieldPuns Rank2Types
+                EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
     hs-source-dirs: src
     other-modules:
+        GroundedAST
         Options
         Parser
         HPT
@@ -48,9 +49,10 @@ executable ihpmc_exact
         explicit-exception -any,
         time -any
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
-                EmptyDataDecls NamedFieldPuns Rank2Types
+                EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
     hs-source-dirs: src
     other-modules:
+        GroundedAST
         Options
         Parser
         HPT
@@ -62,3 +64,4 @@ executable ihpmc_exact
         Interval
         Exception
     ghc-options: -Werror -rtsopts -Wall -O2
+

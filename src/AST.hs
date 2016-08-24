@@ -26,7 +26,7 @@ module AST
     , RuleBody(..)
     , RuleBodyElement(..)
     , BuildInPredicate(..)
-    , Argument(..)
+    , HeadArgument(..)
     , RFuncDef(..)
     , Expr(..)
     , ConstantExpr(..)
@@ -48,10 +48,10 @@ import GHC.Generics (Generic)
 import Numeric (fromRat)
 
 data AST = AST
-    { rFuncDefs :: HashMap (RFuncLabel, Int) [([Argument], RFuncDef)] -- first matching def applies
-    , rules     :: HashMap (PredicateLabel, Int) (HashSet ([Argument], RuleBody))
-    , queries   :: HashSet (PredicateLabel, [Argument])
-    , evidence  :: Maybe (PredicateLabel, [Argument])
+    { rFuncDefs :: HashMap (RFuncLabel, Int)     [([HeadArgument], RFuncDef)] -- first matching def applies
+    , rules     :: HashMap (PredicateLabel, Int) (HashSet ([HeadArgument], RuleBody))
+    , queries   :: HashSet (PredicateLabel, [Expr])
+    , evidence  :: Maybe (PredicateLabel, [Expr])
     }
 
 instance Show AST
@@ -74,7 +74,7 @@ instance Hashable PredicateLabel
 newtype RFuncLabel     = RFuncLabel String     deriving (Eq, Show, Generic)
 instance Hashable RFuncLabel
 
-data RFuncDef = Flip Probability
+data RFuncDef = Flip     Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
 
 instance Show RFuncDef
@@ -89,7 +89,7 @@ instance Show RuleBody
     show (RuleBody elements) = intercalate ", " (show <$> elements)
 instance Hashable RuleBody
 
-data RuleBodyElement = UserPredicate    PredicateLabel [Argument]
+data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic)
 
@@ -98,10 +98,11 @@ instance Show RuleBodyElement where
     show (BuildInPredicate prd)                      = show prd
 instance Hashable RuleBodyElement
 
-data Argument = Variable VarName
-              | Constant ConstantExpr
+-- the arguments in head definitions are restricted to variables and constants
+data HeadArgument = ArgVariable VarName
+                  | ArgConstant ConstantExpr
               deriving (Eq, Show, Generic)
-instance Hashable Argument
+instance Hashable HeadArgument
 
 data VarName = VarName String
              | TempVar Integer
@@ -132,8 +133,8 @@ instance Show IneqOp
 instance Hashable IneqOp
 
 data Expr = ConstantExpr ConstantExpr
-          | RFunc        RFuncLabel [Argument]
-          | Var          VarName
+          | RFunc        RFuncLabel [Expr]
+          | Variable     VarName
           | Sum          Expr Expr
           deriving (Eq, Generic)
 
@@ -141,7 +142,7 @@ instance Show Expr
     where
     show (ConstantExpr cnst)             = show cnst
     show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ intercalate ", " $ show <$> args
-    show (Var var)                       = show var
+    show (Variable var)                  = show var
     show (Sum x y)                       = printf "%s + %s" (show x) (show y)
 instance Hashable Expr
 
@@ -159,19 +160,18 @@ instance Show ConstantExpr
     show (IntConstant  cnst) = show cnst
 instance Hashable ConstantExpr
 
-
 negateOp :: IneqOp -> IneqOp
 negateOp Lt   = GtEq
 negateOp LtEq = Gt
 negateOp Gt   = LtEq
 negateOp GtEq = Lt
 
-predRandomFunctions :: BuildInPredicate -> HashSet (RFuncLabel, [Argument])
+predRandomFunctions :: BuildInPredicate -> HashSet (RFuncLabel, [Expr])
 predRandomFunctions (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 predRandomFunctions (Ineq     _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
 
-exprRandomFunctions :: Expr -> HashSet (RFuncLabel, [Argument])
+exprRandomFunctions :: Expr -> HashSet (RFuncLabel, [Expr])
 exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
-exprRandomFunctions (Var _)            = Set.empty
+exprRandomFunctions (Variable _)       = Set.empty
 exprRandomFunctions (ConstantExpr _)   = Set.empty
 exprRandomFunctions (Sum x y)          = Set.union (exprRandomFunctions x) (exprRandomFunctions y)

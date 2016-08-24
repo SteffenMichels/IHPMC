@@ -24,6 +24,7 @@ import BasicTypes
 import System.Environment (getArgs)
 import qualified Parser
 import qualified Grounder
+import qualified FormulaConverter
 import Exception
 import Text.Printf (printf, PrintfArg)
 import qualified IHPMC
@@ -59,7 +60,8 @@ main = do
         printIfSet "Stopping after %ims." timeout
         src <- doIO $ readFile modelFile
         ast <- returnExceptional $ Parser.parsePclp src
-        ((queries, mbEvidence), f) <- return $ Grounder.groundPclp ast IHPMC.heuristicsCacheComputations
+        let groundedAst= Grounder.ground ast
+        let ((queries, mbEvidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
         whenJust formExpPath $ \path -> Formula.exportAsDot path f
         let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                                  || maybe False (>= (u-l)/2) errBound
