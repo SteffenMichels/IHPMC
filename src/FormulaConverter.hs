@@ -76,7 +76,7 @@ convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, 
                 -> GroundedAST.RuleBody
                 -> Formula.FState cachedInfo Formula.NodeRef
     bodyFormula label (GroundedAST.RuleBody elements) = case elements of
-        []              -> error "FormulaConverter.bodyFormula: empty rule body?"
+        []              -> return $ Formula.RefDeterministic True
         [singleElement] -> elementFormula singleElement
         elements'       -> do fChildren <- foldrM (\el fChildren -> do newChild <- elementFormula el
                                                                        return $ Set.insert newChild fChildren

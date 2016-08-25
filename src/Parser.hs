@@ -147,8 +147,11 @@ theory ast = whiteSpace >>
 rule :: Parser (AST.PredicateLabel, [AST.HeadArgument], AST.RuleBody)
 rule = do
     (lbl, args) <- userPred headArgument
-    reservedOp "<-"
-    body <- sepBy bodyElement comma
+    body <- option
+        []
+        (do reservedOp "<-"
+            sepBy bodyElement comma
+        )
     _ <- dot
     return (lbl, args, AST.RuleBody body)
 
