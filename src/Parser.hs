@@ -153,7 +153,7 @@ rule = do
             sepBy bodyElement comma
         )
     _ <- dot
-    return (lbl, args, AST.RuleBody body)
+    return (lbl, args, AST.RuleBody $ Set.fromList body)
 
 bodyElement :: Parser AST.RuleBodyElement
 bodyElement =

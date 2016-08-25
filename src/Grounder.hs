@@ -35,13 +35,14 @@ import Control.Arrow (second)
 import Text.Printf (printf)
 import Data.List (intercalate)
 import Data.Foldable (foldl')
-import Data.Traversable (mapAccumL, forM)
+import Data.Traversable (mapAccumL)
 import Data.Sequence (Seq, ViewL((:<)), (><))
 import qualified Data.Sequence as Seq
 import Data.Maybe (isJust)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
+import BasicTypes
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
@@ -131,13 +132,13 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 nArgs     = length givenArgs
 
                 continueWithChosenDef :: ([AST.HeadArgument], AST.RFuncDef) -> State GroundingState ()
-                continueWithChosenDef (args, _) = continueWithChoice givenArgs args [] remaining (const $ return ())
+                continueWithChosenDef (args, _) = continueWithChoice givenArgs args Set.empty remaining (const $ return ())
 
     continueWithChoice :: [AST.Expr]
                        -> [AST.HeadArgument]
-                       -> [AST.RuleBodyElement]
+                       -> HashSet AST.RuleBodyElement
                        -> Seq AST.RuleBodyElement
-                       -> ([AST.RuleBodyElement] -> State GroundingState ())
+                       -> (HashSet AST.RuleBodyElement -> State GroundingState ())
                        -> State GroundingState ()
     continueWithChoice givenArgs args elements remaining addGrounding = do
         oldSt <- get
@@ -154,7 +155,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                     -- also apply valuation found to remaining goals todo
                     let remaining' = mapExprsInRuleBodyElement (applyValuExpr valu) <$> remaining
                     -- continue with rest
-                    computeGroundings (remaining' >< Seq.fromList els')
+                    computeGroundings (remaining' >< Seq.fromList (Set.toList els'))
                     -- recover previous state for next head rule, but keep groundings found
                     modify (\newSt -> oldSt {groundedRules = groundedRules newSt})
                 else
@@ -201,7 +202,7 @@ toPropArgs exprs = toPropArg <$> exprs
 toPropRuleBody :: AST.RuleBody
                -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
                -> State GroundingState GroundedAST.RuleBody
-toPropRuleBody (AST.RuleBody elements) rfDefs = GroundedAST.RuleBody <$> forM elements toPropRuleElement
+toPropRuleBody (AST.RuleBody elements) rfDefs = GroundedAST.RuleBody <$> forMHashSet elements toPropRuleElement
     where
     toPropRuleElement :: AST.RuleBodyElement -> State GroundingState GroundedAST.RuleBodyElement
     toPropRuleElement (AST.UserPredicate label args) =
@@ -312,11 +313,11 @@ toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ GroundedAST.ConstantExpr $ 
 
 applyArgs :: [AST.Expr]
           -> [AST.HeadArgument]
-          -> [AST.RuleBodyElement]
-          -> Maybe ([AST.RuleBodyElement], HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
+          -> HashSet AST.RuleBodyElement
+          -> Maybe (HashSet AST.RuleBodyElement, HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
 applyArgs givenArgs args elements = do
         (intValu, extValu, constrs) <- mbVals
-        let elements' = mapExprsInRuleBodyElement (replaceVars intValu) <$> elements
+        let elements' = Set.map (mapExprsInRuleBodyElement (replaceVars intValu)) elements
         return (elements', extValu, constrs)
     where
     mbVals = foldl' applyArgs' (Just (Map.empty, Map.empty, Set.empty)) (zip givenArgs args)
@@ -365,13 +366,13 @@ applyValuation valu = state (\st -> case mapAccumL applyValuRule True $ rulesInP
     applyValu' mbRules (args, AST.RuleBody elements) = do
         rules <- mbRules
         let args' = applyValuExpr valu <$> args
-        elements' <- foldl' applyValuBodyEl (Just []) elements
+        elements' <- foldl' applyValuBodyEl (Just Set.empty) elements
         return $ Set.insert (args', AST.RuleBody elements') rules
 
-    applyValuBodyEl :: Maybe [AST.RuleBodyElement] -> AST.RuleBodyElement -> Maybe [AST.RuleBodyElement]
+    applyValuBodyEl :: Maybe (HashSet AST.RuleBodyElement) -> AST.RuleBodyElement -> Maybe (HashSet AST.RuleBodyElement)
     applyValuBodyEl mbElements el = do
         elements <- mbElements
-        return $ mapExprsInRuleBodyElement (applyValuExpr valu) el:elements
+        return $ Set.insert (mapExprsInRuleBodyElement (applyValuExpr valu) el) elements
 
     applyValuConstraint :: Constraint -> Constraint
     applyValuConstraint (EqConstraint exprX exprY) = EqConstraint (applyValuExpr valu exprX) (applyValuExpr valu exprY)
@@ -383,10 +384,13 @@ applyValuExpr valu expr@(AST.Variable var) = case Map.lookup var valu of
 applyValuExpr _ expr = expr
 
 -- replace existentially quantified (occuring in body, but not head) variables
-replaceEVars :: [AST.RuleBodyElement] -> State GroundingState [AST.RuleBodyElement]
-replaceEVars elements = state (\st -> let ((varCounter', _), elements') = mapAccumL
-                                              (mapAccExprsInRuleBodyElement replaceEVars')
-                                              (varCounter st, Map.empty)
+replaceEVars :: HashSet AST.RuleBodyElement -> State GroundingState (HashSet AST.RuleBodyElement)
+replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
+                                              (\(c, v2ids, elements'') el ->
+                                                  let ((c', v2ids'), el') = mapAccExprsInRuleBodyElement replaceEVars' (c, v2ids) el
+                                                  in  (c', v2ids', Set.insert el' elements'')
+                                              )
+                                              (varCounter st, Map.empty, Set.empty)
                                               elements
                                       in  (elements', st{varCounter = varCounter'})
                               )

@@ -34,6 +34,7 @@ import Data.Hashable (Hashable)
 import Control.Monad.State.Strict
 import Data.Foldable (foldrM)
 import Text.Printf (printf)
+import BasicTypes
 
 convert :: (Eq cachedInfo, Hashable cachedInfo)
         => GroundedAST
@@ -75,13 +76,13 @@ convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, 
                 => GroundedAST.PredicateLabel
                 -> GroundedAST.RuleBody
                 -> Formula.FState cachedInfo Formula.NodeRef
-    bodyFormula label (GroundedAST.RuleBody elements) = case elements of
-        []              -> return $ Formula.RefDeterministic True
-        [singleElement] -> elementFormula singleElement
-        elements'       -> do fChildren <- foldrM (\el fChildren -> do newChild <- elementFormula el
-                                                                       return $ Set.insert newChild fChildren
-                                                  ) Set.empty elements'
-                              Formula.entryRef <$> Formula.insert (Left $ Formula.uncondComposedLabel label) True Formula.And fChildren
+    bodyFormula label (GroundedAST.RuleBody elements) = case length elements of
+        0 -> return $ Formula.RefDeterministic True
+        1 -> elementFormula $ getFirst elements
+        _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- elementFormula el
+                                                         return $ Set.insert newChild fChildren
+                                    ) Set.empty elements
+                Formula.entryRef <$> Formula.insert (Left $ Formula.uncondComposedLabel label) True Formula.And fChildren
 
     elementFormula :: (Eq cachedInfo, Hashable cachedInfo) => GroundedAST.RuleBodyElement -> Formula.FState cachedInfo Formula.NodeRef
     elementFormula (GroundedAST.UserPredicate label)  = headFormula label

@@ -89,11 +89,11 @@ instance Show RFuncLabel
     show (RFuncLabel l) = l
 instance Hashable RFuncLabel
 
-newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
+newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)
 
 instance Show RuleBody
     where
-    show (RuleBody elements) = intercalate ", " (show <$> elements)
+    show (RuleBody elements) = intercalate ", " (show <$> Set.toList elements)
 instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel
