@@ -55,14 +55,14 @@ data GroundingState = GroundingState
     } deriving Show
 
 ground :: AST -> GroundedAST
-ground AST.AST{AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules, AST.rFuncDefs=rfDefs} =
+ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.rFuncDefs=rfDefs} =
     GroundedAST{ rules    = groundedRules'
                , queries  = queries'
-               , evidence = mbEvidence'
+               , evidence = evidence'
                }
     where
-    queries'    = Set.map toPropPred     queries
-    mbEvidence' =         toPropPred <$> mbEvidence
+    queries'  = Set.map toPropPred queries
+    evidence' = Set.map toPropPred evidence
     toPropPred (label, args) = toPropPredLabel label $ toPropArgs args
 
     GroundingState{groundedRules = groundedRules'} = foldl'
@@ -73,7 +73,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=mbEvidence, AST.rules=rules, AS
                       , rulesInProof     = Map.empty
                       , proofConstraints = Set.empty
                       }
-        (Set.union queries $ maybe Set.empty Set.singleton mbEvidence)
+        (Set.union queries evidence)
 
     computeGroundings :: Seq AST.RuleBodyElement -> State GroundingState ()
     computeGroundings todo = case Seq.viewl todo of

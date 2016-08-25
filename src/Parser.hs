@@ -109,7 +109,7 @@ parsePclp src =
             { AST.rFuncDefs = Map.empty
             , AST.rules     = Map.empty
             , AST.queries   = Set.empty
-            , AST.evidence  = Nothing
+            , AST.evidence  = Set.empty
             }
     in mapException show (fromEither (parse (theory initialState) "PCLP theory" src))
 
@@ -122,8 +122,7 @@ theory ast = whiteSpace >>
           )
       <|> try (do --evidence
             e <- evidence
-            -- TODO: handle multiple evidence statements
-            let ast' = ast {AST.evidence = Just e}
+            let ast' = ast {AST.evidence = Set.insert e $ AST.evidence ast}
             theory ast'
           )
       <|> ( do -- random function definition

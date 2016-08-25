@@ -88,7 +88,7 @@ ihpmc query finishPred mbRepInterval f = do
                             else ihpmc' (succ i) startTime lastReportedTime hptNode'
 
 ihpmcEvidence :: Formula.NodeRef
-              -> Formula.NodeRef
+              -> HashSet Formula.NodeRef
               -> (Int -> ProbabilityBounds -> Int -> Bool)
               -> Maybe Int
               -> Formula CachedSplitPoints
@@ -96,8 +96,8 @@ ihpmcEvidence :: Formula.NodeRef
 ihpmcEvidence query evidence finishPred mbRepInterval f = do
     t <- doIO getTime
     let ((queryAndEvidence, negQueryAndEvidence), f') = runState (do
-                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.fromList [queryRef True,  evidence])
-                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.fromList [queryRef False, evidence])
+                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.insert (queryRef True)  evidence)
+                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.insert (queryRef False) evidence)
                 return (qe, nqe)
             )
             f
@@ -109,7 +109,7 @@ ihpmcEvidence query evidence finishPred mbRepInterval f = do
         Formula.RefDeterministic val                    -> Formula.RefDeterministic (val == sign)
     initHPT e = case Formula.entryRef e of
         Formula.RefDeterministic v -> HPT.Finished $ if v then 1.0 else 0.0
-        ref                        -> HPT.Unfinished (HPT.initialNode ref) (ProbabilityBounds 0.0 1.0) undefined
+        ref                        -> HPT.Unfinished (HPT.initialNode ref) (ProbabilityBounds 0.0 1.0) 1.0
 
     ihpmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int,ProbabilityBounds)]
     ihpmc' i startTime lastReportedTime qe nqe = lift (doIO getTime) >>= \curTime -> case (qe, nqe) of

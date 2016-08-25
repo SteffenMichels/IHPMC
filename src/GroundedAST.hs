@@ -60,7 +60,7 @@ import Numeric (fromRat)
 data GroundedAST = GroundedAST
     { rules     :: HashMap PredicateLabel (HashSet RuleBody)
     , queries   :: HashSet PredicateLabel
-    , evidence  :: Maybe PredicateLabel
+    , evidence  :: HashSet PredicateLabel
     }
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)

@@ -63,15 +63,16 @@ main = do
         src <- doIO $ readFile modelFile
         ast <- returnExceptional $ Parser.parsePclp src
         let groundedAst = Grounder.ground ast
-        let ((queries, mbEvidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
+        let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
         whenJust formExpPath $ \path -> Formula.exportAsDot path f
         let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                                  || maybe False (>= (u-l)/2) errBound
                                                  || maybe False (<= t)       timeout
         forM_ queries $ \(qLabel, qRef) -> do
-            results <- case mbEvidence of
-                Nothing -> IHPMC.ihpmc         qRef    stopPred repInterval f
-                Just ev -> IHPMC.ihpmcEvidence qRef ev stopPred repInterval f
+            results <- if null evidence then
+                IHPMC.ihpmc         qRef          stopPred repInterval f
+            else
+                IHPMC.ihpmcEvidence qRef evidence stopPred repInterval f
             when (isJust repInterval) $ doIO $ putStrLn ""
             forM_
                 results

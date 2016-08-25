@@ -51,7 +51,7 @@ data AST = AST
     { rFuncDefs :: HashMap (RFuncLabel, Int)     [([HeadArgument], RFuncDef)] -- first matching def applies
     , rules     :: HashMap (PredicateLabel, Int) (HashSet ([HeadArgument], RuleBody))
     , queries   :: HashSet (PredicateLabel, [Expr])
-    , evidence  :: Maybe (PredicateLabel, [Expr])
+    , evidence  :: HashSet (PredicateLabel, [Expr])
     }
 
 instance Show AST
@@ -62,12 +62,10 @@ instance Show AST
                             [printf "~%s ~ %s.\n" (show label) $ show def | def <- defs]
                        | (label, defs) <- Map.toList $ rFuncDefs ast]
         rulesStr     = concat $ concat [
-                            [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args,body) <- Set.toList bodies]
+                            [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args, body) <- Set.toList bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
-        queryStr     = concat [printf "query %s%s.\n" query $ show args | (PredicateLabel query,args) <- Set.toList $ queries ast]
-        evStr = case evidence ast of
-            Just (PredicateLabel ev,args) -> printf "evidence %s%s.\n" ev $ show args
-            Nothing                       -> ""
+        queryStr     = concat [printf "query %s%s.\n" query $ show args | (PredicateLabel query, args) <- Set.toList $ queries ast]
+        evStr        = concat [printf "evidence %s%s.\n" ev $ show args | (PredicateLabel ev,    args) <- Set.toList $ evidence ast]
 
 newtype PredicateLabel = PredicateLabel String deriving (Eq, Show, Generic)
 instance Hashable PredicateLabel
