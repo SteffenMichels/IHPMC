@@ -34,7 +34,6 @@ import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 import Exception
 import Numeric
-import Text.Printf (printf)
 import BasicTypes
 import Data.Ratio ((%))
 import qualified Statistics.Distribution as Dist
@@ -70,16 +69,17 @@ rational   = Token.lexeme     lexer parseRat
         return $ if neg then -rat else rat
         where
         parseDecimal = do
-            before <- decimal
+            int <- decimal
             _ <- string "."
-            after <- many1 digit
-            return $ (fst . head . readFloat) (printf "%i.%s" before after)
+            nFrac <- length <$> lookAhead (many1 digit)
+            frac <- decimal
+            return $ (fromIntegral int :: Rational) + frac % (10^(fromIntegral nFrac :: Integer))
         parseFraction = do
-            before <- integer
+            num <- integer
             _ <- string "/"
-            after <- integer
-            return $ before % after
-realIneqOp = Token.lexeme     lexer parseRealIneqOp
+            den <- integer
+            return $ num % den
+realIneqOp = Token.lexeme lexer parseRealIneqOp
     where
     parseRealIneqOp :: Parser AST.IneqOp
     parseRealIneqOp =     try (reservedOp "<"  >> return AST.Lt)
