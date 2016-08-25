@@ -75,7 +75,12 @@ main = do
             when (isJust repInterval) $ doIO $ putStrLn ""
             forM_
                 results
-                (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "%s (iteration %i): %f (error bound: %f)" (show qLabel) i (probToDouble (u+l)/2.0) (probToDouble (u-l)/2))
+                (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf
+                    "%s (iteration %i): %s (error bound: %s)"
+                    (show qLabel)
+                    i
+                    (show $ (u+l)/2.0)
+                    (show $ (u-l)/2))
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr

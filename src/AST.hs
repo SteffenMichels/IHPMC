@@ -79,7 +79,7 @@ data RFuncDef = Flip     Probability
 
 instance Show RFuncDef
     where
-    show (Flip p)       = printf "flip(%s)" $ printProb p
+    show (Flip p)       = printf "flip(%s)" $ show p
     show (RealDist _ _) = printf "realDist"
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)

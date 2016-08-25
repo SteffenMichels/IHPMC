@@ -24,7 +24,6 @@
 module BasicTypes
     ( Probability
     , ProbabilityBounds(..)
-    , printProb
     , doubleToProb
     , probToDouble
     , getFirst
@@ -33,18 +32,20 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
-#ifndef FLOAT_PROBS
+#ifdef FLOAT_PROBS
+import Text.Printf (printf)
+#else
 import Numeric (fromRat)
 import Data.Ratio (numerator, denominator)
 import Text.Printf (printf)
 #endif
 
 #ifdef FLOAT_PROBS
-newtype Probability = Probability Double deriving (Eq, Show, Generic)
+newtype Probability = Probability Double deriving (Eq, Generic)
+instance Show Probability
+    where
+    show (Probability p) = printf "%f" p
 instance Hashable Probability
-
-printProb :: Probability -> String
-printProb = show
 
 ratToProb :: Rational -> Probability
 ratToProb = Probability. fromRational
@@ -55,14 +56,11 @@ doubleToProb = Probability
 probToDouble :: Probability -> Double
 probToDouble (Probability p) = p
 #else
-newtype Probability = Probability Rational deriving (Eq, Show, Generic)
-instance Hashable Probability
-
-printProb :: Probability -> String
-printProb (Probability p) = printf "%i/%i" n d
+newtype Probability = Probability Rational deriving (Eq, Generic)
+instance Show Probability
     where
-    n = numerator p
-    d = denominator p
+    show (Probability p) = printf "%i/%i" (numerator p) (denominator p)
+instance Hashable Probability
 
 ratToProb :: Rational -> Probability
 ratToProb = Probability
