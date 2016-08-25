@@ -60,7 +60,7 @@ convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, 
                    Formula.entryRef <$> Formula.insert (Left flabel) True Formula.Or fBodies
         where
         flabel    = Formula.uncondComposedLabel label
-        headRules = Map.lookupDefault (error $ printf "FormulaConverter: head '%s' undefined" (show label)) label rules
+        headRules = Map.lookupDefault Set.empty label rules
 
     ruleFormulas :: (Eq cachedInfo, Hashable cachedInfo)
                  => GroundedAST.PredicateLabel
