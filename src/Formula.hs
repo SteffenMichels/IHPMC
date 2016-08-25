@@ -396,7 +396,8 @@ instance Hashable NodeType
 
 -- node refs are used for optimisation, to avoid looking up leaves (build in preds and deterministic nodes) in the graph
 data NodeRef = RefComposed Bool ComposedId
-             | RefBuildInPredicate GroundedAST.BuildInPredicate (HashMap GroundedAST.RFunc Interval) -- store only real choices, as bool choices eliminate rfs
+             -- store only real choices, as bool choices eliminate rfs
+             | RefBuildInPredicate GroundedAST.BuildInPredicate (HashMap GroundedAST.RFunc Interval)
              | RefDeterministic Bool
              deriving (Eq, Generic)
 instance Hashable NodeRef

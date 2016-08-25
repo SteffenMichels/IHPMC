@@ -70,18 +70,18 @@ instance Show PredicateLabel
     show (PredicateLabel l) = l
 instance Hashable PredicateLabel
 
-data RFunc = RFunc RFuncLabel AST.RFuncDef
+data RFunc = RFunc RFuncLabel AST.RFuncDef Int -- store hash for efficiency reasons
 instance Eq RFunc
     where
-    RFunc x _ == RFunc y _ = x == y
+    RFunc x _ hx == RFunc y _ hy = hx == hy && x == y
 instance Show RFunc
     where
-    show (RFunc l _) = show l
+    show (RFunc l _ _) = show l
 instance Hashable RFunc
     where
     hash = Hashable.hashWithSalt 0
     -- there should never be more than one RF with the same name, so hash only name and ignore definition
-    hashWithSalt salt (RFunc l _) = Hashable.hashWithSalt salt l
+    hashWithSalt salt (RFunc _ _ hash) = Hashable.hashWithSalt salt hash
 
 newtype RFuncLabel = RFuncLabel String deriving (Eq, Generic)
 instance Show RFuncLabel

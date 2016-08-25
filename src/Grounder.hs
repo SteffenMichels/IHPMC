@@ -40,6 +40,7 @@ import Data.Sequence (Seq, ViewL((:<)), (><))
 import qualified Data.Sequence as Seq
 import Data.Maybe (isJust)
 import Data.Hashable (Hashable)
+import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
@@ -264,7 +265,7 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                     Map.insert propRFuncLabel def $ groundedRfDefs st
                 })
                 return def
-        let rf = GroundedAST.RFunc propRFuncLabel rfDef
+        let rf = GroundedAST.RFunc propRFuncLabel rfDef $ Hashable.hash propRFuncLabel
         case rfDef of
             AST.Flip _       -> return $ ExprBool $ GroundedAST.RFuncExpr rf
             AST.RealDist _ _ -> return $ ExprReal $ GroundedAST.RFuncExpr rf
