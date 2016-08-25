@@ -418,9 +418,9 @@ refBuildInPredicate prd = case GroundedAST.deterministicValue prd of
     Nothing  -> RefBuildInPredicate prd Map.empty
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed      :: HashSet cachedInfo                                                         -> cachedInfo
+    { cachedInfoComposed      :: HashSet cachedInfo                                                 -> cachedInfo
     , cachedInfoBuildInPred   :: HashMap GroundedAST.RFunc Interval -> GroundedAST.BuildInPredicate -> cachedInfo
-    , cachedInfoDeterministic :: Bool                                                                       -> cachedInfo
+    , cachedInfoDeterministic :: Bool                                                               -> cachedInfo
     }
 
 -- to avoid recomputation

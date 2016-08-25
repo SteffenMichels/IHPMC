@@ -38,10 +38,10 @@ import Text.Printf (printf)
 convert :: (Eq cachedInfo, Hashable cachedInfo)
         => GroundedAST
         -> Formula.CacheComputations cachedInfo
-        -> ((HashSet Formula.NodeRef, Maybe Formula.NodeRef), Formula cachedInfo)
+        -> ((HashSet (GroundedAST.PredicateLabel, Formula.NodeRef), Maybe Formula.NodeRef), Formula cachedInfo)
 convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=mbEvidence, GroundedAST.rules=rules} cachedInfoComps =
     runState (do groundedQueries <- foldrM (\query gQueries -> do ref <- headFormula query
-                                                                  return $ Set.insert ref gQueries
+                                                                  return $ Set.insert (query, ref) gQueries
                                            ) Set.empty queries
                  case mbEvidence of
                     Nothing -> return (groundedQueries, Nothing)

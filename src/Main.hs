@@ -33,7 +33,7 @@ import qualified IHPMC
 import Options (Options(..))
 import qualified Options
 import Control.Monad.Exception.Synchronous
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
@@ -62,18 +62,20 @@ main = do
         printIfSet "Stopping after %ims." timeout
         src <- doIO $ readFile modelFile
         ast <- returnExceptional $ Parser.parsePclp src
-        let groundedAst= Grounder.ground ast
+        let groundedAst = Grounder.ground ast
         let ((queries, mbEvidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
         whenJust formExpPath $ \path -> Formula.exportAsDot path f
         let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                                  || maybe False (>= (u-l)/2) errBound
                                                  || maybe False (<= t)       timeout
-        results <- case mbEvidence of
-            Nothing -> IHPMC.ihpmc         (getFirst queries)    stopPred repInterval f
-            Just ev -> IHPMC.ihpmcEvidence (getFirst queries) ev stopPred repInterval f
-        forM_
-            results
-            (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "iteration %i: %f (error bound: %f)" i (probToDouble (u+l)/2.0) (probToDouble (u-l)/2))
+        forM_ queries $ \(qLabel, qRef) -> do
+            results <- case mbEvidence of
+                Nothing -> IHPMC.ihpmc         qRef    stopPred repInterval f
+                Just ev -> IHPMC.ihpmcEvidence qRef ev stopPred repInterval f
+            when (isJust repInterval) $ doIO $ putStrLn ""
+            forM_
+                results
+                (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf "%s (iteration %i): %f (error bound: %f)" (show qLabel) i (probToDouble (u+l)/2.0) (probToDouble (u-l)/2))
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr
