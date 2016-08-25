@@ -331,19 +331,19 @@ exportAsDot path Formula{nodes} = do
                 childStr (RefComposed sign (ComposedId childId)) = printf "%i[label=\"%s\"]" childId (show sign)
                 childStr (RefBuildInPredicate prd _)             = printf "%i;\n%i[label=\"%s\"]" h h $ show prd
                     where
-                    h = Hashable.hashWithSalt i prd
-                childStr (RefDeterministic _)              = error "Formula export: should this happen?"
+                    h = Hashable.hashWithSalt (Hashable.hash i) prd
+                childStr (RefDeterministic _)                    = error "Formula export: should this happen?"
 
 -- FORMULA STORAGE
 data Formula cachedInfo = Formula
     { nodes        :: HashMap ComposedId (ComposedLabel, FormulaEntry cachedInfo)           -- graph representing formulas
-    , freshCounter :: Int                                                                   -- counter for fresh nodes
+    , freshCounter :: Integer                                                               -- counter for fresh nodes
     , labels2ids   :: HashMap ComposedLabel ComposedId                                      -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
     , buildinCache :: HashMap (GroundedAST.BuildInPredicate, HashMap GroundedAST.RFunc Interval) cachedInfo -- cache for buildin predicates
     , cacheComps   :: CacheComputations cachedInfo                                          -- how cached information attached to formulas is computed
     }
 
-newtype ComposedId = ComposedId Int deriving (Eq, Generic)
+newtype ComposedId = ComposedId Integer deriving (Eq, Generic)
 instance Hashable ComposedId
 
 data ComposedLabel = ComposedLabel
