@@ -32,7 +32,6 @@ import qualified Formula
 import HPT (HPT, HPTNode)
 import qualified HPT
 import BasicTypes
-import Data.HashSet (HashSet)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import qualified Data.HashSet as Set
@@ -53,11 +52,9 @@ import Data.Foldable (foldl')
 --import Debug.Trace (trace)
 
 -- number of rfs in primitives, split points + scores
-data CachedSplitPoints = CachedSplitPoints Int (HashMap (GroundedAST.RFunc, SplitPoint) Double) deriving (Eq, Generic)
-instance Hashable CachedSplitPoints
+data CachedSplitPoints = CachedSplitPoints Int (HashMap (GroundedAST.RFunc, SplitPoint) Double)
 type FState = Formula.FState CachedSplitPoints
-
-data SplitPoint = DiscreteSplit | ContinuousSplit Rational deriving (Eq, Show, Generic)
+data SplitPoint = DiscreteSplit | ContinuousSplit Rational deriving (Eq, Generic)
 instance Hashable SplitPoint
 
 untilFinished :: Int -> ProbabilityBounds -> Bool
@@ -88,7 +85,7 @@ ihpmc query finishPred mbRepInterval f = do
                             else ihpmc' (succ i) startTime lastReportedTime hptNode'
 
 ihpmcEvidence :: Formula.NodeRef
-              -> HashSet Formula.NodeRef
+              -> [Formula.NodeRef]
               -> (Int -> ProbabilityBounds -> Int -> Bool)
               -> Maybe Int
               -> Formula CachedSplitPoints
@@ -96,8 +93,8 @@ ihpmcEvidence :: Formula.NodeRef
 ihpmcEvidence query evidence finishPred mbRepInterval f = do
     t <- doIO getTime
     let ((queryAndEvidence, negQueryAndEvidence), f') = runState (do
-                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.insert (queryRef True)  evidence)
-                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Set.insert (queryRef False) evidence)
+                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (queryRef True  : evidence)
+                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (queryRef False : evidence)
                 return (qe, nqe)
             )
             f
@@ -386,8 +383,8 @@ heuristicBuildInPred prevChoicesReal prd =
                             GroundedAST.RealDist cdf'' _ -> cdf''
                             _ -> error "IHPMC.heuristicBuildInPred.cdf"
 
-heuristicComposed :: HashSet CachedSplitPoints -> CachedSplitPoints
-heuristicComposed = foldr
+heuristicComposed :: [CachedSplitPoints] -> CachedSplitPoints
+heuristicComposed = foldl'
                         ( \(CachedSplitPoints rfsInPrims splitPoints) (CachedSplitPoints rfsInPrims' splitPoints') ->
                           CachedSplitPoints (rfsInPrims + rfsInPrims') $ combineSplitPoints splitPoints splitPoints'
                         )

@@ -27,63 +27,53 @@ import GroundedAST (GroundedAST(..))
 import qualified GroundedAST
 import Formula (Formula)
 import qualified Formula
-import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import qualified Data.HashMap.Strict as Map
-import Data.Hashable (Hashable)
 import Control.Monad.State.Strict
 import Data.Foldable (foldrM)
 import Text.Printf (printf)
 import BasicTypes
 
-convert :: (Eq cachedInfo, Hashable cachedInfo)
-        => GroundedAST
+convert :: GroundedAST
         -> Formula.CacheComputations cachedInfo
-        -> ((HashSet (GroundedAST.PredicateLabel, Formula.NodeRef), HashSet Formula.NodeRef), Formula cachedInfo)
+        -> (([(GroundedAST.PredicateLabel, Formula.NodeRef)], [Formula.NodeRef]), Formula cachedInfo)
 convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, GroundedAST.rules=rules} cachedInfoComps =
-    runState (do groundedQueries  <- foldrM (\query gQueries -> do ref <- headFormula query
-                                                                   return $ Set.insert (query, ref) gQueries
-                                            ) Set.empty queries
-                 groundedEvidence <- foldrM (\ev gEvidence   -> do ref <- headFormula ev
-                                                                   return $ Set.insert ref gEvidence
-                                            ) Set.empty evidence
+    runState (do groundedQueries  <- forM (Set.toList queries)  (\q -> (\ref -> (q, ref)) <$> headFormula q)
+                 groundedEvidence <- forM (Set.toList evidence) headFormula
                  return (groundedQueries, groundedEvidence)
              ) (Formula.empty cachedInfoComps)
     where
-    headFormula :: (Eq cachedInfo, Hashable cachedInfo)
-                => GroundedAST.PredicateLabel
+    headFormula :: GroundedAST.PredicateLabel
                 -> Formula.FState cachedInfo Formula.NodeRef
     headFormula label = do
         mbNodeId <- Formula.labelId flabel
         case mbNodeId of
            Just nodeId -> return $ Formula.RefComposed True nodeId
-           _ -> do (fBodies,_) <- foldM (ruleFormulas label) (Set.empty, 0::Integer) headRules
+           _ -> do (fBodies,_) <- foldM (ruleFormulas label) ([], 0::Integer) headRules
                    Formula.entryRef <$> Formula.insert (Left flabel) True Formula.Or fBodies
         where
         flabel    = Formula.uncondComposedLabel label
         headRules = Map.lookupDefault Set.empty label rules
 
-    ruleFormulas :: (Eq cachedInfo, Hashable cachedInfo)
-                 => GroundedAST.PredicateLabel
-                 -> (HashSet Formula.NodeRef, Integer)
+    ruleFormulas :: GroundedAST.PredicateLabel
+                 -> ([Formula.NodeRef], Integer)
                  -> GroundedAST.RuleBody
-                 -> Formula.FState cachedInfo (HashSet Formula.NodeRef, Integer)
+                 -> Formula.FState cachedInfo ([Formula.NodeRef], Integer)
     ruleFormulas (GroundedAST.PredicateLabel lbl) (fBodies, counter) body = do
         newChild <- bodyFormula (GroundedAST.PredicateLabel (printf "%s%i" lbl counter)) body
-        return (Set.insert newChild fBodies, succ counter)
+        return (newChild : fBodies, succ counter)
 
-    bodyFormula :: (Eq cachedInfo, Hashable cachedInfo)
-                => GroundedAST.PredicateLabel
+    bodyFormula :: GroundedAST.PredicateLabel
                 -> GroundedAST.RuleBody
                 -> Formula.FState cachedInfo Formula.NodeRef
     bodyFormula label (GroundedAST.RuleBody elements) = case length elements of
         0 -> return $ Formula.RefDeterministic True
         1 -> elementFormula $ getFirst elements
         _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- elementFormula el
-                                                         return $ Set.insert newChild fChildren
-                                    ) Set.empty elements
+                                                         return $ newChild : fChildren
+                                    ) [] elements
                 Formula.entryRef <$> Formula.insert (Left $ Formula.uncondComposedLabel label) True Formula.And fChildren
 
-    elementFormula :: (Eq cachedInfo, Hashable cachedInfo) => GroundedAST.RuleBodyElement -> Formula.FState cachedInfo Formula.NodeRef
+    elementFormula :: GroundedAST.RuleBodyElement -> Formula.FState cachedInfo Formula.NodeRef
     elementFormula (GroundedAST.UserPredicate label)  = headFormula label
     elementFormula (GroundedAST.BuildInPredicate prd) = return $ Formula.refBuildInPredicate prd

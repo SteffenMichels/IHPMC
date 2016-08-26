@@ -41,7 +41,6 @@ module Formula
     , Formula.negate
     , entryChoices
     ) where
-import BasicTypes
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
@@ -61,7 +60,7 @@ import Control.Monad.State.Strict
 import Data.Foldable (foldl')
 
 -- INTERFACE
-data Node = Composed NodeType (HashSet NodeRef)
+data Node = Composed NodeType [NodeRef]
           | BuildInPredicate GroundedAST.BuildInPredicate (HashMap GroundedAST.RFunc Interval) -- store only real choices, as bool choices eliminate rfs
           | Deterministic Bool
           deriving (Show, Eq)
@@ -72,11 +71,7 @@ data RefWithNode cachedInfo = RefWithNode
     , entryLabel      :: Maybe ComposedLabel
     , entryRFuncs     :: HashSet GroundedAST.RFunc
     , entryCachedInfo :: cachedInfo
-    } deriving (Eq)
-instance Hashable (RefWithNode cachedInfo)
-    where
-    hash                                    = Hashable.hashWithSalt 0
-    hashWithSalt salt RefWithNode{entryRef} = Hashable.hashWithSalt salt entryRef
+    }
 
 type FState cachedInfo = State (Formula cachedInfo)
 
@@ -88,23 +83,16 @@ empty cacheComps = Formula { nodes        = Map.empty
                            , cacheComps   = cacheComps
                            }
 
-insert :: (Hashable cachedInfo, Eq cachedInfo)
-       => Either ComposedLabel Conditions
+insert :: Either ComposedLabel Conditions
        -> Bool
        -> NodeType
-       -> HashSet NodeRef
+       -> [NodeRef]
        -> FState cachedInfo (RefWithNode cachedInfo)
 insert labelOrConds sign op children = do
     (simplifiedNode, simplifiedSign) <- simplify op children
-    children' <- foldM
-        (\cs c -> do
-            e <- augmentWithEntry c
-            return $ Set.insert e cs
-        )
-        Set.empty
-        (nodeChildren simplifiedNode)
+    children' <- forM (nodeChildren simplifiedNode) augmentWithEntry
     Formula{cacheComps, freshCounter, labels2ids, nodes} <- get
-    let cachedInfo = cachedInfoComposed cacheComps (Set.map entryCachedInfo children')
+    let cachedInfo = cachedInfoComposed cacheComps (entryCachedInfo <$> children')
     case simplifiedNode of
         Composed nType nChildren -> do
             let label = case labelOrConds of
@@ -126,12 +114,11 @@ insert labelOrConds sign op children = do
         BuildInPredicate prd rConds -> return $ predRefWithNode (if sign then prd else GroundedAST.negatePred prd) rConds cachedInfo
         Deterministic val           -> return $ deterministicRefWithNode (val == sign) cachedInfo
     where
-    simplify :: NodeType -> HashSet NodeRef -> FState cachedInfo (Node, Bool)
-    simplify operator childRefs = case nChildren of
-        0 -> return (Deterministic filterValue, True)
-        1 -> do
-            let onlyChild = getFirst newChildRefs
-                sign' = case onlyChild of
+    simplify :: NodeType -> [NodeRef] -> FState cachedInfo (Node, Bool)
+    simplify operator childRefs = case newChildRefs of
+        []          -> return (Deterministic filterValue, True)
+        [onlyChild] -> do
+            let sign' = case onlyChild of
                     RefComposed sign'' _ -> sign''
                     _                    -> True
             e <- augmentWithEntry onlyChild
@@ -141,16 +128,15 @@ insert labelOrConds sign op children = do
         _ ->
             return (Composed operator newChildRefs, True)
         where
-        newChildRefs = Set.filter (RefDeterministic filterValue /=) childRefs
-        nChildren    = Set.size newChildRefs
+        newChildRefs = filter (RefDeterministic filterValue /=) childRefs
         -- truth value that causes determinism if at least a single child has it
         singleDeterminismValue = operator == Or
         -- truth value that can be filtered out
         filterValue = operator == And
 
-    nodeChildren :: Node -> HashSet NodeRef
+    nodeChildren :: Node -> [NodeRef]
     nodeChildren (Composed _ children'') = children''
-    nodeChildren _                       = Set.empty
+    nodeChildren _                       = []
 
 augmentWithEntry :: NodeRef -> FState cachedInfo (RefWithNode cachedInfo)
 augmentWithEntry label = fromMaybe (error $ printf "Formula: non-existing Formula node '%s'" $ show label)
@@ -204,8 +190,7 @@ entryChoices entry = case entryRef entry of
         Just (ComposedLabel _ conds _) -> conds
         _ -> Conditions Map.empty Map.empty
 
-conditionBool :: (Hashable cachedInfo, Eq cachedInfo)
-              => RefWithNode cachedInfo
+conditionBool :: RefWithNode cachedInfo
               -> GroundedAST.RFunc
               -> Bool
               -> FState cachedInfo (RefWithNode cachedInfo)
@@ -218,15 +203,13 @@ conditionBool origNodeEntry rf val
                 Just nodeId -> augmentWithEntry $ RefComposed sign nodeId
                 _ -> do
                     let (_, FormulaEntry op children _ _) = fromJust $ Map.lookup origId nodes
-                    condChildren <- foldM
-                        (\children' child -> do
-                            condRef   <- augmentWithEntry child
-                            condChild <- conditionBool condRef rf val
-                            return $ Set.insert condChild children'
-                        )
-                        Set.empty
+                    condChildren <- forM
                         children
-                    insert (Left newLabel) sign op $ Set.map entryRef condChildren
+                        (\child -> do
+                            condRef <- augmentWithEntry child
+                            conditionBool condRef rf val
+                        )
+                    insert (Left newLabel) sign op $ map entryRef condChildren
             where
             newLabel = condComposedLabelBool rf val $ fromJust $ entryLabel origNodeEntry
         RefBuildInPredicate prd prevChoicesReal -> do
@@ -251,8 +234,7 @@ conditionBool origNodeEntry rf val
             conditionExpr expr = expr
         conditionPred prd = prd
 
-conditionReal :: (Hashable cachedInfo, Eq cachedInfo)
-              => RefWithNode cachedInfo
+conditionReal :: RefWithNode cachedInfo
               -> GroundedAST.RFunc
               -> Interval
               -> FState cachedInfo (RefWithNode cachedInfo)
@@ -265,15 +247,13 @@ conditionReal origNodeEntry rf interv
                 Just nodeId -> augmentWithEntry $ RefComposed sign nodeId
                 _ -> do
                     let (_, FormulaEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
-                    condChildren <- foldM
-                        (\children' child -> do
-                            condRef   <- Formula.augmentWithEntry child
-                            condChild <- conditionReal condRef rf interv
-                            return $ Set.insert condChild children'
-                        )
-                        Set.empty
+                    condChildren <- forM
                         children
-                    insert (Left newLabel) sign op $ Set.map entryRef condChildren
+                        (\child -> do
+                            condRef   <- Formula.augmentWithEntry child
+                            conditionReal condRef rf interv
+                        )
+                    insert (Left newLabel) sign op $ map entryRef condChildren
             where
             newLabel = condComposedLabelReal rf interv $ fromJust $ entryLabel origNodeEntry
         RefBuildInPredicate prd prevChoicesReal -> do
@@ -389,7 +369,7 @@ labelId :: ComposedLabel -> FState cachednInfo (Maybe ComposedId)
 labelId label = get >>= \Formula{labels2ids} -> return $ Map.lookup label labels2ids
 
 -- the FormulaEntry contains composed node, plus additional, redundant, cached information to avoid recomputations
-data FormulaEntry cachedInfo = FormulaEntry NodeType (HashSet NodeRef) (HashSet GroundedAST.RFunc) cachedInfo
+data FormulaEntry cachedInfo = FormulaEntry NodeType [NodeRef] (HashSet GroundedAST.RFunc) cachedInfo
 
 data NodeType = And | Or deriving (Eq, Show, Generic)
 instance Hashable NodeType
@@ -399,8 +379,8 @@ data NodeRef = RefComposed Bool ComposedId
              -- store only real choices, as bool choices eliminate rfs
              | RefBuildInPredicate GroundedAST.BuildInPredicate (HashMap GroundedAST.RFunc Interval)
              | RefDeterministic Bool
-             deriving (Eq, Generic)
-instance Hashable NodeRef
+             deriving Eq
+
 instance Show NodeRef
     where
     show (RefComposed sign (ComposedId cid)) = printf "composed %s %i" (show sign) cid
@@ -419,7 +399,7 @@ refBuildInPredicate prd = case GroundedAST.deterministicValue prd of
     Nothing  -> RefBuildInPredicate prd Map.empty
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed      :: HashSet cachedInfo                                                 -> cachedInfo
+    { cachedInfoComposed      :: [cachedInfo]                                                       -> cachedInfo
     , cachedInfoBuildInPred   :: HashMap GroundedAST.RFunc Interval -> GroundedAST.BuildInPredicate -> cachedInfo
     , cachedInfoDeterministic :: Bool                                                               -> cachedInfo
     }

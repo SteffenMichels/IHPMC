@@ -37,21 +37,16 @@ import System.IO
 import Text.Printf (printf)
 import Control.Monad (foldM)
 import Numeric (fromRat)
-import GHC.Generics (Generic)
-import Data.Hashable (Hashable)
 import qualified GroundedAST
 
 -- Hybrid Probability Tree
 data HPT     = Unfinished HPTNode ProbabilityBounds Double
              | Finished Probability
-             deriving (Show, Eq, Generic)
-instance Hashable HPT
+
 data HPTNode = Leaf Formula.NodeRef
              | ChoiceBool GroundedAST.RFunc Probability HPT HPT
              | ChoiceReal GroundedAST.RFunc Probability Rational HPT HPT
              | Decomposition Formula.NodeType [HPT]
-             deriving (Show, Eq, Generic)
-instance Hashable HPTNode
 
 initialNode :: Formula.NodeRef -> HPTNode
 initialNode = Leaf

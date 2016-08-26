@@ -31,7 +31,6 @@ module BasicTypes
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import Data.Foldable (foldlM)
 #ifdef FLOAT_PROBS
@@ -43,11 +42,10 @@ import Text.Printf (printf)
 #endif
 
 #ifdef FLOAT_PROBS
-newtype Probability = Probability Double deriving (Eq, Generic)
+newtype Probability = Probability Double deriving Eq
 instance Show Probability
     where
     show (Probability p) = printf "%f" p
-instance Hashable Probability
 
 ratToProb :: Rational -> Probability
 ratToProb = Probability. fromRational
@@ -58,11 +56,10 @@ doubleToProb = Probability
 probToDouble :: Probability -> Double
 probToDouble (Probability p) = p
 #else
-newtype Probability = Probability Rational deriving (Eq, Generic)
+newtype Probability = Probability Rational deriving Eq
 instance Show Probability
     where
     show (Probability p) = printf "%i/%i" (numerator p) (denominator p)
-instance Hashable Probability
 
 ratToProb :: Rational -> Probability
 ratToProb = Probability
@@ -92,8 +89,7 @@ instance Fractional Probability
     Probability x / Probability y = Probability (x / y)
     fromRational = ratToProb
 
-data ProbabilityBounds = ProbabilityBounds Probability Probability deriving (Eq, Show, Generic)
-instance Hashable ProbabilityBounds
+data ProbabilityBounds = ProbabilityBounds Probability Probability
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
