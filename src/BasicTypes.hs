@@ -27,12 +27,9 @@ module BasicTypes
     , doubleToProb
     , probToDouble
     , getFirst
-    , forMHashSet
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.Hashable (Hashable)
-import Data.Foldable (foldlM)
 #ifdef FLOAT_PROBS
 import Text.Printf (printf)
 #else
@@ -93,6 +90,3 @@ data ProbabilityBounds = ProbabilityBounds Probability Probability
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
-
-forMHashSet :: (Monad m, Eq b, Hashable b) => HashSet a -> (a -> m b) -> m (HashSet b)
-forMHashSet set f = foldlM (\newSet e -> (`Set.insert` newSet) <$> f e) Set.empty set

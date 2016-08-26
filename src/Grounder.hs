@@ -42,28 +42,27 @@ import Data.Maybe (isJust)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import GHC.Generics (Generic)
-import BasicTypes
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
 
 data GroundingState = GroundingState
-    { groundedRules    :: HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.RuleBody)
+    { groundedRules    :: HashMap GroundedAST.PredicateLabel [GroundedAST.RuleBody]
     , groundedRfDefs   :: HashMap GroundedAST.RFuncLabel GroundedAST.RFuncDef
     , varCounter       :: Integer
-    , rulesInProof     :: HashMap (AST.PredicateLabel, Int) (HashSet ([AST.Expr], AST.RuleBody))
+    , rulesInProof     :: HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody)]
     , proofConstraints :: HashSet Constraint
     } deriving Show
 
 ground :: AST -> GroundedAST
 ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.rFuncDefs=rfDefs} =
-    GroundedAST{ rules    = groundedRules'
-               , queries  = queries'
-               , evidence = evidence'
+    GroundedAST{ rules    = Map.map Set.fromList groundedRules'
+               , queries  = Set.fromList queries'
+               , evidence = Set.fromList evidence'
                }
     where
-    queries'  = Set.map toPropPred queries
-    evidence' = Set.map toPropPred evidence
+    queries'  = map toPropPred queries
+    evidence' = map toPropPred evidence
     toPropPred (label, args) = toPropPredLabel label $ toPropArgs args
 
     GroundingState{groundedRules = groundedRules'} = foldl'
@@ -74,7 +73,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                       , rulesInProof     = Map.empty
                       , proofConstraints = Set.empty
                       }
-        (Set.union queries evidence)
+        (queries ++ evidence)
 
     computeGroundings :: Seq AST.RuleBodyElement -> State GroundingState ()
     computeGroundings todo = case Seq.viewl todo of
@@ -87,7 +86,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
             rsInProof <- gets rulesInProof
             forM_ (Map.toList rsInProof) addGroundingsHead
 
-    addGroundingsHead :: ((AST.PredicateLabel, Int), HashSet ([AST.Expr], AST.RuleBody))
+    addGroundingsHead :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody)])
                       -> State GroundingState ()
     addGroundingsHead ((label, _), bodies) = forM_ bodies addGroundingBody
         where
@@ -96,9 +95,9 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
         addGroundingBody (args, body) = do
             groundedBody <- toPropRuleBody body rfDefs
             modify (\st -> st{groundedRules= Map.insertWith
-                Set.union
+                (\[x] -> (x :))
                 (toPropPredLabel label $ toPropArgs args)
-                (Set.singleton groundedBody)
+                [groundedBody]
                 (groundedRules st)
             })
 
@@ -113,9 +112,9 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
             continueWithChosenRule (args, AST.RuleBody elements) = continueWithChoice givenArgs args elements remaining addGroundedRule
 
             addGroundedRule elements = modify (\st -> st{rulesInProof = Map.insertWith
-                Set.union
+                (\[x] -> (x :))
                 (label, nArgs)
-                (Set.singleton (givenArgs, AST.RuleBody elements)) $ rulesInProof st
+                [(givenArgs, AST.RuleBody elements)] $ rulesInProof st
             })
 
         AST.BuildInPredicate bip -> if null predRfs then
@@ -132,13 +131,13 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 nArgs     = length givenArgs
 
                 continueWithChosenDef :: ([AST.HeadArgument], AST.RFuncDef) -> State GroundingState ()
-                continueWithChosenDef (args, _) = continueWithChoice givenArgs args Set.empty remaining (const $ return ())
+                continueWithChosenDef (args, _) = continueWithChoice givenArgs args [] remaining (const $ return ())
 
     continueWithChoice :: [AST.Expr]
                        -> [AST.HeadArgument]
-                       -> HashSet AST.RuleBodyElement
+                       -> [AST.RuleBodyElement]
                        -> Seq AST.RuleBodyElement
-                       -> (HashSet AST.RuleBodyElement -> State GroundingState ())
+                       -> ([AST.RuleBodyElement] -> State GroundingState ())
                        -> State GroundingState ()
     continueWithChoice givenArgs args elements remaining addGrounding = do
         oldSt <- get
@@ -155,7 +154,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                     -- also apply valuation found to remaining goals todo
                     let remaining' = mapExprsInRuleBodyElement (applyValuExpr valu) <$> remaining
                     -- continue with rest
-                    computeGroundings (remaining' >< Seq.fromList (Set.toList els'))
+                    computeGroundings (remaining' >< Seq.fromList els')
                     -- recover previous state for next head rule, but keep groundings found
                     modify (\newSt -> oldSt {groundedRules = groundedRules newSt})
                 else
@@ -202,7 +201,7 @@ toPropArgs exprs = toPropArg <$> exprs
 toPropRuleBody :: AST.RuleBody
                -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
                -> State GroundingState GroundedAST.RuleBody
-toPropRuleBody (AST.RuleBody elements) rfDefs = GroundedAST.RuleBody <$> forMHashSet elements toPropRuleElement
+toPropRuleBody (AST.RuleBody elements) rfDefs = GroundedAST.RuleBody . Set.fromList <$> forM elements toPropRuleElement
     where
     toPropRuleElement :: AST.RuleBodyElement -> State GroundingState GroundedAST.RuleBodyElement
     toPropRuleElement (AST.UserPredicate label args) =
@@ -313,11 +312,11 @@ toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ GroundedAST.ConstantExpr $ 
 
 applyArgs :: [AST.Expr]
           -> [AST.HeadArgument]
-          -> HashSet AST.RuleBodyElement
-          -> Maybe (HashSet AST.RuleBodyElement, HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
+          -> [AST.RuleBodyElement]
+          -> Maybe ([AST.RuleBodyElement], HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
 applyArgs givenArgs args elements = do
         (intValu, extValu, constrs) <- mbVals
-        let elements' = Set.map (mapExprsInRuleBodyElement (replaceVars intValu)) elements
+        let elements' = map (mapExprsInRuleBodyElement (replaceVars intValu)) elements
         return (elements', extValu, constrs)
     where
     mbVals = foldl' applyArgs' (Just (Map.empty, Map.empty, Set.empty)) (zip givenArgs args)
@@ -353,26 +352,26 @@ applyValuation valu = state (\st -> case mapAccumL applyValuRule True $ rulesInP
     )
     where
     applyValuRule :: Bool
-              -> HashSet ([AST.Expr], AST.RuleBody)
-              -> (Bool, HashSet ([AST.Expr], AST.RuleBody))
+                  -> [([AST.Expr], AST.RuleBody)]
+                  -> (Bool, [([AST.Expr], AST.RuleBody)])
     applyValuRule False _    = (False, error "Grounder: inconsistent rules")
-    applyValuRule True rules = case foldl' applyValu' (Just Set.empty) rules of
+    applyValuRule True rules = case foldl' applyValu' (Just []) rules of
         Just rules' -> (True,  rules')
         Nothing     -> (False, error "Grounder: inconsistent rules")
 
-    applyValu' :: Maybe (HashSet ([AST.Expr], AST.RuleBody))
+    applyValu' :: Maybe [([AST.Expr], AST.RuleBody)]
                -> ([AST.Expr], AST.RuleBody)
-               -> Maybe (HashSet ([AST.Expr], AST.RuleBody))
+               -> Maybe [([AST.Expr], AST.RuleBody)]
     applyValu' mbRules (args, AST.RuleBody elements) = do
         rules <- mbRules
         let args' = applyValuExpr valu <$> args
-        elements' <- foldl' applyValuBodyEl (Just Set.empty) elements
-        return $ Set.insert (args', AST.RuleBody elements') rules
+        elements' <- foldl' applyValuBodyEl (Just []) elements
+        return $ (args', AST.RuleBody elements') : rules
 
-    applyValuBodyEl :: Maybe (HashSet AST.RuleBodyElement) -> AST.RuleBodyElement -> Maybe (HashSet AST.RuleBodyElement)
+    applyValuBodyEl :: Maybe [AST.RuleBodyElement] -> AST.RuleBodyElement -> Maybe [AST.RuleBodyElement]
     applyValuBodyEl mbElements el = do
         elements <- mbElements
-        return $ Set.insert (mapExprsInRuleBodyElement (applyValuExpr valu) el) elements
+        return $ mapExprsInRuleBodyElement (applyValuExpr valu) el : elements
 
     applyValuConstraint :: Constraint -> Constraint
     applyValuConstraint (EqConstraint exprX exprY) = EqConstraint (applyValuExpr valu exprX) (applyValuExpr valu exprY)
@@ -384,13 +383,13 @@ applyValuExpr valu expr@(AST.Variable var) = case Map.lookup var valu of
 applyValuExpr _ expr = expr
 
 -- replace existentially quantified (occuring in body, but not head) variables
-replaceEVars :: HashSet AST.RuleBodyElement -> State GroundingState (HashSet AST.RuleBodyElement)
+replaceEVars :: [AST.RuleBodyElement] -> State GroundingState [AST.RuleBodyElement]
 replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
                                               (\(c, v2ids, elements'') el ->
                                                   let ((c', v2ids'), el') = mapAccExprsInRuleBodyElement replaceEVars' (c, v2ids) el
-                                                  in  (c', v2ids', Set.insert el' elements'')
+                                                  in  (c', v2ids', el' : elements'')
                                               )
-                                              (varCounter st, Map.empty, Set.empty)
+                                              (varCounter st, Map.empty, [])
                                               elements
                                       in  (elements', st{varCounter = varCounter'})
                               )

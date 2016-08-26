@@ -57,6 +57,7 @@ import Data.List (intercalate)
 import Data.Char (toLower)
 import Numeric (fromRat)
 
+-- use sets here to avoid duplicate elements
 data GroundedAST = GroundedAST
     { rules     :: HashMap PredicateLabel (HashSet RuleBody)
     , queries   :: HashSet PredicateLabel

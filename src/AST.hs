@@ -49,9 +49,9 @@ import Numeric (fromRat)
 
 data AST = AST
     { rFuncDefs :: HashMap (RFuncLabel, Int)     [([HeadArgument], RFuncDef)] -- first matching def applies
-    , rules     :: HashMap (PredicateLabel, Int) (HashSet ([HeadArgument], RuleBody))
-    , queries   :: HashSet (PredicateLabel, [Expr])
-    , evidence  :: HashSet (PredicateLabel, [Expr])
+    , rules     :: HashMap (PredicateLabel, Int) [([HeadArgument], RuleBody)]
+    , queries   :: [(PredicateLabel, [Expr])]
+    , evidence  :: [(PredicateLabel, [Expr])]
     }
 
 instance Show AST
@@ -62,10 +62,10 @@ instance Show AST
                             [printf "~%s ~ %s.\n" (show label) $ show def | def <- defs]
                        | (label, defs) <- Map.toList $ rFuncDefs ast]
         rulesStr     = concat $ concat [
-                            [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args, body) <- Set.toList bodies]
+                            [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args, body) <- bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
-        queryStr     = concat [printf "query %s%s.\n" query $ show args | (PredicateLabel query, args) <- Set.toList $ queries ast]
-        evStr        = concat [printf "evidence %s%s.\n" ev $ show args | (PredicateLabel ev,    args) <- Set.toList $ evidence ast]
+        queryStr     = concat [printf "query %s%s.\n" query $ show args | (PredicateLabel query, args) <- queries ast]
+        evStr        = concat [printf "evidence %s%s.\n" ev $ show args | (PredicateLabel ev,    args) <- evidence ast]
 
 newtype PredicateLabel = PredicateLabel String deriving (Eq, Show, Generic)
 instance Hashable PredicateLabel
@@ -80,11 +80,11 @@ instance Show RFuncDef
     show (Flip p)       = printf "flip(%s)" $ show p
     show (RealDist _ _) = printf "realDist"
 
-newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)
+newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 
 instance Show RuleBody
     where
-    show (RuleBody elements) = intercalate ", " (show <$> Set.toList elements)
+    show (RuleBody elements) = intercalate ", " (show <$> elements)
 instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel [Expr]

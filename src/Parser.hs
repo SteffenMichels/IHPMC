@@ -27,7 +27,6 @@ module Parser
 import AST (AST)
 import qualified AST
 import qualified Data.HashMap.Strict as Map
-import qualified Data.HashSet as Set
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
@@ -108,8 +107,8 @@ parsePclp src =
     let initialState = AST.AST
             { AST.rFuncDefs = Map.empty
             , AST.rules     = Map.empty
-            , AST.queries   = Set.empty
-            , AST.evidence  = Set.empty
+            , AST.queries   = []
+            , AST.evidence  = []
             }
     in mapException show (fromEither (parse (theory initialState) "PCLP theory" src))
 
@@ -117,12 +116,12 @@ theory :: AST -> Parser AST
 theory ast = whiteSpace >>
     (     try ( do -- query
             q <- query
-            let ast' = ast {AST.queries = Set.insert q $ AST.queries ast}
+            let ast' = ast {AST.queries = q : AST.queries ast}
             theory ast'
           )
       <|> try (do --evidence
             e <- evidence
-            let ast' = ast {AST.evidence = Set.insert e $ AST.evidence ast}
+            let ast' = ast {AST.evidence = e : AST.evidence ast}
             theory ast'
           )
       <|> ( do -- random function definition
@@ -134,7 +133,7 @@ theory ast = whiteSpace >>
       <|> ( do -- rule
             (lbl, args, body) <- rule
             -- put together rules with same head
-            let ast' = ast {AST.rules = Map.insertWith Set.union (lbl, length args) (Set.singleton (args, body)) (AST.rules ast)}
+            let ast' = ast {AST.rules = Map.insertWith (\[x] -> (x :)) (lbl, length args) [(args, body)] (AST.rules ast)}
             theory ast'
           )
       <|> ( do -- end of input
@@ -153,7 +152,7 @@ rule = do
             sepBy bodyElement comma
         )
     _ <- dot
-    return (lbl, args, AST.RuleBody $ Set.fromList body)
+    return (lbl, args, AST.RuleBody body)
 
 bodyElement :: Parser AST.RuleBodyElement
 bodyElement =
