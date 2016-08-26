@@ -2,8 +2,8 @@
 
 [Interative Hybrid Probabilistic Model Counting (IHPMC)](http://www.steffen-michels.de/ihpmc/) is a probabilistic inference algorithm developed at the [Institute for Computing and Information Sciences](http://www.ru.nl/icis/) of the [Radboud University Nijmegen](http://www.ru.nl/) by Steffen Michels. The algorithm offers inference for hybrid models with bounded error. This is a unique selling point compared to other methods, for example based on sampling, which do, if at all, only provide weak guarantees on the error. This is achieved by iteratively evaluating a hybrid probability tree and computing bounds on probabilities. Details can be found in the publication:
 
-    Steffen Michels, Arjen Hommersom, Peter J. F. Lucas
-    [Approximate Probabilistic Inference with Bounded Error for Hybrid Probabilistic Logic Programming](http://www.steffen-michels.de/articles/ijcai16.pdf)
+Steffen Michels, Arjen Hommersom, Peter J. F. Lucas <br />
+[Approximate Probabilistic Inference with Bounded Error for Hybrid Probabilistic Logic Programming](http://www.steffen-michels.de/articles/ijcai16.pdf)
 
 
 The input language is similar to [Probabilistic Constraint Logic Programming (PCLP)](http://www.steffen-michels.de/pclp), but does only support precise distributions.
