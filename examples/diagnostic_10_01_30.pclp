@@ -1,63 +1,10 @@
-~temp ~ norm(20.0,5.0).
+~temp     ~ norm(20.0, 5.0).
+~break(_) ~ flip(0.01).
+~limit(_) ~ norm(30.0, 5.0).
 
-~break0 ~ flip(0.01).
-~limit0 ~ norm(30.0,5.0).
-fails0 <- ~break0 = true.
-fails0 <- ~limit0 < ~temp.
-fails0 <- fails1.
+fails(I) <- ~break(I) = true.
+fails(I) <- ~temp > ~limit(I).
+fails(I) <- I < 10, fails(I + 1).
 
-~break1 ~ flip(0.01).
-~limit1 ~ norm(30.0,5.0).
-fails1 <- ~break1 = true.
-fails1 <- ~limit1 < ~temp.
-fails1 <- fails2.
-
-~break2 ~ flip(0.01).
-~limit2 ~ norm(30.0,5.0).
-fails2 <- ~break2 = true.
-fails2 <- ~limit2 < ~temp.
-fails2 <- fails3.
-
-~break3 ~ flip(0.01).
-~limit3 ~ norm(30.0,5.0).
-fails3 <- ~break3 = true.
-fails3 <- ~limit3 < ~temp.
-fails3 <- fails4.
-
-~break4 ~ flip(0.01).
-~limit4 ~ norm(30.0,5.0).
-fails4 <- ~break4 = true.
-fails4 <- ~limit4 < ~temp.
-fails4 <- fails5.
-
-~break5 ~ flip(0.01).
-~limit5 ~ norm(30.0,5.0).
-fails5 <- ~break5 = true.
-fails5 <- ~limit5 < ~temp.
-fails5 <- fails6.
-
-~break6 ~ flip(0.01).
-~limit6 ~ norm(30.0,5.0).
-fails6 <- ~break6 = true.
-fails6 <- ~limit6 < ~temp.
-fails6 <- fails7.
-
-~break7 ~ flip(0.01).
-~limit7 ~ norm(30.0,5.0).
-fails7 <- ~break7 = true.
-fails7 <- ~limit7 < ~temp.
-fails7 <- fails8.
-
-~break8 ~ flip(0.01).
-~limit8 ~ norm(30.0,5.0).
-fails8 <- ~break8 = true.
-fails8 <- ~limit8 < ~temp.
-fails8 <- fails9.
-
-~break9 ~ flip(0.01).
-~limit9 ~ norm(30.0,5.0).
-fails9 <- ~break9 = true.
-fails9 <- ~limit9 < ~temp.
-
-query fails0.
+query fails(1).
 

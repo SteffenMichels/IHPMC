@@ -16,7 +16,8 @@ executable ihpmc_float
         containers -any,
         mtl -any,
         explicit-exception -any,
-        time -any
+        time -any,
+        transformers -any
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
@@ -47,7 +48,8 @@ executable ihpmc_exact
         containers -any,
         mtl -any,
         explicit-exception -any,
-        time -any
+        time -any,
+        transformers -any
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
     hs-source-dirs: src

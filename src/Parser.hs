@@ -214,6 +214,7 @@ normDef = do
 headArgument :: Parser AST.HeadArgument
 headArgument =     AST.ArgConstant               <$> constantExpression
                <|> AST.ArgVariable . AST.VarName <$> variable
+               <|> const AST.ArgDontCareVariable <$> string "_"
 
 -- expressions
 expression :: Parser AST.Expr

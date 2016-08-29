@@ -19,6 +19,8 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE Strict #-}
+
 module AST
     ( AST(..)
     , PredicateLabel(..)
@@ -33,6 +35,7 @@ module AST
     , IneqOp(..)
     , VarName(..)
     , predRandomFunctions
+    , exprRandomFunctions
     , negateOp
     ) where
 import BasicTypes
@@ -99,6 +102,7 @@ instance Hashable RuleBodyElement
 -- the arguments in head definitions are restricted to variables and constants
 data HeadArgument = ArgVariable VarName
                   | ArgConstant ConstantExpr
+                  | ArgDontCareVariable
               deriving (Eq, Show, Generic)
 instance Hashable HeadArgument
 
