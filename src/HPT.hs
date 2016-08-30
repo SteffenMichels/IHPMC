@@ -91,8 +91,8 @@ exportAsDot path hpt = do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
             foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
-        Unfinished (Leaf label) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (nodeRefToReadableString label) scr)
+        Unfinished (Leaf ref) _ scr -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (show ref) scr)
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
         where
@@ -106,12 +106,6 @@ exportAsDot path hpt = do
         printBounds :: HPT -> String
         printBounds pst = let ProbabilityBounds l u = HPT.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
 
-        nodeRefToReadableString :: Formula.NodeRef -> String
-        nodeRefToReadableString (Formula.RefComposed sign (Formula.ComposedId i)) = printf
-            "%s%s\n"
-            (if sign then "" else "-")
-            (show i)
-        nodeRefToReadableString ref = show ref
         {-nodeLabelToReadableString :: Formula.NodeRef -> String
         nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf
                 "%s%s\n  |%s"

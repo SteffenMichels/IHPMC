@@ -23,8 +23,12 @@ module Formula
     ( Formula
     , Node(..)
     , NodeType(..)
-    , NodeRef(..) -- TODO: constructors should not be exposed
+    , NodeRef
+    , refDeterministic
     , refBuildInPredicate
+    , refComposed
+    , negateNodeRef
+    , deterministicNodeRef
     , RefWithNode(entryRef,entryNode,entryRFuncs,entryCachedInfo)
     , CacheComputations(..)
     , ComposedId(..)
@@ -383,20 +387,38 @@ data NodeRef = RefComposed Bool ComposedId
 
 instance Show NodeRef
     where
-    show (RefComposed sign (ComposedId cid)) = printf "composed %s %i" (show sign) cid
+    show (RefComposed sign (ComposedId cid)) = printf
+        "%s%s\n"
+        (if sign then "" else "-")
+        (show cid)
     show (RefBuildInPredicate prd rConds)    = printf
-                                                   "%s|\n  %s"
-                                                   (show prd)
-                                                   (List.intercalate ",\n" (showCondReal <$> Map.toList rConds))
+       "%s|\n  %s"
+       (show prd)
+       (List.intercalate ",\n" (showCondReal <$> Map.toList rConds))
     show (RefDeterministic val)              = show val
 
 showCondReal :: (GroundedAST.RFunc, Interval) -> String
 showCondReal (rf, Interval.Interval l r) = printf "%s in (%s,%s)" (show rf) (show l) (show r)
 
+refDeterministic :: Bool -> NodeRef
+refDeterministic = RefDeterministic
+
 refBuildInPredicate :: GroundedAST.BuildInPredicate -> NodeRef
 refBuildInPredicate prd = case GroundedAST.deterministicValue prd of
     Just val -> RefDeterministic val
     Nothing  -> RefBuildInPredicate prd Map.empty
+
+refComposed :: ComposedId -> NodeRef
+refComposed = RefComposed True
+
+negateNodeRef :: NodeRef -> NodeRef
+negateNodeRef (RefComposed sign label)                  = RefComposed (not sign) label
+negateNodeRef (RefBuildInPredicate prd prevChoicesReal) = RefBuildInPredicate (GroundedAST.negatePred prd) prevChoicesReal
+negateNodeRef (RefDeterministic val)                    = RefDeterministic $ not val
+
+deterministicNodeRef :: NodeRef -> Maybe Bool
+deterministicNodeRef (RefDeterministic val) = Just val
+deterministicNodeRef _                      = Nothing
 
 data CacheComputations cachedInfo = CacheComputations
     { cachedInfoComposed      :: [cachedInfo]                                                       -> cachedInfo

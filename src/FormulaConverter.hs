@@ -48,7 +48,7 @@ convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, 
     headFormula label = do
         mbNodeId <- Formula.labelId flabel
         case mbNodeId of
-           Just nodeId -> return $ Formula.RefComposed True nodeId
+           Just nodeId -> return $ Formula.refComposed nodeId
            _ -> do (fBodies,_) <- foldM (ruleFormulas label) ([], 0::Integer) headRules
                    Formula.entryRef <$> Formula.insert (Left flabel) True Formula.Or fBodies
         where
@@ -67,7 +67,7 @@ convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, 
                 -> GroundedAST.RuleBody
                 -> Formula.FState cachedInfo Formula.NodeRef
     bodyFormula label (GroundedAST.RuleBody elements) = case length elements of
-        0 -> return $ Formula.RefDeterministic True
+        0 -> return $ Formula.refDeterministic True
         1 -> elementFormula $ getFirst elements
         _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- elementFormula el
                                                          return $ newChild : fChildren

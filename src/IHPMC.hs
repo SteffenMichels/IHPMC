@@ -65,8 +65,9 @@ ihpmc :: Formula.NodeRef
       -> Maybe Int
       -> Formula CachedSplitPoints
       -> ExceptionalT String IO [(Int,ProbabilityBounds)]
-ihpmc (Formula.RefDeterministic v) _ _ _ = let p = if v then 1.0 else 0.0 in return [(1, ProbabilityBounds p p)]
-ihpmc query finishPred mbRepInterval f = do
+ihpmc query finishPred mbRepInterval f = case Formula.deterministicNodeRef query of
+    Just v -> let p = if v then 1.0 else 0.0 in return [(1, ProbabilityBounds p p)]
+    Nothing -> do
     t <- doIO getTime
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query) f
         where
@@ -93,20 +94,17 @@ ihpmcEvidence :: Formula.NodeRef
 ihpmcEvidence query evidence finishPred mbRepInterval f = do
     t <- doIO getTime
     let ((queryAndEvidence, negQueryAndEvidence), f') = runState (do
-                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (queryRef True  : evidence)
-                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (queryRef False : evidence)
+                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (                      query : evidence)
+                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Formula.negateNodeRef query : evidence)
                 return (qe, nqe)
             )
             f
     evalStateT (ihpmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)) f'
     where
-    queryRef sign = case query of
-        Formula.RefComposed qSign label                 -> Formula.RefComposed (sign == qSign) label
-        Formula.RefBuildInPredicate prd prevChoicesReal -> Formula.RefBuildInPredicate (if sign then prd else GroundedAST.negatePred prd) prevChoicesReal
-        Formula.RefDeterministic val                    -> Formula.RefDeterministic (val == sign)
-    initHPT e = case Formula.entryRef e of
-        Formula.RefDeterministic v -> HPT.Finished $ if v then 1.0 else 0.0
-        ref                        -> HPT.Unfinished (HPT.initialNode ref) (ProbabilityBounds 0.0 1.0) 1.0
+    initHPT e = let ref = Formula.entryRef e
+                in case Formula.deterministicNodeRef ref of
+                    Just v  -> HPT.Finished $ if v then 1.0 else 0.0
+                    Nothing -> HPT.Unfinished (HPT.initialNode ref) (ProbabilityBounds 0.0 1.0) 1.0
 
     ihpmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int,ProbabilityBounds)]
     ihpmc' i startTime lastReportedTime qe nqe = lift (doIO getTime) >>= \curTime -> case (qe, nqe) of
