@@ -194,7 +194,8 @@ ihpmcIterate hptNode partChoiceProb = do
                                 Formula.Conditions _ rConds = Formula.entryChoices fEntry
                     _  -> error "IHPMC: wrong RF def"
                 where
-                ((splitRF@(GroundedAST.RFunc _ rfDef _), splitPoint), _) = maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
+                ((splitRF, splitPoint), _) = maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
+                rfDef = GroundedAST.randomFuncDef splitRF
                 candidateSplitPoints = Map.toList pts where CachedSplitPoints _ pts = Formula.entryCachedInfo fEntry
 
                 toHPTNode p entry = case Formula.entryNode entry of
@@ -303,7 +304,7 @@ heuristicBuildInPred prevChoicesReal prd =
                     where
                     equalSplits = Map.fromList [(rf,equalSplit rf) | rf <- Set.toList predRfs]
                         where
-                            equalSplit rf@(GroundedAST.RFunc _ rfDef _) = case rfDef of
+                            equalSplit rf = case  GroundedAST.randomFuncDef rf of
                                 GroundedAST.RealDist cdf icdf -> icdf ((pUntilLower + pUntilUpper) / 2.0)
                                     where
                                     pUntilLower = cdf' cdf True  curLower
@@ -374,12 +375,12 @@ heuristicBuildInPred prevChoicesReal prd =
 
                         remainingRfs = Set.difference predRfs $ Set.fromList rfs
 
-                    pDiff rf@(GroundedAST.RFunc _ rfDef _) choices = pUntilUpper - pUntilLower
+                    pDiff rf choices = pUntilUpper - pUntilLower
                         where
                         pUntilLower = cdf' cdf True  curLower
                         pUntilUpper = cdf' cdf False curUpper
                         Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) rf choices
-                        cdf = case rfDef of
+                        cdf = case GroundedAST.randomFuncDef rf of
                             GroundedAST.RealDist cdf'' _ -> cdf''
                             _ -> error "IHPMC.heuristicBuildInPred.cdf"
 

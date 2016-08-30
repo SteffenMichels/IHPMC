@@ -25,7 +25,9 @@ module GroundedAST ( GroundedAST(..)
                    , BuildInPredicate(..)
                    , TypedBuildInPred(..)
                    , RFuncLabel(..)
-                   , RFunc(..)
+                   , RFunc
+                   , randomFuncDef
+                   , makeRFunc
                    , Expr(..)
                    , PredicateLabel(..)
                    , ConstantExpr(..)
@@ -83,6 +85,12 @@ instance Hashable RFunc
     hash = Hashable.hashWithSalt 0
     -- there should never be more than one RF with the same name, so hash only name and ignore definition
     hashWithSalt salt (RFunc _ _ hash) = Hashable.hashWithSalt salt hash
+
+randomFuncDef :: RFunc -> AST.RFuncDef
+randomFuncDef (RFunc _ def _) = def
+
+makeRFunc :: RFuncLabel -> AST.RFuncDef -> RFunc
+makeRFunc label def = RFunc label def $ Hashable.hash label
 
 newtype RFuncLabel = RFuncLabel String deriving (Eq, Generic)
 instance Show RFuncLabel
