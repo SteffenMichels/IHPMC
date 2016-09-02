@@ -28,13 +28,14 @@ executable ihpmc_float
         Parser
         HPT
         Formula
+        FormulaConverter
         IHPMC
         AST
         BasicTypes
         Grounder
         Interval
         Exception
-    ghc-options: -Werror -rtsopts -Wall -O2
+    ghc-options: -Werror -rtsopts -Wall -O2 -ferror-spans
 
 executable ihpmc_exact
     main-is: Main.hs
@@ -59,11 +60,50 @@ executable ihpmc_exact
         Parser
         HPT
         Formula
+        FormulaConverter
         IHPMC
         AST
         BasicTypes
         Grounder
         Interval
         Exception
-    ghc-options: -Werror -rtsopts -Wall -O2
+    ghc-options: -Werror -rtsopts -Wall -O2 -ferror-spans
 
+test-suite integration
+    type: detailed-0.9
+    test-module: Integration
+    build-depends:
+        base -any,
+        Cabal >=1.9.2,
+        base -any,
+        parsec -any,
+        statistics -any,
+        hashable >=1.2.4.0,
+        argparser -any,
+        unordered-containers -any,
+        containers -any,
+        mtl -any,
+        explicit-exception -any,
+        time -any,
+        transformers -any,
+        neat-interpolation >=0.3.2.1,
+        text -any
+    extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
+                EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
+    hs-source-dirs: test src
+    other-modules:
+        GroundedAST
+        IntegrationGrounding
+        IntegrationTest
+        Options
+        Parser
+        HPT
+        Formula
+        FormulaConverter
+        IHPMC
+        AST
+        BasicTypes
+        Grounder
+        Interval
+        Exception
+    ghc-options: -Werror -Wall -ferror-spans

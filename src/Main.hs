@@ -40,48 +40,49 @@ import qualified Formula
 
 main :: IO ()
 main = do
-    result <- runExceptionalT exeMain'
+    result <- runExceptionalT main'
     case result of
         Exception e -> putStrLn (printf "\nError: %s" e) >> exitFailure
         Success _   -> return ()
-    where
-    exeMain' = do
-        args <- doIO getArgs
-        Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <- Options.parseConsoleArgs args
-        assertT
-            "Error bound should be between 0.0 and 0.5."
-            (case errBound of
-                Nothing -> True
-                Just b  -> b >= 0.0 && b <= 0.5
-            )
-        assertT
-            "You should specify at least one stop condition."
-            (isJust nIterations || isJust errBound || isJust timeout)
-        printIfSet "Stopping after %i iterations." nIterations
-        printIfSet "Stopping if error bound is at most %f." $ probToDouble <$> errBound
-        printIfSet "Stopping after %ims." timeout
-        src <- doIO $ readFile modelFile
-        ast <- returnExceptional $ Parser.parsePclp src
-        let groundedAst = Grounder.ground ast
-        let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-        whenJust formExpPath $ \path -> Formula.exportAsDot path f
-        let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
-                                                 || maybe False (>= (u-l)/2) errBound
-                                                 || maybe False (<= t)       timeout
-        forM_ queries $ \(qLabel, qRef) -> do
-            results <- if null evidence then
-                IHPMC.ihpmc         qRef          stopPred repInterval f
-            else
-                IHPMC.ihpmcEvidence qRef evidence stopPred repInterval f
-            when (isJust repInterval) $ doIO $ putStrLn ""
-            forM_
-                results
-                (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf
-                    "%s (iteration %i): %s (error bound: %s)"
-                    (show qLabel)
-                    i
-                    (show $ (u+l)/2.0)
-                    (show $ (u-l)/2))
+
+main' :: ExceptionalT String IO ()
+main' = do
+    args <- doIO getArgs
+    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <- Options.parseConsoleArgs args
+    assertT
+        "Error bound should be between 0.0 and 0.5."
+        (case errBound of
+            Nothing -> True
+            Just b  -> b >= 0.0 && b <= 0.5
+        )
+    assertT
+        "You should specify at least one stop condition."
+        (isJust nIterations || isJust errBound || isJust timeout)
+    printIfSet "Stopping after %i iterations." nIterations
+    printIfSet "Stopping if error bound is at most %f." $ probToDouble <$> errBound
+    printIfSet "Stopping after %ims." timeout
+    src <- doIO $ readFile modelFile
+    ast <- returnExceptional $ Parser.parsePclp src
+    let groundedAst = Grounder.ground ast
+    let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
+    whenJust formExpPath $ \path -> Formula.exportAsDot path f
+    let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
+                                             || maybe False (>= (u-l)/2) errBound
+                                             || maybe False (<= t)       timeout
+    forM_ queries $ \(qLabel, qRef) -> do
+        results <- if null evidence then
+            IHPMC.ihpmc         qRef          stopPred repInterval f
+        else
+            IHPMC.ihpmcEvidence qRef evidence stopPred repInterval f
+        when (isJust repInterval) $ doIO $ putStrLn ""
+        forM_
+            results
+            (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf
+                "%s (iteration %i): %s (error bound: %s)"
+                (show qLabel)
+                i
+                (show $ (u+l)/2.0)
+                (show $ (u-l)/2))
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr
