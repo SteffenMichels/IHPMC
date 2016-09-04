@@ -77,10 +77,11 @@ main' = do
         when (isJust repInterval) $ doIO $ putStrLn ""
         forM_
             results
-            (\(i, ProbabilityBounds l u) -> doIO $ putStrLn $ printf
-                "%s (iteration %i): %s (error bound: %s)"
+            (\(i, t, ProbabilityBounds l u) -> doIO $ putStrLn $ printf
+                "%s (iteration %i, after %ims): %s (error bound: %s)"
                 (show qLabel)
                 i
+                t
                 (show $ (u+l)/2.0)
                 (show $ (u-l)/2))
 
