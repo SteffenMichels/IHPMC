@@ -59,7 +59,7 @@ main' = do
         "You should specify at least one stop condition."
         (isJust nIterations || isJust errBound || isJust timeout)
     printIfSet "Stopping after %i iterations." nIterations
-    printIfSet "Stopping if error bound is at most %f." $ probToDouble <$> errBound
+    printIfSet "Stopping if error bound is at most %s." $ show <$> errBound
     printIfSet "Stopping after %ims." timeout
     src <- doIO $ readFile modelFile
     ast <- returnExceptional $ Parser.parsePclp src
@@ -70,10 +70,7 @@ main' = do
                                              || maybe False (>= (u-l)/2) errBound
                                              || maybe False (<= t)       timeout
     forM_ queries $ \(qLabel, qRef) -> do
-        results <- if null evidence then
-            IHPMC.ihpmc         qRef          stopPred repInterval f
-        else
-            IHPMC.ihpmcEvidence qRef evidence stopPred repInterval f
+        results <- IHPMC.ihpmc qRef evidence stopPred repInterval f
         when (isJust repInterval) $ doIO $ putStrLn ""
         forM_
             results
@@ -82,8 +79,9 @@ main' = do
                 (show qLabel)
                 i
                 t
-                (show $ (u+l)/2.0)
-                (show $ (u-l)/2))
+                (show $ (u + l) / 2.0)
+                (show $ (u - l) / 2.0)
+            )
 
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
 printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr

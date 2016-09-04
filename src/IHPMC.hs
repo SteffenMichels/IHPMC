@@ -23,7 +23,6 @@
 
 module IHPMC
     ( ihpmc
-    , ihpmcEvidence
     , untilFinished
     , heuristicsCacheComputations
     ) where
@@ -38,7 +37,6 @@ import qualified Data.HashSet as Set
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import qualified GroundedAST
-import GHC.Exts (sortWith)
 import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~>), (~<))
 import qualified Interval
 import Data.Maybe (fromMaybe)
@@ -47,7 +45,6 @@ import Data.List (maximumBy, subsequences)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Exception
 import Data.Foldable (foldl')
---import Exception
 --import System.IO.Unsafe (unsafePerformIO)
 --import Debug.Trace (trace)
 
@@ -57,91 +54,42 @@ type FState = Formula.FState CachedSplitPoints
 data SplitPoint = DiscreteSplit | ContinuousSplit Rational deriving (Eq, Generic)
 instance Hashable SplitPoint
 
-untilFinished :: Int -> ProbabilityBounds -> Bool
-untilFinished _ _ = False
+untilFinished :: Int -> ProbabilityBounds -> Int -> Bool
+untilFinished _ _ _ = False
 
 ihpmc :: Formula.NodeRef
+      -> [Formula.NodeRef]
       -> (Int -> ProbabilityBounds -> Int -> Bool)
       -> Maybe Int
       -> Formula CachedSplitPoints
       -> ExceptionalT String IO [(Int, Int, ProbabilityBounds)]
-ihpmc query finishPred mbRepInterval f = case Formula.deterministicNodeRef query of
-    Just v -> let p = if v then 1.0 else 0.0 in return [(1, 0, ProbabilityBounds p p)]
-    Nothing -> do
+ihpmc query evidence finishPred mbRepInterval f = do
     t <- doIO getTime
-    evalStateT (ihpmc' 1 t t $ HPT.initialNode query) f
-        where
-        ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int, Int, ProbabilityBounds)]
-        ihpmc' i startTime lastReportedTime hptNode = do
-            hpt <- state $ runState (ihpmcIterate hptNode 1.0)
-            curTime <- lift $ doIO getTime
-            let runningTime = curTime - startTime
-            case hpt of
-                (HPT.Finished _)              -> return [(i, runningTime, HPT.bounds hpt)]
-                (HPT.Unfinished hptNode' _ _) -> do
-                    let bounds = HPT.bounds hpt
-                    if finishPred i bounds runningTime
-                        then return [(i, runningTime, bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" hpt >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i,bounds)])
-                        else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                            then ihpmc' (succ i) startTime curTime hptNode' >>= \bs -> return ((i, runningTime, bounds) : bs)
-                            else ihpmc' (succ i) startTime lastReportedTime hptNode'
-
-ihpmcEvidence :: Formula.NodeRef
-              -> [Formula.NodeRef]
-              -> (Int -> ProbabilityBounds -> Int -> Bool)
-              -> Maybe Int
-              -> Formula CachedSplitPoints
-              -> ExceptionalT String IO [(Int, Int, ProbabilityBounds)]
-ihpmcEvidence query evidence finishPred mbRepInterval f = do
-    t <- doIO getTime
-    let ((queryAndEvidence, negQueryAndEvidence), f') = runState (do
-                qe  <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (                      query : evidence)
-                nqe <- Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And (Formula.negateNodeRef query : evidence)
-                return (qe, nqe)
-            )
-            f
-    evalStateT (ihpmc' 1 t t (initHPT queryAndEvidence) (initHPT negQueryAndEvidence)) f'
+    evalStateT (ihpmc' 1 t t $ HPT.initialNode query $ Formula.entryRef evidenceConj) f'
     where
-    initHPT e = let ref = Formula.entryRef e
-                in case Formula.deterministicNodeRef ref of
-                    Just v  -> HPT.Finished $ if v then 1.0 else 0.0
-                    Nothing -> HPT.Unfinished (HPT.initialNode ref) (ProbabilityBounds 0.0 1.0) 1.0
-
-    ihpmc' :: Int -> Int -> Int -> HPT -> HPT -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int, Int, ProbabilityBounds)]
-    ihpmc' i startTime lastReportedTime qe nqe = do
-        curTime <- lift (doIO getTime)
+    (evidenceConj, f') = runState (Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And evidence) f
+    ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int, Int, ProbabilityBounds)]
+    ihpmc' i startTime lastReportedTime hptNode = do
+        hpt <- state $ runState $ ihpmcIterate hptNode 1.0
+        curTime <- lift $ doIO getTime
         let runningTime = curTime - startTime
-        case (qe, nqe) of
-            _ | finishPred i bounds runningTime -> return [(i, runningTime, bounds)]
-            (HPT.Finished _, HPT.Finished _)    -> return [(i, runningTime, bounds)]
-            _ | HPT.maxError qe > HPT.maxError nqe -> do
-                qe' <- iterate' qe
-                recurse qe' nqe curTime runningTime
-            _ -> do
-                nqe' <- iterate' nqe
-                recurse qe nqe' curTime runningTime
-            where
-            bounds = ProbabilityBounds (lqe / (lqe + unqe)) (uqe / (uqe + lnqe))
-                where
-                ProbabilityBounds lqe  uqe  = HPT.bounds qe
-                ProbabilityBounds lnqe unqe = HPT.bounds nqe
-
-            recurse qe' nqe' curTime runningTime =
-                if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                then ihpmc' (succ i) startTime curTime qe' nqe' >>= \bs -> return ((i, runningTime, bounds) : bs)
-                else ihpmc' (succ i) startTime lastReportedTime qe' nqe'
-
-    iterate' :: HPT -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) HPT
-    iterate' (HPT.Unfinished hptNode _ _) = state $ runState (ihpmcIterate hptNode 1.0)
-    iterate' (HPT.Finished _) = error "IHPMC.ihpmcEvidence"
+        case hpt of
+            (HPT.Finished _ _)            -> return [(i, runningTime, HPT.bounds hpt)]
+            (HPT.Unfinished hptNode' _ _) -> do
+                let bounds = HPT.bounds hpt
+                if finishPred i bounds runningTime
+                    then return [(i, runningTime, bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" hpt >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i, runningTime, bounds)])
+                    else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
+                        then ihpmc' (succ i) startTime curTime hptNode' >>= \bs -> return ((i, runningTime, bounds) : bs)
+                        else ihpmc' (succ i) startTime lastReportedTime hptNode'
 
 ihpmcIterate :: HPTNode -> Double -> FState HPT
 ihpmcIterate hptNode partChoiceProb = do
-    (hptNode', bounds@(ProbabilityBounds l u), score) <- iterateNode hptNode partChoiceProb
-    return $ if l == u then HPT.Finished l
-                       else HPT.Unfinished hptNode' bounds score
+    (hptNode', triple@(HPT.ProbabilityTriple t f u), score) <- iterateNode hptNode partChoiceProb
+    return $ if u == 0.0 then HPT.Finished t f
+                         else HPT.Unfinished hptNode' triple score
     where
-    iterateNode :: HPTNode -> Double -> FState (HPTNode, ProbabilityBounds, Double)
+    iterateNode :: HPTNode -> Double -> FState (HPTNode, HPT.ProbabilityTriple, Double)
     iterateNode (HPT.ChoiceBool rFuncLabel p left right) partChoiceProb' = do
         (left', right') <- case (left, right) of
             (HPT.Unfinished hptNode' _ _, _) | HPT.score left > HPT.score right ->
@@ -158,119 +106,91 @@ ihpmcIterate hptNode partChoiceProb = do
                 (left,)  <$> ihpmcIterate hptNode' (probToDouble (1.0 - p) * partChoiceProb')
             _ -> error "finished node should not be selected for iteration"
         return (HPT.ChoiceReal rf p splitPoint left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
-    iterateNode (HPT.Decomposition op dec) partChoiceProb' = do
-        selectedChild <- ihpmcIterate selectedChildNode partChoiceProb'
-        let dec' = selectedChild:tail sortedChildren
-        return (HPT.Decomposition op dec', combineProbsDecomp op dec', combineScoresDecomp dec')
-            where
-            sortedChildren = sortWith (\c -> -HPT.score  c) dec
-            selectedChildNode = case head sortedChildren of
-                HPT.Unfinished hptNode' _ _ -> hptNode'
-                _                           -> error "finished node should not be selected for iteration"
-    iterateNode (HPT.Leaf ref) _ = do
-        fEntry <- Formula.augmentWithEntry ref
-        case Nothing of --decompose ref f of
-            Nothing -> case splitPoint of
-                DiscreteSplit -> case rfDef of
-                    GroundedAST.Flip p -> do
-                        leftEntry  <- Formula.conditionBool fEntry splitRF True
-                        rightEntry <- Formula.conditionBool fEntry splitRF False
-                        let left  = toHPTNode p leftEntry
-                        let right = toHPTNode (1.0 - p) rightEntry
-                        return (HPT.ChoiceBool splitRF p left right, combineProbsChoice p left right, combineScoresChoice left right)
-                    _ -> error "IHPMC: wrong RF def"
-                ContinuousSplit splitPoint' -> case rfDef of
-                    GroundedAST.RealDist cdf _ -> do
-                        leftEntry  <- Formula.conditionReal fEntry splitRF $ Interval.Interval curLower (Open splitPoint')
-                        rightEntry <- Formula.conditionReal fEntry splitRF $ Interval.Interval (Open splitPoint') curUpper
-                        let left  = toHPTNode p leftEntry
-                        let right = toHPTNode (1.0 - p) rightEntry
-                        return (HPT.ChoiceReal splitRF p splitPoint' left right, combineProbsChoice p left right, combineScoresChoice left right)
-                            where
-                            p = (pUntilSplit-pUntilLower)/(pUntilUpper-pUntilLower)
-                            pUntilLower = cdf' cdf True curLower
-                            pUntilUpper = cdf' cdf False curUpper
-                            pUntilSplit = cdf splitPoint'
-                            Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) splitRF rConds
-                                where
-                                Formula.Conditions _ rConds = Formula.entryChoices fEntry
-                    _  -> error "IHPMC: wrong RF def"
-                where
-                ((splitRF, splitPoint), _) = maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
-                rfDef = GroundedAST.randomFuncDef splitRF
-                candidateSplitPoints = Map.toList pts where CachedSplitPoints _ pts = Formula.entryCachedInfo fEntry
+    iterateNode (HPT.Leaf qRef eRef) _ = case Formula.deterministicNodeRef eRef of
+        Just True  -> iterateNode (HPT.WithinEvidence qRef) partChoiceProb
+        Just False -> return (undefined, HPT.outsideEvidenceTriple, 0.0)
+        Nothing -> do
+            qEntry <- Formula.augmentWithEntry qRef
+            eEntry <- Formula.augmentWithEntry eRef
+            iterationLeaf
+                eEntry
+                (\p condOp -> do
+                    qEntry' <- condOp qEntry
+                    eEntry' <- condOp eEntry
+                    return $ case Formula.entryNode eEntry' of
+                        Formula.Deterministic val ->
+                            if val
+                            then HPT.Unfinished (HPT.WithinEvidence $ Formula.entryRef qEntry') HPT.unknownTriple (probToDouble p * partChoiceProb)
+                            else HPT.outsideEvidence
+                        _ -> HPT.Unfinished
+                            (HPT.Leaf (Formula.entryRef qEntry') $ Formula.entryRef eEntry')
+                            HPT.unknownTriple
+                            (probToDouble p * partChoiceProb)
+                )
 
-                toHPTNode p entry = case Formula.entryNode entry of
-                    Formula.Deterministic val -> HPT.Finished $ if val then 1.0 else 0.0
-                    _                         -> HPT.Unfinished (HPT.Leaf $ Formula.entryRef entry) (ProbabilityBounds 0.0 1.0) (probToDouble p * partChoiceProb)
-            Just _ -> undefined{-Just (origOp, decOp, sign, decomposition) -> do
-                htps <- foldlM (\htps dec -> do
-                        fresh <- if Set.size dec > 1 then
-                                state $ \f -> first Formula.entryRef $ Formula.insert (Right conds) sign origOp dec f
-                            else
-                                let single = getFirst dec in
-                                return $ if sign then single else Formula.negate single
-                        return (HPT.Unfinished (HPT.Leaf fresh) (0.0,1.0) partChoiceProb:htps)
-                    ) [] decomposition
-                return (HPT.Decomposition decOp htps, (0.0,1.0), combineScoresDecomp htps)
-                where
-                    conds = Formula.entryChoices fEntry-}
+    iterateNode (HPT.WithinEvidence qRef) _ = case Formula.deterministicNodeRef qRef of
+        Just val -> return (undefined, if val then HPT.trueTriple else HPT.falseTriple, 0.0)
+        Nothing -> do
+            qEntry <- Formula.augmentWithEntry qRef
+            iterationLeaf
+                qEntry
+                (\p condOp -> do
+                    qEntry' <- condOp qEntry
+                    return $ case Formula.entryNode qEntry' of
+                        Formula.Deterministic val ->
+                            if val
+                            then HPT.Finished 1.0 0.0
+                            else HPT.Finished 0.0 1.0
+                        _ -> HPT.Unfinished
+                            (HPT.WithinEvidence $ Formula.entryRef qEntry')
+                            HPT.unknownTriple
+                            (probToDouble p * partChoiceProb)
+                )
 
-combineProbsChoice :: Probability -> HPT -> HPT -> ProbabilityBounds
-combineProbsChoice p left right = ProbabilityBounds ((leftLower - rightLower) * p + rightLower) ((leftUpper - rightUpper) * p + rightUpper)
+iterationLeaf :: Formula.RefWithNode CachedSplitPoints
+              -> (    Probability
+                   -> (Formula.RefWithNode CachedSplitPoints -> Formula.FState CachedSplitPoints (Formula.RefWithNode CachedSplitPoints))
+                   -> FState HPT
+                 )
+              -> FState (HPTNode, HPT.ProbabilityTriple, Double)
+iterationLeaf splitRfEntry makeHPT = do
+    let ((splitRF, splitPoint), _) = maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
+    let rfDef = GroundedAST.randomFuncDef splitRF
+    case splitPoint of
+        DiscreteSplit -> case rfDef of
+            GroundedAST.Flip p -> do
+                left  <- makeHPT p       (\fEntry -> Formula.conditionBool fEntry splitRF True)
+                right <- makeHPT (1 - p) (\fEntry -> Formula.conditionBool fEntry splitRF False)
+                return (HPT.ChoiceBool splitRF p left right, combineProbsChoice p left right, combineScoresChoice left right)
+            _ -> error "IHPMC: wrong RF def"
+        ContinuousSplit splitPoint' -> case rfDef of
+            GroundedAST.RealDist cdf _ -> do
+                left  <- makeHPT p         (\fEntry -> Formula.conditionReal fEntry splitRF $ Interval.Interval curLower (Open splitPoint'))
+                right <- makeHPT (1.0 - p) (\fEntry -> Formula.conditionReal fEntry splitRF $ Interval.Interval (Open splitPoint') curUpper)
+                return (HPT.ChoiceReal splitRF p splitPoint' left right, combineProbsChoice p left right, combineScoresChoice left right)
+                    where
+                    p = (pUntilSplit - pUntilLower) / (pUntilUpper - pUntilLower)
+                    pUntilLower = cdf' cdf True curLower
+                    pUntilUpper = cdf' cdf False curUpper
+                    pUntilSplit = cdf splitPoint'
+                    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) splitRF rConds
+                        where
+                        Formula.Conditions _ rConds = Formula.entryChoices splitRfEntry
+            _  -> error "IHPMC: wrong RF def"
     where
-    ProbabilityBounds leftLower  leftUpper  = HPT.bounds left
-    ProbabilityBounds rightLower rightUpper = HPT.bounds right
+    candidateSplitPoints = Map.toList pts where CachedSplitPoints _ pts = Formula.entryCachedInfo splitRfEntry
 
-combineProbsDecomp :: Formula.NodeType -> [HPT] -> ProbabilityBounds
-combineProbsDecomp Formula.And dec = foldl'
-    (\(ProbabilityBounds l u) hpt -> let ProbabilityBounds l' u' = HPT.bounds hpt in ProbabilityBounds (l' * l) (u' * u))
-    (ProbabilityBounds 1.0 1.0)
-    dec
-combineProbsDecomp Formula.Or dec  = ProbabilityBounds (1.0 - nl) (1.0 - nu)
+combineProbsChoice :: Probability -> HPT -> HPT -> HPT.ProbabilityTriple
+combineProbsChoice p left right = HPT.ProbabilityTriple
+    ((leftTrue    - rightTrue)    * p + rightTrue)
+    ((leftFalse   - rightFalse)   * p + rightFalse)
+    ((leftUnknown - rightUnknown) * p + rightUnknown)
     where
-    ProbabilityBounds nl nu = foldl'
-        (\(ProbabilityBounds l u) hpt -> let ProbabilityBounds l' u' = HPT.bounds hpt in ProbabilityBounds (l * (1.0 - l')) (u * (1.0 - u')))
-        (ProbabilityBounds 1.0 1.0)
-        dec
+    HPT.ProbabilityTriple leftTrue  leftFalse  leftUnknown  = HPT.triple left
+    HPT.ProbabilityTriple rightTrue rightFalse rightUnknown = HPT.triple right
 
 combineScoresChoice :: HPT -> HPT -> Double
 combineScoresChoice left right = max (HPT.score left) (HPT.score right)
-
-combineScoresDecomp :: [HPT] -> Double
-combineScoresDecomp = foldl' (\score hpt -> max score $ HPT.score hpt) 0.0
-
-{-decompose :: Formula.NodeRef -> Formula CachedSplitPoints -> Maybe (Formula.NodeType, Formula.NodeType, Bool, HashSet (HashSet Formula.NodeRef))
-decompose ref f = Nothingcase Formula.entryNode $ Formula.augmentWithEntry ref f of
-    Formula.Composed op children -> let dec = decomposeChildren Set.empty $ Set.map (`Formula.augmentWithEntry` f) children
-                                in  if Set.size dec == 1 then Nothing else Just (op, decOp op, sign, dec)
-    _ -> Nothing
-    where
-        decomposeChildren :: HashSet (HashSet Formula.RefWithNode) -> HashSet Formula.RefWithNode -> HashSet (HashSet Formula.NodeRef)
-        decomposeChildren dec children
-            | Set.null children = Set.map (Set.map Formula.entryRef) dec
-            | otherwise =
-                let first               = getFirst children
-                    (new, _, children') = findFixpoint (Set.singleton first) (Formula.entryRFuncs first) (Set.delete first children)
-                in  decomposeChildren (Set.insert new dec) children'
-
-        findFixpoint :: HashSet Formula.RefWithNode -> HashSet RFuncLabel -> HashSet Formula.RefWithNode -> (HashSet Formula.RefWithNode, HashSet RFuncLabel, HashSet Formula.RefWithNode)
-        findFixpoint cur curRFs children
-            | Set.null children || List.null withSharedRFs = (cur, curRFs, children)
-            | otherwise                                    = findFixpoint cur' curRFs' children'
-            where
-                (withSharedRFs, withoutSharedRFs) = List.partition (not . Set.null . Set.intersection curRFs . Formula.entryRFuncs) $ Set.toList children
-                cur'      = Set.union cur $ Set.fromList withSharedRFs
-                curRFs'   = foldr (\c curRFs -> Set.union curRFs $ Formula.entryRFuncs c) curRFs $ Set.fromList withSharedRFs
-                children' = Set.fromList withoutSharedRFs
-        decOp op
-            | sign = op
-            | otherwise = case op of
-                Formula.And -> Formula.Or
-                Formula.Or  -> Formula.And
-        sign = case ref of
-            Formula.RefComposed sign _ -> sign
-            _                      -> error "nodes other than composed ones have to sign"-}
 
 heuristicsCacheComputations :: Formula.CacheComputations CachedSplitPoints
 heuristicsCacheComputations = Formula.CacheComputations

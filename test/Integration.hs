@@ -70,7 +70,7 @@ checkResults src expRes = do
         assertT "No evidence expected." $ null evidence
         let stopPred _ (ProbabilityBounds l u) _ = l == u
         results <- forM queries $ \(qLabel, qRef) -> do
-            [(_, ProbabilityBounds l u)] <- IHPMC.ihpmc qRef stopPred Nothing f
+            [(_, _, ProbabilityBounds l u)] <- IHPMC.ihpmc qRef [] stopPred Nothing f
             expP <- case Map.lookup (show qLabel) expRes of
                 Just p  -> return p
                 Nothing -> throwT $ printf "no expected result for query '%s'" $ show qLabel

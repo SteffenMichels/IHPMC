@@ -24,10 +24,16 @@
 module HPT
     ( HPT(..)
     , HPTNode(..)
+    , ProbabilityTriple(..)
     , initialNode
     , bounds
+    , triple
     , score
-    , maxError
+    , trueTriple
+    , falseTriple
+    , unknownTriple
+    , outsideEvidenceTriple
+    , outsideEvidence
     , exportAsDot
     ) where
 import BasicTypes
@@ -35,33 +41,57 @@ import qualified Formula
 import Exception
 import System.IO
 import Text.Printf (printf)
-import Control.Monad (foldM)
 import Numeric (fromRat)
 import qualified GroundedAST
 
 -- Hybrid Probability Tree
-data HPT     = Unfinished HPTNode ProbabilityBounds Double
-             | Finished Probability
+data HPT     = Unfinished HPTNode ProbabilityTriple Double
+             | Finished Probability Probability -- true prob, false prob (within evidence)
 
-data HPTNode = Leaf Formula.NodeRef
-             | ChoiceBool GroundedAST.RFunc Probability HPT HPT
-             | ChoiceReal GroundedAST.RFunc Probability Rational HPT HPT
-             | Decomposition Formula.NodeType [HPT]
+data HPTNode = Leaf           Formula.NodeRef Formula.NodeRef -- query and evidence
+             | WithinEvidence Formula.NodeRef                 -- only query
+             | ChoiceBool     GroundedAST.RFunc Probability HPT HPT
+             | ChoiceReal     GroundedAST.RFunc Probability Rational HPT HPT
 
-initialNode :: Formula.NodeRef -> HPTNode
+initialNode :: Formula.NodeRef -> Formula.NodeRef -> HPTNode
 initialNode = Leaf
 
 bounds :: HPT -> ProbabilityBounds
-bounds (Unfinished _ b _) = b
-bounds (Finished p)       = ProbabilityBounds p p
+bounds (Unfinished _ (ProbabilityTriple t f u) _)
+    | z > 0.0   = ProbabilityBounds (t / (z + u)) $ min 1.0 ((t + u) / z)
+    | otherwise = ProbabilityBounds 0.0 1.0
+    where
+    z = t + f
+bounds (Finished t f) = let p = t / (t + f) in ProbabilityBounds p p
+
+triple :: HPT -> ProbabilityTriple
+triple (Unfinished _ t _) = t
+triple (Finished t f)     = ProbabilityTriple t f 0.0
 
 score :: HPT -> Double
 score (Unfinished _ _ s) = s
 score _                  = 0.0
 
-maxError :: HPT -> Probability
-maxError (Unfinished _ (ProbabilityBounds l u) _) = u-l
-maxError _                                        = 0.0
+outsideEvidence :: HPT
+outsideEvidence = HPT.Finished 0.0 0.0
+
+data ProbabilityTriple = ProbabilityTriple Probability Probability Probability -- true prob, false prob (within evidence), unknown prob
+instance Show ProbabilityTriple
+    where
+    show (ProbabilityTriple t f u) = printf "(%s, %s, %s)" (show t) (show f) (show u)
+
+
+trueTriple :: ProbabilityTriple
+trueTriple = HPT.ProbabilityTriple 1.0 0.0 0.0
+
+falseTriple :: ProbabilityTriple
+falseTriple = HPT.ProbabilityTriple 0.0 1.0 0.0
+
+unknownTriple :: ProbabilityTriple
+unknownTriple = HPT.ProbabilityTriple 0.0 0.0 1.0
+
+outsideEvidenceTriple :: ProbabilityTriple
+outsideEvidenceTriple = HPT.ProbabilityTriple 0.0 0.0 0.0
 
 exportAsDot :: FilePath -> HPT -> ExceptionalT String IO ()
 exportAsDot path hpt = do
@@ -73,26 +103,26 @@ exportAsDot path hpt = do
     where
     printNode :: Maybe String -> Maybe String-> HPT -> Int -> Handle -> ExceptionalT String IO Int
     printNode mbParent mbEdgeLabel hpt' counter file = case hpt' of
-        Finished prob -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%f\"];" counter (probToDouble prob))
+        Finished t f -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s %s\"];" counter (show t) (show f))
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
         Unfinished (ChoiceBool rf  prob left right) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds hpt') scr)
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ triple hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s=true" (probToDouble prob) (show rf)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%f: %s=false" (probToDouble (1-prob)) (show rf)) right counter' file
+            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s=true" (show prob) (show rf)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%s: %s=false" (show (1 - prob)) (show rf)) right counter' file
         Unfinished (ChoiceReal rf prob splitPoint left right) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (printBounds hpt') scr)
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ triple hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%f: %s<%f" (probToDouble prob) (show rf) (fromRat splitPoint::Float)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%f: %s>%f" (probToDouble (1-prob)) (show rf) (fromRat splitPoint::Float)) right counter' file
-        Unfinished (Decomposition op psts) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\\n%s\n(%f)\"];" counter (show op) (printBounds hpt') scr)
+            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s<%f" (show prob) (show rf) (fromRat splitPoint::Float)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%s: %s>%f" (show (1 - prob)) (show rf) (fromRat splitPoint::Float)) right counter' file
+        Unfinished (Leaf qRef eRef) _ scr -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||%s\n(%f)\"];" counter (show qRef) (show eRef) scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            foldM (\counter' child -> printNode (Just $ show counter) Nothing child counter' file) (counter+1) psts
-        Unfinished (Leaf ref) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n(%f)\"];" counter (show ref) scr)
+            return (counter+1)
+        Unfinished (WithinEvidence qRef) _ scr -> do
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||T\n(%f)\"];" counter (show qRef) scr)
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
         where
@@ -104,7 +134,7 @@ exportAsDot path hpt = do
                 )))
 
         printBounds :: HPT -> String
-        printBounds pst = let ProbabilityBounds l u = HPT.bounds pst in printf "[%f-%f]" (probToDouble l) (probToDouble u)
+        printBounds pst = let ProbabilityBounds l u = HPT.bounds pst in printf "[%s-%s]" (show l) (show u)
 
         {-nodeLabelToReadableString :: Formula.NodeRef -> String
         nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf
