@@ -21,7 +21,7 @@
 
 {-# LANGUAGE Strict #-}
 
-module Main where
+module Main (main, Exception(..)) where
 import BasicTypes
 import System.Environment (getArgs)
 import qualified Parser
@@ -38,43 +38,60 @@ import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
 
+data Exception = GrounderException        Grounder.GrounderException
+               | ParameterException       String
+               | CommandLineArgsException String
+               | ParserException          String
+               | IOException              IOException
+               | TestException            String
+
+instance Show Exception
+    where
+    show (GrounderException e)        = printf "Invalid model: %s" $ show e
+    show (ParameterException e)       = printf "Invalid parameter: %s" e
+    show (CommandLineArgsException e) = e
+    show (ParserException e)          = printf "Invalid model syntax: %s" e
+    show (IOException e)              = show e
+    show (TestException e)            = printf "Invalid test: %s" e
+
 main :: IO ()
 main = do
     result <- runExceptionalT main'
     case result of
-        Exception e -> putStrLn (printf "\nError: %s" e) >> exitFailure
+        Exception e -> print e >> exitFailure
         Success _   -> return ()
 
-main' :: ExceptionalT String IO ()
+main' :: ExceptionalT Exception IO ()
 main' = do
-    args <- doIO getArgs
-    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <- Options.parseConsoleArgs args
+    args <- mapExceptionT IOException $ doIO getArgs
+    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
+        mapExceptionT CommandLineArgsException $ Options.parseConsoleArgs args
     assertT
-        "Error bound should be between 0.0 and 0.5."
+        (ParameterException "Error bound should be between 0.0 and 0.5.")
         (case errBound of
             Nothing -> True
             Just b  -> b >= 0.0 && b <= 0.5
         )
     assertT
-        "You should specify at least one stop condition."
+        (ParameterException "You should specify at least one stop condition.")
         (isJust nIterations || isJust errBound || isJust timeout)
     printIfSet "Stopping after %i iterations." nIterations
     printIfSet "Stopping if error bound is at most %s." $ show <$> errBound
     printIfSet "Stopping after %ims." timeout
-    src <- doIO $ readFile modelFile
-    ast <- returnExceptional $ Parser.parsePclp src
-    let groundedAst = Grounder.ground ast
+    src <- mapExceptionT IOException $ doIO $ readFile modelFile
+    ast <- returnExceptional $ mapException ParserException $ Parser.parsePclp src
+    groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast
     let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-    whenJust formExpPath $ \path -> Formula.exportAsDot path f
+    whenJust formExpPath $ \path -> mapExceptionT IOException $ Formula.exportAsDot path f
     let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
                                              || maybe False (>= (u-l)/2) errBound
                                              || maybe False (<= t)       timeout
     forM_ queries $ \(qLabel, qRef) -> do
-        results <- IHPMC.ihpmc qRef evidence stopPred repInterval f
-        when (isJust repInterval) $ doIO $ putStrLn ""
+        results <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred repInterval f
+        when (isJust repInterval) $ mapExceptionT IOException $ doIO $ putStrLn ""
         forM_
             results
-            (\(i, t, ProbabilityBounds l u) -> doIO $ putStrLn $ printf
+            (\(i, t, ProbabilityBounds l u) -> mapExceptionT IOException $ doIO $ putStrLn $ printf
                 "%s (iteration %i, after %ims): %s (error bound: %s)"
                 (show qLabel)
                 i
@@ -83,8 +100,8 @@ main' = do
                 (show $ (u - l) / 2.0)
             )
 
-printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT String IO ()
-printIfSet fstr = maybe (return ()) $ doIO . putStrLn . printf fstr
+printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT Exception IO ()
+printIfSet fstr = maybe (return ()) $ mapExceptionT IOException . doIO . putStrLn . printf fstr
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust Nothing _   = return ()

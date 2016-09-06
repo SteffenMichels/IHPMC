@@ -62,13 +62,13 @@ ihpmc :: Formula.NodeRef
       -> (Int -> ProbabilityBounds -> Int -> Bool)
       -> Maybe Int
       -> Formula CachedSplitPoints
-      -> ExceptionalT String IO [(Int, Int, ProbabilityBounds)]
+      -> ExceptionalT IOException IO [(Int, Int, ProbabilityBounds)]
 ihpmc query evidence finishPred mbRepInterval f = do
     t <- doIO getTime
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query $ Formula.entryRef evidenceConj) f'
     where
     (evidenceConj, f') = runState (Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And evidence) f
-    ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT String IO) [(Int, Int, ProbabilityBounds)]
+    ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) [(Int, Int, ProbabilityBounds)]
     ihpmc' i startTime lastReportedTime hptNode = do
         hpt <- state $ runState $ ihpmcIterate hptNode 1.0
         curTime <- lift $ doIO getTime

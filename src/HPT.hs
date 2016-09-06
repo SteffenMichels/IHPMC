@@ -93,7 +93,7 @@ unknownTriple = HPT.ProbabilityTriple 0.0 0.0 1.0
 outsideEvidenceTriple :: ProbabilityTriple
 outsideEvidenceTriple = HPT.ProbabilityTriple 0.0 0.0 0.0
 
-exportAsDot :: FilePath -> HPT -> ExceptionalT String IO ()
+exportAsDot :: FilePath -> HPT -> ExceptionalT IOException IO ()
 exportAsDot path hpt = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
@@ -101,7 +101,7 @@ exportAsDot path hpt = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-    printNode :: Maybe String -> Maybe String-> HPT -> Int -> Handle -> ExceptionalT String IO Int
+    printNode :: Maybe String -> Maybe String-> HPT -> Int -> Handle -> ExceptionalT IOException IO Int
     printNode mbParent mbEdgeLabel hpt' counter file = case hpt' of
         Finished t f -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s %s\"];" counter (show t) (show f))

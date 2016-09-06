@@ -23,17 +23,24 @@ module Exception
     ( doIO
     , returnExceptional
     , ExceptionalT
-    , Exceptional
+    , Exceptional(..)
+    , IOException
     , mapException
     , fromEither
     , runExceptionalT
+    , throwT
     ) where
 import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous
 
-doIO :: IO a -> ExceptionalT String IO a
-doIO action = mapExceptionT show (fromEitherT (IOError.tryIOError action))
+newtype IOException = IOException String
+
+instance Show IOException
+    where
+    show (IOException e) = e
+
+doIO :: IO a -> ExceptionalT IOException IO a
+doIO action = mapExceptionT (IOException . show) (fromEitherT (IOError.tryIOError action))
 
 returnExceptional :: Monad m => Exceptional e a -> ExceptionalT e m a
 returnExceptional func = ExceptionalT $ return func
-

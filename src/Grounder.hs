@@ -23,6 +23,7 @@
 
 module Grounder
     ( ground
+    , GrounderException
     ) where
 import AST (AST)
 import qualified AST
@@ -44,6 +45,15 @@ import Data.Maybe (isJust)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
+import Exception
+
+type GState = ExceptionalT GrounderException (State GroundingState)
+
+data GrounderException = NonGroundVariable AST.VarName
+
+instance Show GrounderException
+    where
+    show (NonGroundVariable var) = printf "Could not determine ground value for variable '%s'." $ show var
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
@@ -58,34 +68,43 @@ data GroundingState = GroundingState
     , proofConstraints :: HashSet Constraint
     } deriving Show
 
-ground :: AST -> GroundedAST
-ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.rFuncDefs=rfDefs} =
-    GroundedAST{ rules    = Map.map Set.fromList groundedRules'
-               , queries  = Set.fromList queries'
-               , evidence = Set.fromList evidence'
-               }
+ground :: AST -> Exceptional GrounderException GroundedAST
+ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.rFuncDefs=rfDefs} = evalState
+    ground'
+    GroundingState{ groundedRules    = Map.empty
+                  , groundedRfDefs   = Map.empty
+                  , varCounter       = 0
+                  , rulesInProof     = Map.empty
+                  , proofConstraints = Set.empty
+                  }
     where
+    ground' :: State GroundingState (Exceptional GrounderException GroundedAST)
+    ground' = do
+        mbRes <- computeResultState
+        case mbRes of
+            Success _ -> do
+                groundedRules' <- gets groundedRules
+                return $ Success $ GroundedAST { rules    = Map.map Set.fromList groundedRules'
+                                               , queries  = Set.fromList queries'
+                                               , evidence = Set.fromList evidence'
+                                               }
+            Exception e -> return $ Exception e
+
+    computeResultState :: State GroundingState (Exceptional GrounderException ())
+    computeResultState = runExceptionalT $ forM_ (queries ++ evidence) $
+        \(label, args) -> computeGroundings $ Seq.singleton $ AST.UserPredicate label args
+
     queries'  = map toPropPred queries
     evidence' = map toPropPred evidence
     toPropPred (label, args) = toPropPredLabel label $ toPropArgs args
 
-    GroundingState{groundedRules = groundedRules'} = foldl'
-        (\st (label,args) -> execState (computeGroundings $ Seq.singleton $ AST.UserPredicate label args) st)
-        GroundingState{ groundedRules    = Map.empty
-                      , groundedRfDefs   = Map.empty
-                      , varCounter       = 0
-                      , rulesInProof     = Map.empty
-                      , proofConstraints = Set.empty
-                      }
-        (queries ++ evidence)
-
-    computeGroundings :: Seq AST.RuleBodyElement -> State GroundingState ()
+    computeGroundings :: Seq AST.RuleBodyElement -> GState ()
     computeGroundings todo = case Seq.viewl todo of
         Seq.EmptyL           -> addGroundings
         nextGoal :< todoRest -> computeGroundingsGoal nextGoal todoRest
-    addGroundings :: State GroundingState ()
+    addGroundings :: GState ()
     addGroundings = do
-        st <- get
+        st <- lift get
         let constrs = proofConstraints st
         if null constrs then
             forM_ (Map.toList $ rulesInProof st) addGroundingsHead
@@ -93,14 +112,14 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
             error $ printf "constraints could not be grounded: %s" $ show constrs
 
     addGroundingsHead :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
-                      -> State GroundingState ()
+                      -> GState ()
     addGroundingsHead ((label, _), bodies) = forM_ bodies addGroundingBody
         where
         addGroundingBody :: ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
-                         -> State GroundingState ()
+                         -> GState ()
         addGroundingBody (args, AST.RuleBody nonGroundBody, groundedBody)
             | null nonGroundBody =
-                modify (\st -> st{groundedRules= Map.insertWith
+                lift $ modify (\st -> st{groundedRules= Map.insertWith
                     (\[x] -> (x :))
                     (toPropPredLabel label $ toPropArgs args)
                     [groundedBody]
@@ -108,24 +127,24 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 })
             | otherwise = error $ printf "could not ground predicates %s" $ show nonGroundBody
 
-    computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> State GroundingState ()
+    computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> GState ()
     computeGroundingsGoal goal remaining = case goal of
         AST.UserPredicate label givenArgs -> forM_ headRules continueWithChosenRule
             where
             headRules = Map.lookupDefault (error $ printf "head '%s/%i' undefined" (show label) nArgs) (label, nArgs) rules
             nArgs     = length givenArgs
 
-            continueWithChosenRule :: ([AST.HeadArgument], AST.RuleBody) -> State GroundingState ()
+            continueWithChosenRule :: ([AST.HeadArgument], AST.RuleBody) -> GState ()
             continueWithChosenRule (args, AST.RuleBody elements) = do
-                oldSt <- get
+                oldSt <- lift get
                 case applyArgs givenArgs args elements of
                     Just (els, valu, constrs) -> do
                         let valu' = (Map.map AST.ConstantExpr valu)
                         -- replace left-over (existentially quantified) vars
-                        els' <- replaceEVars els
-                        addRuleToProof els'
+                        els' <- lift $ replaceEVars els
+                        lift $ addRuleToProof els'
                         -- add newly found constraints to state
-                        modify (\st -> st{proofConstraints = Set.union constrs $ proofConstraints st})
+                        lift $ modify (\st -> st{proofConstraints = Set.union constrs $ proofConstraints st})
                         -- apply newly found variable values and check if proof is still consistent
                         consistent <- applyValuation valu' rfDefs
                         if consistent then do
@@ -134,10 +153,10 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                             -- continue with rest
                             computeGroundings (remaining' >< Seq.fromList els')
                             -- recover previous state for next head rule, but keep groundings found
-                            modify (\newSt -> oldSt {groundedRules = groundedRules newSt})
+                            lift $ modify (\newSt -> oldSt {groundedRules = groundedRules newSt})
                         else
-                            put oldSt -- recover old state
-                    Nothing -> put oldSt -- recover old state
+                            lift $ put oldSt -- recover old state
+                    Nothing -> lift $ put oldSt -- recover old state
 
             addRuleToProof :: [AST.RuleBodyElement] -> State GroundingState ()
             addRuleToProof elements = modify (\st -> st{rulesInProof = Map.insertWith
@@ -149,7 +168,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
 
         AST.BuildInPredicate bip -> case mbEquality of
             Just (var, expr) -> do
-                oldSt <- get
+                oldSt <- lift get
                 -- apply newly found variable substitution and check if proof is still consistent
                 let valu = Map.singleton var expr
                 consistent <- applyValuation  valu rfDefs
@@ -157,7 +176,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                     -- also apply valuation found to remaining goals todo
                     computeGroundings $ mapExprsInRuleBodyElement (snd . applyValuExpr valu) <$> remaining
                 else
-                    put oldSt -- recover old state
+                    lift $ put oldSt -- recover old state
             Nothing          -> computeGroundings remaining
             where
             mbEquality = case bip of
@@ -192,7 +211,7 @@ toPropArgs exprs = toPropArg <$> exprs
 
 toPropRuleElement :: AST.RuleBodyElement
                   -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
-                  -> State GroundingState GroundedAST.RuleBodyElement
+                  -> GState GroundedAST.RuleBodyElement
 toPropRuleElement (AST.UserPredicate label args) _ =
     return $ GroundedAST.UserPredicate $ toPropPredLabel label $ toPropArgs args
 toPropRuleElement (AST.BuildInPredicate bip) rfDefs = GroundedAST.BuildInPredicate <$> toPropBuildInPred bip rfDefs
@@ -220,7 +239,7 @@ mapPropExprWithType f (ExprInt  expr) = ExprInt  $ f expr
 
 toPropBuildInPred :: AST.BuildInPredicate
                   -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
-                  -> State GroundingState GroundedAST.BuildInPredicate
+                  -> GState GroundedAST.BuildInPredicate
 toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
     AST.Equality eq exprX exprY -> toPropBuildInPred' (GroundedAST.Equality eq) exprX exprY
     AST.Ineq     op exprX exprY -> toPropBuildInPred' (GroundedAST.Ineq     op) exprX exprY
@@ -228,7 +247,7 @@ toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
     toPropBuildInPred' :: (forall a. GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.TypedBuildInPred a)
                        -> AST.Expr
                        -> AST.Expr
-                       -> State GroundingState GroundedAST.BuildInPredicate
+                       -> GState GroundedAST.BuildInPredicate
     toPropBuildInPred' bipConstructor exprX exprY = do
         exprX' <- toPropExpr exprX rfDefs
         exprY' <- toPropExpr exprY rfDefs
@@ -241,16 +260,16 @@ toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
 
 toPropExpr :: AST.Expr
            -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
-           -> State GroundingState PropExprWithType
+           -> GState PropExprWithType
 toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr of
     AST.ConstantExpr cnst -> return $ toPropExprConst cnst
     AST.RFunc label args -> do
-        gRfDefs <- gets groundedRfDefs
+        gRfDefs <- lift $ gets groundedRfDefs
         rfDef <- case Map.lookup propRFuncLabel gRfDefs of
             Just def -> return def
             Nothing  -> do
                 let def = rfDefFor label propArgs rfDefs
-                modify (\st -> st{groundedRfDefs =
+                lift $ modify (\st -> st{groundedRfDefs =
                     Map.insert propRFuncLabel def $ groundedRfDefs st
                 })
                 return def
@@ -266,7 +285,7 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
         toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)
                           -> AST.Expr
                           -> AST.Expr
-                          -> State GroundingState PropExprWithType
+                          -> GState PropExprWithType
         toPropExprPairAdd exprConstructor exprX' exprY' = do
             exprX'' <- toPropExpr exprX' rfDefs
             exprY'' <- toPropExpr exprY' rfDefs
@@ -274,7 +293,7 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 (ExprReal exprX''', ExprReal exprY''') -> ExprReal $ exprConstructor exprX''' exprY'''
                 (ExprInt  exprX''', ExprInt  exprY''') -> ExprInt  $ exprConstructor exprX''' exprY'''
                 _                                      -> error "type error"
-    AST.Variable var -> error $ printf "Cannot determine ground value for variable '%s' in expression '%s'." (show var) "BIP"
+    AST.Variable var -> throwT $ NonGroundVariable var
 
 -- assumes that there are not RFs in expression
 toPropExprWithoutRfs :: AST.Expr -> PropExprWithType
@@ -337,29 +356,29 @@ applyArgs givenArgs args elements = do
 
 applyValuation :: HashMap AST.VarName AST.Expr
                -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
-               -> State GroundingState Bool
+               -> GState Bool
 applyValuation valu rfDefs = do
-    st            <- get
+    st            <- lift get
     mbRules       <- runMaybeT $ foldlM applyValuRule Map.empty $ Map.toList $ rulesInProof st
     mbConstraints <- return $ foldlM applyValuConstraint Set.empty $ proofConstraints st
     let
     case (mbRules, mbConstraints) of
         (Just rules, Just constraints) -> do
-            modify' (\st' -> st'{rulesInProof = rules, proofConstraints = constraints})
+            lift $ modify' (\st' -> st'{rulesInProof = rules, proofConstraints = constraints})
             return True
         _ ->
             return False
     where
     applyValuRule :: HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
                   -> ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
-                  -> MaybeT (State GroundingState) (HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
+                  -> MaybeT GState (HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
     applyValuRule rules (signature, sigRules) = do
         sigRules' <- foldlM applyValu' [] sigRules
         return $ Map.insert signature sigRules' rules
 
     applyValu' :: [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
                -> ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
-               -> MaybeT (State GroundingState) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
+               -> MaybeT GState [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
     applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements) = do
         let args' = snd . applyValuExpr valu <$> args
         (elements', gElements') <- foldlM applyValuBodyEl ([], gElements) elements
@@ -367,7 +386,7 @@ applyValuation valu rfDefs = do
 
     applyValuBodyEl :: ([AST.RuleBodyElement], HashSet GroundedAST.RuleBodyElement)
                     -> AST.RuleBodyElement
-                    -> MaybeT (State GroundingState) ([AST.RuleBodyElement], HashSet GroundedAST.RuleBodyElement)
+                    -> MaybeT GState ([AST.RuleBodyElement], HashSet GroundedAST.RuleBodyElement)
     applyValuBodyEl (elements, gElements) el = do
         let (varPresent, el') = mapAccExprsInRuleBodyElement
                 (\varPresent' expr -> let (varPresent'', expr') = applyValuExpr valu expr

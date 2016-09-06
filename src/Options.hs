@@ -62,7 +62,7 @@ popts2opts ParsedOptions{pModelFile,pNIterations,pErrBound,pTimeout,pRepInterval
 
 parseConsoleArgs :: Args -> ExceptionalT String IO Options
 parseConsoleArgs args = do
-    interf <- doIO $ mkApp spec
+    interf <- mapExceptionT show $ doIO $ mkApp spec
     popts <- returnExceptional $ fromEither $ parseArgs args interf
     return $ popts2opts popts
     where

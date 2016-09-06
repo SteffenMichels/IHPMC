@@ -35,6 +35,7 @@ import IntegrationTest
 import qualified IntegrationGrounding
 import Control.Monad (forM)
 import Data.Foldable (foldl')
+import Main (Exception(..))
 
 allTests :: [(String, [IntegrationTest])]
 allTests = [IntegrationGrounding.tests]
@@ -60,20 +61,21 @@ checkResults :: String -> HashMap String Probability ->  IO Progress
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
     return $ Finished $ case result of
-        Exception e -> Error e
+        Exception e -> Error $ show e
         Success res -> res
     where
+    checkResults' :: ExceptionalT Exception IO Result
     checkResults' = do
-        ast <- returnExceptional $ Parser.parsePclp src
-        let groundedAst = Grounder.ground ast
+        ast <- returnExceptional $ mapException ParserException $ Parser.parsePclp src
+        groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast
         let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-        assertT "No evidence expected." $ null evidence
+        assertT (TestException "No evidence expected.") $ null evidence
         let stopPred _ (ProbabilityBounds l u) _ = l == u
         results <- forM queries $ \(qLabel, qRef) -> do
-            [(_, _, ProbabilityBounds l u)] <- IHPMC.ihpmc qRef [] stopPred Nothing f
+            [(_, _, ProbabilityBounds l u)] <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred Nothing f
             expP <- case Map.lookup (show qLabel) expRes of
                 Just p  -> return p
-                Nothing -> throwT $ printf "no expected result for query '%s'" $ show qLabel
+                Nothing -> throwT $ TestException $ printf "no expected result for query '%s'" $ show qLabel
             return (l, u, expP)
         return $ maybe Pass Fail $ foldl' combineResults Nothing results
 

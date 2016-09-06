@@ -295,7 +295,7 @@ negate (RefComposed sign label)                  = RefComposed         (not sign
 negate (RefBuildInPredicate prd prevChoicesReal) = RefBuildInPredicate (GroundedAST.negatePred prd) prevChoicesReal
 negate (RefDeterministic val)                    = RefDeterministic    (not val)
 
-exportAsDot :: FilePath -> Formula cachedInfo -> ExceptionalT String IO ()
+exportAsDot :: FilePath -> Formula cachedInfo -> ExceptionalT IOException IO ()
 exportAsDot path Formula{nodes} = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
@@ -303,7 +303,7 @@ exportAsDot path Formula{nodes} = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Handle -> (ComposedId, (ComposedLabel, FormulaEntry cachedInfo)) -> ExceptionalT String IO ()
+        printNode :: Handle -> (ComposedId, (ComposedLabel, FormulaEntry cachedInfo)) -> ExceptionalT IOException IO ()
         printNode file (ComposedId i, (label, FormulaEntry op children _ _)) = do
             doIO (hPutStrLn file (printf "%i[label=\"%i: %s\\n%s\"];" i i (show label) descr))
             void $ forM_ children writeEdge
