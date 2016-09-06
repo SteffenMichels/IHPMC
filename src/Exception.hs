@@ -33,7 +33,7 @@ module Exception
 import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous
 
-newtype IOException = IOException String
+newtype IOException = IOException String deriving Eq
 
 instance Show IOException
     where

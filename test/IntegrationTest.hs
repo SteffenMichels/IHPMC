@@ -21,11 +21,13 @@
 
 module IntegrationTest (IntegrationTest(..))
 where
-import Data.HashMap.Strict (HashMap)
 import BasicTypes (Probability)
+import Main (Exception)
+import Exception
+import qualified AST
 
-data IntegrationTest = IntegrationTest { label           :: String
-                                       , model           :: String
-                                       , expectedResults :: HashMap String Probability
-                                       }
-
+data IntegrationTest = IntegrationTest
+    { label           :: String
+    , model           :: String
+    , expectedResults :: [((AST.PredicateLabel, [AST.Expr]), Exceptional Exception (Probability, Probability) -> Bool)]
+    }

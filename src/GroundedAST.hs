@@ -44,6 +44,7 @@ module GroundedAST ( GroundedAST(..)
                    , simplifiedBuildInPred
                    , simplifiedExpr
                    ) where
+import BasicTypes
 import qualified AST
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
@@ -55,7 +56,6 @@ import GHC.Generics (Generic)
 import Interval ((~<), (~>), (~<=), (~>=))
 import qualified Interval
 import Text.Printf (printf)
-import Data.List (intercalate)
 import Data.Char (toLower)
 import Numeric (fromRat)
 
@@ -102,7 +102,7 @@ newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)
 
 instance Show RuleBody
     where
-    show (RuleBody elements) = intercalate ", " (show <$> Set.toList elements)
+    show (RuleBody elements) = showLst $ Set.toList elements
 instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel

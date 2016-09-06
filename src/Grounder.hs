@@ -23,8 +23,9 @@
 
 module Grounder
     ( ground
-    , GrounderException
+    , Exception(..)
     ) where
+import BasicTypes
 import AST (AST)
 import qualified AST
 import GroundedAST (GroundedAST(..))
@@ -36,7 +37,6 @@ import qualified Data.HashSet as Set
 import Control.Monad.State.Strict
 import Control.Arrow (second)
 import Text.Printf (printf)
-import Data.List (intercalate)
 import Data.Foldable (foldl', foldlM)
 import Data.Traversable (mapAccumL)
 import Data.Sequence (Seq, ViewL((:<)), (><))
@@ -47,13 +47,19 @@ import GHC.Generics (Generic)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Exception
 
-type GState = ExceptionalT GrounderException (State GroundingState)
+type GState = ExceptionalT Exception (State GroundingState)
 
-data GrounderException = NonGroundVariable AST.VarName
+data Exception = NonGroundPreds [AST.RuleBodyElement] AST.PredicateLabel Int
+               deriving Eq
 
-instance Show GrounderException
+instance Show Exception
     where
-    show (NonGroundVariable var) = printf "Could not determine ground value for variable '%s'." $ show var
+    show (NonGroundPreds prds headLabel headNArgs) = printf
+        "Could not ground predicate%s %s in a body of '%s/%i'."
+        (if length prds > 1 then "s" else "")
+        (showLstEnc "'" "'" prds)
+        (show headLabel)
+        headNArgs
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
@@ -68,7 +74,7 @@ data GroundingState = GroundingState
     , proofConstraints :: HashSet Constraint
     } deriving Show
 
-ground :: AST -> Exceptional GrounderException GroundedAST
+ground :: AST -> Exceptional Exception GroundedAST
 ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.rFuncDefs=rfDefs} = evalState
     ground'
     GroundingState{ groundedRules    = Map.empty
@@ -78,7 +84,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                   , proofConstraints = Set.empty
                   }
     where
-    ground' :: State GroundingState (Exceptional GrounderException GroundedAST)
+    ground' :: State GroundingState (Exceptional Exception GroundedAST)
     ground' = do
         mbRes <- computeResultState
         case mbRes of
@@ -90,7 +96,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                                                }
             Exception e -> return $ Exception e
 
-    computeResultState :: State GroundingState (Exceptional GrounderException ())
+    computeResultState :: State GroundingState (Exceptional Exception ())
     computeResultState = runExceptionalT $ forM_ (queries ++ evidence) $
         \(label, args) -> computeGroundings $ Seq.singleton $ AST.UserPredicate label args
 
@@ -113,7 +119,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
 
     addGroundingsHead :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
                       -> GState ()
-    addGroundingsHead ((label, _), bodies) = forM_ bodies addGroundingBody
+    addGroundingsHead ((label, nArgs), bodies) = forM_ bodies addGroundingBody
         where
         addGroundingBody :: ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
                          -> GState ()
@@ -125,7 +131,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                     [groundedBody]
                     (groundedRules st)
                 })
-            | otherwise = error $ printf "could not ground predicates %s" $ show nonGroundBody
+            | otherwise = throwT $ NonGroundPreds nonGroundBody label nArgs
 
     computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> GState ()
     computeGroundingsGoal goal remaining = case goal of
@@ -189,13 +195,13 @@ toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> GroundedAST.Predi
 toPropPredLabel (AST.PredicateLabel label) args = GroundedAST.PredicateLabel $ printf
     "%s%s"
     label
-    (if null args then "" else printf "(%s)" (intercalate "," $ show <$> args))
+    (if null args then "" else printf "(%s)" (showLst args))
 
 toPropRFuncLabel :: AST.RFuncLabel -> [AST.ConstantExpr] -> GroundedAST.RFuncLabel
 toPropRFuncLabel (AST.RFuncLabel label) args = GroundedAST.RFuncLabel $ printf
     "%s%s"
     label
-    (if null args then "" else printf "(%s)" (intercalate "," $ show <$> args))
+    (if null args then "" else printf "(%s)" (showLst args))
 
 toPropArgs :: [AST.Expr] -> [AST.ConstantExpr]
 toPropArgs exprs = toPropArg <$> exprs
@@ -209,6 +215,7 @@ toPropArgs exprs = toPropArg <$> exprs
         ExprStr  (GroundedAST.ConstantExpr (GroundedAST.StrConstant cnst))  -> AST.StrConstant  cnst
         expr'                                                               -> error $ printf "non constant expr '%s'" $ show expr'
 
+-- precondition: no vars left in 'args'/'bip'
 toPropRuleElement :: AST.RuleBodyElement
                   -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
                   -> GState GroundedAST.RuleBodyElement
@@ -237,6 +244,7 @@ mapPropExprWithType f (ExprReal expr) = ExprReal $ f expr
 mapPropExprWithType f (ExprStr  expr) = ExprStr  $ f expr
 mapPropExprWithType f (ExprInt  expr) = ExprInt  $ f expr
 
+-- precondition: no vars left in 'bip'
 toPropBuildInPred :: AST.BuildInPredicate
                   -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
                   -> GState GroundedAST.BuildInPredicate
@@ -258,6 +266,7 @@ toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
             (ExprStr  exprX'', ExprStr  exprY'') -> GroundedAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
             _                                    -> error $ printf "Types of expressions %s and %s do not match." (show exprX') (show exprY')
 
+-- precondition: no vars left in 'expr'
 toPropExpr :: AST.Expr
            -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
            -> GState PropExprWithType
@@ -293,7 +302,7 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 (ExprReal exprX''', ExprReal exprY''') -> ExprReal $ exprConstructor exprX''' exprY'''
                 (ExprInt  exprX''', ExprInt  exprY''') -> ExprInt  $ exprConstructor exprX''' exprY'''
                 _                                      -> error "type error"
-    AST.Variable var -> throwT $ NonGroundVariable var
+    AST.Variable _ -> error "toPropExpr: precondition"
 
 -- assumes that there are not RFs in expression
 toPropExprWithoutRfs :: AST.Expr -> PropExprWithType

@@ -38,12 +38,13 @@ import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
 
-data Exception = GrounderException        Grounder.GrounderException
+data Exception = GrounderException        Grounder.Exception
                | ParameterException       String
                | CommandLineArgsException String
                | ParserException          String
                | IOException              IOException
                | TestException            String
+               deriving (Eq)
 
 instance Show Exception
     where

@@ -29,13 +29,13 @@ import Exception
 import Text.Printf (printf)
 import qualified IHPMC
 import Control.Monad.Exception.Synchronous
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
 import IntegrationTest
 import qualified IntegrationGrounding
 import Control.Monad (forM)
 import Data.Foldable (foldl')
 import Main (Exception(..))
+import qualified AST
+import Control.Monad.Trans.Class (lift)
 
 allTests :: [(String, [IntegrationTest])]
 allTests = [IntegrationGrounding.tests]
@@ -50,14 +50,14 @@ toTests :: IntegrationTest -> Test
 toTests IntegrationTest{label, model, expectedResults} = Test inst
     where
     inst = TestInstance
-        { run  = checkResults model expectedResults
-        , name = label
-        , tags = []
-        , options = []
-        , setOption = \_ _ -> Right inst
-        }
+         { run  = checkResults model expectedResults
+         , name = printf "\"%s\"" label
+         , tags = []
+         , options = []
+         , setOption = \_ _ -> Right inst
+         }
 
-checkResults :: String -> HashMap String Probability ->  IO Progress
+checkResults :: String -> [((AST.PredicateLabel, [AST.Expr]), Exceptional Exception (Probability, Probability) -> Bool)] ->  IO Progress
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
     return $ Finished $ case result of
@@ -67,24 +67,29 @@ checkResults src expRes = do
     checkResults' :: ExceptionalT Exception IO Result
     checkResults' = do
         ast <- returnExceptional $ mapException ParserException $ Parser.parsePclp src
-        groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast
-        let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-        assertT (TestException "No evidence expected.") $ null evidence
+        assertT (TestException "No queries in source expected.") $ null $ AST.queries ast
+        assertT (TestException "No evidence expected.")          $ null $ AST.evidence ast
         let stopPred _ (ProbabilityBounds l u) _ = l == u
-        results <- forM queries $ \(qLabel, qRef) -> do
-            [(_, _, ProbabilityBounds l u)] <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred Nothing f
-            expP <- case Map.lookup (show qLabel) expRes of
-                Just p  -> return p
-                Nothing -> throwT $ TestException $ printf "no expected result for query '%s'" $ show qLabel
-            return (l, u, expP)
+        results <- forM expRes $ \(query, isExp) -> do
+            res <- lift $ runExceptionalT $ do
+                let ast' = ast{AST.queries = [query]}
+                groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast'
+                let (([(_, qRef)], _), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
+                [(_, _, ProbabilityBounds l u)] <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred Nothing f
+                return (l, u)
+            return (query, isExp res, res)
         return $ maybe Pass Fail $ foldl' combineResults Nothing results
 
-combineResults :: Maybe String -> (Probability, Probability, Probability) -> Maybe String
-combineResults mbErr (l, u, expP)
-    | l == u && l == expP = mbErr
+combineResults :: Maybe String
+               -> ((AST.PredicateLabel, [AST.Expr]), Bool, Exceptional Exception (Probability, Probability))
+               -> Maybe String
+combineResults mbErr (query, isExp, res)
+    | isExp = mbErr
     | otherwise = Just $ printf
-        "%sexpected P_min = P_max = %s, but P_min = %s and P_max = %s"
+        "%sunexpected result '%s' for query '%s'"
         (maybe "" (printf "%s; ") mbErr)
-        (show expP)
-        (show l)
-        (show u)
+        (show res)
+        (showQuery query)
+    where
+        showQuery :: (AST.PredicateLabel, [AST.Expr]) -> String
+        showQuery (l, args) = printf "%s(%s)" (show l) (showLst args)

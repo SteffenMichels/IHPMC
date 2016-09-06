@@ -53,7 +53,7 @@ toProblogSource  ast = rfuncDefsStr ++ rulesStr ++ queryStr
     queryStr     = concat [printf "query(%s).\n" query | query <- Set.toList $ AST.queries ast]
 
 toProblogSourceBody :: AST.RuleBody -> String
-toProblogSourceBody (AST.RuleBody elements) = intercalate ", " (fmap toProblogSourceBodyElement elements)
+toProblogSourceBody (AST.RuleBody elements) = showLst (fmap toProblogSourceBodyElement elements)
 
 toProblogSourceBodyElement :: AST.RuleBodyElement -> String
 toProblogSourceBodyElement (AST.UserPredicate label)   = label

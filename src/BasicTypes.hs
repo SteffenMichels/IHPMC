@@ -27,7 +27,10 @@ module BasicTypes
     , doubleToProb
     , probToDouble
     , getFirst
+    , showLst
+    , showLstEnc
     ) where
+import Data.List (intercalate)
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 #ifdef FLOAT_PROBS
@@ -77,8 +80,8 @@ instance Num Probability
     Probability x + Probability y = Probability (x + y)
     Probability x - Probability y = Probability (x - y)
     Probability x * Probability y = Probability (x * y)
-    abs _       = error "BasicTypes: abs not implemented for probabilities"
-    signum _    = error "BasicTypes: signum not implemented for probabilities"
+    abs _       = error "BasicTypes: abs not defined for probabilities"
+    signum _    = error "BasicTypes: signum not defined for probabilities"
     fromInteger = Probability . fromIntegral
 
 instance Fractional Probability
@@ -90,3 +93,10 @@ data ProbabilityBounds = ProbabilityBounds Probability Probability
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
+
+showLst :: Show a => [a] -> String
+showLst l = intercalate ", " $ show <$> l
+
+showLstEnc :: Show a => String -> String -> [a] -> String
+showLstEnc open close l = intercalate ", " $ (\el -> open ++ show el ++ close) <$> l
+

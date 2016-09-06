@@ -23,49 +23,72 @@
 
 module IntegrationGrounding (tests)
 where
+import BasicTypes
 import NeatInterpolation
 import IntegrationTest
-import qualified Data.HashMap.Strict as Map
 import Data.Text (unpack)
+import Exception
+import Main (Exception(..))
+import qualified AST
+import qualified Grounder
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ IntegrationTest { label = "variables in expressions"
-                                        , model = varsInExprSrc
-                                        , expectedResults = Map.fromList
-                                            [ ("varsInExpr(abc,abc)", 1.0)
-                                            , ("varsInExpr(ab,ab)",   0.0)
-                                            , ("varsInExpr(abc,ab)",  0.0)
-                                            ]
-                                        }
-                      , IntegrationTest { label = "count"
-                                        , model = countSrc
-                                        , expectedResults = Map.fromList
-                                            [ ("count(1)",  0.6513215599)
-                                            , ("count(6)",  0.40951)
-                                            , ("count(10)", 0.1)
-                                            ]
-                                        }
+tests = ("grounding", [ varsInExpr, existVars, count
                       ]
         )
 
-varsInExprSrc :: String
-varsInExprSrc = unpack $
-    [text|
-        varsInExpr(X, Y) <- Y = X, X = abc.
+varsInExpr :: IntegrationTest
+varsInExpr = IntegrationTest
+    { label = "variables in expressions"
+    , model = unpack $ [text|
+                  varsInExpr(X, Y) <- Y = X, X = abc.
+              |]
+    , expectedResults =
+        [ (queryStr "varsInExpr" ["abc", "abc"], preciseProb 1.0)
+        , (queryStr "varsInExpr" ["ab", "ab"],   preciseProb 0.0)
+        , (queryStr "varsInExpr" ["abc", "ab"],  preciseProb 0.0)
+        ]
+    }
 
-        query varsInExpr(abc, abc).
-        query varsInExpr(ab,  ab).
-        query varsInExpr(abc, ab).
-    |]
+existVars :: IntegrationTest
+existVars = IntegrationTest
+    { label = "existentially quantified variables"
+    , model = unpack $ [text|
+                  p(X).
+                  q <- p(X), Y = Z.
+              |]
+    , expectedResults =
+        [ ( queryStr "q" []
+          , \res -> case res of
+                Exception (Main.GrounderException (
+                    Grounder.NonGroundPreds prds (AST.PredicateLabel "q") 0)
+                    ) | length prds == 2 -> True
+                _                        -> False
+          )
+        ]
+    }
 
-countSrc :: String
-countSrc = unpack $
-    [text|
-        ~count(X) ~ flip(0.1).
-        count(X) <- ~count(X) = true.
-        count(X) <- X < 10, Y = X + 1, count(Y).
+count :: IntegrationTest
+count = IntegrationTest
+    { label = "count"
+    , model = unpack $ [text|
+                  ~count(X) ~ flip(0.1).
+                  count(X) <- ~count(X) = true.
+                  count(X) <- X < 10, Y = X + 1, count(Y).
+              |]
+    , expectedResults =
+        [ (queryInt "count" [1],  preciseProb 0.6513215599)
+        , (queryInt "count" [6],  preciseProb 0.40951)
+        , (queryInt "count" [10], preciseProb 0.1)
+        ]
+    }
 
-        query count(1).
-        query count(6).
-        query count(10).
-    |]
+queryStr :: String -> [String] -> (AST.PredicateLabel, [AST.Expr])
+queryStr label exprs = (AST.PredicateLabel label, AST.ConstantExpr . AST.StrConstant <$> exprs)
+
+queryInt :: String -> [Integer] -> (AST.PredicateLabel, [AST.Expr])
+queryInt label exprs = (AST.PredicateLabel label, AST.ConstantExpr . AST.IntConstant <$> exprs)
+
+preciseProb :: Probability -> Exceptional Exception (Probability, Probability) -> Bool
+preciseProb p (Success (l, u)) | l == u && l == p = True
+preciseProb _ _                                   = False

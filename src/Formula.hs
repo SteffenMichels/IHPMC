@@ -45,6 +45,7 @@ module Formula
     , Formula.negate
     , entryChoices
     ) where
+import BasicTypes
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
@@ -345,7 +346,7 @@ instance Show ComposedLabel
     show (ComposedLabel label (Conditions bConds rConds) _) = printf
         "%s|%s"
         (show label)
-        (List.intercalate "," ((showCondBool <$> Map.toList bConds) ++ (showCondReal <$> Map.toList rConds)))
+        (showLst ((showCondBool <$> Map.toList bConds) ++ (showCondReal <$> Map.toList rConds)))
         where
             showCondBool (rf, val) = printf "%s=%s" (show rf) (show val)
 

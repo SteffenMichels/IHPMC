@@ -44,7 +44,6 @@ import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Text.Printf (printf)
-import Data.List (intercalate)
 import Data.Char (toLower)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
@@ -70,8 +69,12 @@ instance Show AST
         queryStr     = concat [printf "query %s%s.\n" query $ show args | (PredicateLabel query, args) <- queries ast]
         evStr        = concat [printf "evidence %s%s.\n" ev $ show args | (PredicateLabel ev,    args) <- evidence ast]
 
-newtype PredicateLabel = PredicateLabel String deriving (Eq, Show, Generic)
+newtype PredicateLabel = PredicateLabel String deriving (Eq, Generic)
 instance Hashable PredicateLabel
+instance Show PredicateLabel
+    where
+    show (PredicateLabel l) = l
+
 newtype RFuncLabel     = RFuncLabel String     deriving (Eq, Show, Generic)
 instance Hashable RFuncLabel
 
@@ -87,7 +90,7 @@ newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 
 instance Show RuleBody
     where
-    show (RuleBody elements) = intercalate ", " (show <$> elements)
+    show (RuleBody elements) = showLst elements
 instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
@@ -95,8 +98,8 @@ data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
                      deriving (Eq, Generic)
 
 instance Show RuleBodyElement where
-    show (UserPredicate (PredicateLabel label) args) = show label ++ show args
-    show (BuildInPredicate prd)                      = show prd
+    show (UserPredicate label args) = printf "%s(%s)" (show label) (showLst args)
+    show (BuildInPredicate prd)     = show prd
 instance Hashable RuleBodyElement
 
 -- the arguments in head definitions are restricted to variables and constants
@@ -143,7 +146,7 @@ data Expr = ConstantExpr ConstantExpr
 instance Show Expr
     where
     show (ConstantExpr cnst)             = show cnst
-    show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ intercalate ", " $ show <$> args
+    show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ showLst args
     show (Variable var)                  = show var
     show (Sum x y)                       = printf "%s + %s" (show x) (show y)
 instance Hashable Expr
