@@ -145,7 +145,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 oldSt <- lift get
                 case applyArgs givenArgs args elements of
                     Just (els, valu, constrs) -> do
-                        let valu' = (Map.map AST.ConstantExpr valu)
+                        let valu' = Map.map AST.ConstantExpr valu
                         -- replace left-over (existentially quantified) vars
                         els' <- lift $ replaceEVars els
                         lift $ addRuleToProof els'
@@ -304,7 +304,7 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 _                                      -> error "type error"
     AST.Variable _ -> error "toPropExpr: precondition"
 
--- assumes that there are not RFs in expression
+-- assumes that there are no RFs in expression
 toPropExprWithoutRfs :: AST.Expr -> PropExprWithType
 toPropExprWithoutRfs expr = mapPropExprWithType GroundedAST.simplifiedExpr $ case expr of
     AST.ConstantExpr cnst -> toPropExprConst cnst
@@ -427,10 +427,13 @@ applyValuation valu rfDefs = do
 
 -- returns whether still a non-valued variable is present
 applyValuExpr :: HashMap AST.VarName AST.Expr -> AST.Expr -> (Bool, AST.Expr)
-applyValuExpr valu expr@(AST.Variable var) = case Map.lookup var valu of
-    Just expr' -> (not $ null $ AST.exprRandomFunctions expr', expr')
-    _          -> (True,                                       expr)
-applyValuExpr _ expr = (False, expr)
+applyValuExpr valu expr = mapAccExpr applyValuExpr' False expr
+    where
+    applyValuExpr' :: Bool -> AST.Expr -> (Bool, AST.Expr)
+    applyValuExpr' varPresent expr'@(AST.Variable var) = case Map.lookup var valu of
+        Just expr'' -> (varPresent || (not $ null $ AST.exprRandomFunctions expr''), expr'')
+        _           -> (True,                                                        expr')
+    applyValuExpr' varPresent expr' = (varPresent, expr')
 
 -- replace existentially quantified (occuring in body, but not head) variables
 replaceEVars :: [AST.RuleBodyElement] -> State GroundingState [AST.RuleBodyElement]
@@ -497,20 +500,21 @@ mapExprsInRuleBodyElement f el = snd $ mapAccExprsInRuleBodyElement (\a e -> (a,
 
 mapAccExprsInRuleBodyElement :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.RuleBodyElement -> (a, AST.RuleBodyElement)
 mapAccExprsInRuleBodyElement f acc el = case el of
-    AST.UserPredicate label args -> second (AST.UserPredicate label) $ mapAccumL mapAccExpr acc args
+    AST.UserPredicate label args -> second (AST.UserPredicate label) $ mapAccumL (mapAccExpr f) acc args
     AST.BuildInPredicate bip -> second AST.BuildInPredicate $ case bip of
-        AST.Equality eq exprX exprY -> let (acc',  exprX') = mapAccExpr acc  exprX
-                                           (acc'', exprY') = mapAccExpr acc' exprY
+        AST.Equality eq exprX exprY -> let (acc',  exprX') = mapAccExpr f acc  exprX
+                                           (acc'', exprY') = mapAccExpr f acc' exprY
                                        in  (acc'', AST.Equality eq exprX' exprY')
-        AST.Ineq op exprX exprY     -> let (acc',  exprX') = mapAccExpr acc  exprX
-                                           (acc'', exprY') = mapAccExpr acc' exprY
+        AST.Ineq op exprX exprY     -> let (acc',  exprX') = mapAccExpr f acc  exprX
+                                           (acc'', exprY') = mapAccExpr f acc' exprY
                                        in  (acc'', AST.Ineq op exprX' exprY')
+
+mapAccExpr :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.Expr -> (a, AST.Expr)
+mapAccExpr f acc expr = case expr' of
+    AST.Sum exprX exprY -> let (acc'',  exprX') = mapAccExpr f acc'  exprX
+                               (acc''', exprY') = mapAccExpr f acc'' exprY
+                           in (acc''', AST.Sum exprX' exprY')
+    AST.RFunc label args -> second (AST.RFunc label) $ mapAccumL (mapAccExpr f) acc' args
+    _ -> (acc', expr')
     where
-    mapAccExpr acc' expr = case expr' of
-        AST.Sum exprX exprY -> let (acc''',  exprX') = f acc''  exprX
-                                   (acc'''', exprY') = f acc''' exprY
-                               in (acc'''', AST.Sum exprX' exprY')
-        AST.RFunc label args -> second (AST.RFunc label) $ mapAccumL mapAccExpr acc'' args
-        _ -> (acc'', expr')
-        where
-        (acc'', expr') = f acc' expr
+    (acc', expr') = f acc expr

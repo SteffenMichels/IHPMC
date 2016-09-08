@@ -54,14 +54,29 @@ existVars :: IntegrationTest
 existVars = IntegrationTest
     { label = "existentially quantified variables"
     , model = unpack $ [text|
+                  ~a(1) ~ flip(0.1).
+                  ~a(2) ~ flip(0.2).
+                  ~a(3) ~ flip(0.3).
+                  ~a(7) ~ flip(0.4).
+                  ~a(8) ~ flip(0.5).
                   p(X).
-                  q <- p(X), Y = Z.
+                  q(1).
+                  r(2).
+                  r(3).
+                  s(4).
+                  exists1 <- ~a(X) = true, q(X).
+                  exists2 <- ~a(X) = ~a(Y), q(X), r(Y).
+                  exists3 <- ~a(X + Y + Z) = true, q(X), r(Y), s(Z).
+                  nonGround <- p(X), Y = Z.
               |]
     , expectedResults =
-        [ ( queryStr "q" []
+        [ (queryStr "exists1"    [], preciseProb 0.1)
+        , (queryStr "exists2"    [], preciseProb 0.89)
+        , (queryStr "exists3"    [], preciseProb 0.7)
+        , ( queryStr "nonGround" []
           , \res -> case res of
                 Exception (Main.GrounderException (
-                    Grounder.NonGroundPreds prds (AST.PredicateLabel "q") 0)
+                    Grounder.NonGroundPreds prds (AST.PredicateLabel "nonGround") 0)
                     ) | length prds == 2 -> True
                 _                        -> False
           )
