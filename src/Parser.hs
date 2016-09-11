@@ -234,17 +234,17 @@ constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
                      <|> AST.IntConstant                <$> integer
 
 -- queries
-query :: Parser (AST.PredicateLabel, [AST.Expr])
+query :: Parser AST.RuleBodyElement
 query = do
     reserved "query"
-    q <- userPred expression
+    q <- bodyElement
     _ <- dot
     return q
 
 -- evidence
-evidence :: Parser (AST.PredicateLabel, [AST.Expr])
+evidence :: Parser AST.RuleBodyElement
 evidence = do
     reserved "evidence"
-    e <- userPred expression
+    e <- bodyElement
     _ <- dot
     return e

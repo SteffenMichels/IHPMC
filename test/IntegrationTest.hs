@@ -29,5 +29,5 @@ import qualified AST
 data IntegrationTest = IntegrationTest
     { label           :: String
     , model           :: String
-    , expectedResults :: [((AST.PredicateLabel, [AST.Expr]), Exceptional Exception (Probability, Probability) -> Bool)]
+    , expectedResults :: [(AST.RuleBodyElement, Exceptional Exception (Probability, Probability) -> Bool)]
     }

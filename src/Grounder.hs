@@ -88,21 +88,24 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
     ground' = do
         mbRes <- computeResultState
         case mbRes of
-            Success _ -> do
+            Success (queries', evidence') -> do
                 groundedRules' <- gets groundedRules
                 return $ Success $ GroundedAST { rules    = Map.map Set.fromList groundedRules'
-                                               , queries  = Set.fromList queries'
-                                               , evidence = Set.fromList evidence'
+                                               , queries  = queries'
+                                               , evidence = evidence'
                                                }
             Exception e -> return $ Exception e
 
-    computeResultState :: State GroundingState (Exceptional Exception ())
-    computeResultState = runExceptionalT $ forM_ (queries ++ evidence) $
-        \(label, args) -> computeGroundings $ Seq.singleton $ AST.UserPredicate label args
-
-    queries'  = map toPropPred queries
-    evidence' = map toPropPred evidence
-    toPropPred (label, args) = toPropPredLabel label $ toPropArgs args
+    computeResultState ::
+        State
+            GroundingState
+            (Exceptional Exception (HashSet GroundedAST.RuleBodyElement, HashSet GroundedAST.RuleBodyElement))
+    computeResultState = runExceptionalT $ do
+        queries'  <- forM queries  (`toPropRuleElement` rfDefs)
+        evidence' <- forM evidence (`toPropRuleElement` rfDefs)
+        forM_ (queries ++ evidence) $
+            \el -> computeGroundings $ Seq.singleton el
+        return (Set.fromList queries', Set.fromList evidence')
 
     computeGroundings :: Seq AST.RuleBodyElement -> GState ()
     computeGroundings todo = case Seq.viewl todo of

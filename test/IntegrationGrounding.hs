@@ -98,11 +98,11 @@ count = IntegrationTest
         ]
     }
 
-queryStr :: String -> [String] -> (AST.PredicateLabel, [AST.Expr])
-queryStr label exprs = (AST.PredicateLabel label, AST.ConstantExpr . AST.StrConstant <$> exprs)
+queryStr :: String -> [String] -> AST.RuleBodyElement
+queryStr label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.ConstantExpr . AST.StrConstant <$> exprs)
 
-queryInt :: String -> [Integer] -> (AST.PredicateLabel, [AST.Expr])
-queryInt label exprs = (AST.PredicateLabel label, AST.ConstantExpr . AST.IntConstant <$> exprs)
+queryInt :: String -> [Integer] -> AST.RuleBodyElement
+queryInt label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.ConstantExpr . AST.IntConstant <$> exprs)
 
 preciseProb :: Probability -> Exceptional Exception (Probability, Probability) -> Bool
 preciseProb p (Success (l, u)) | l == u && l == p = True

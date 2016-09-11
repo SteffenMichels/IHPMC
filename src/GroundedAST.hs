@@ -62,8 +62,8 @@ import Numeric (fromRat)
 -- use sets here to avoid duplicate elements
 data GroundedAST = GroundedAST
     { rules     :: HashMap PredicateLabel (HashSet RuleBody)
-    , queries   :: HashSet PredicateLabel
-    , evidence  :: HashSet PredicateLabel
+    , queries   :: HashSet RuleBodyElement
+    , evidence  :: HashSet RuleBodyElement
     }
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)

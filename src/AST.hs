@@ -52,8 +52,8 @@ import Numeric (fromRat)
 data AST = AST
     { rFuncDefs :: HashMap (RFuncLabel, Int)     [([HeadArgument], RFuncDef)] -- first matching def applies
     , rules     :: HashMap (PredicateLabel, Int) [([HeadArgument], RuleBody)]
-    , queries   :: [(PredicateLabel, [Expr])]
-    , evidence  :: [(PredicateLabel, [Expr])]
+    , queries   :: [RuleBodyElement]
+    , evidence  :: [RuleBodyElement]
     }
 
 instance Show AST
@@ -66,8 +66,8 @@ instance Show AST
         rulesStr     = concat $ concat [
                             [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args, body) <- bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
-        queryStr     = concat [printf "query %s%s.\n" query $ show args | (PredicateLabel query, args) <- queries ast]
-        evStr        = concat [printf "evidence %s%s.\n" ev $ show args | (PredicateLabel ev,    args) <- evidence ast]
+        queryStr     = concat [printf "query %s.\n"    $ show query | query <- queries  ast]
+        evStr        = concat [printf "evidence %s.\n" $ show ev    | ev    <- evidence ast]
 
 newtype PredicateLabel = PredicateLabel String deriving (Eq, Generic)
 instance Hashable PredicateLabel

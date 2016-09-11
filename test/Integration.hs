@@ -57,7 +57,7 @@ toTests IntegrationTest{label, model, expectedResults} = Test inst
          , setOption = \_ _ -> Right inst
          }
 
-checkResults :: String -> [((AST.PredicateLabel, [AST.Expr]), Exceptional Exception (Probability, Probability) -> Bool)] ->  IO Progress
+checkResults :: String -> [(AST.RuleBodyElement, Exceptional Exception (Probability, Probability) -> Bool)] ->  IO Progress
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
     return $ Finished $ case result of
@@ -81,7 +81,7 @@ checkResults src expRes = do
         return $ maybe Pass Fail $ foldl' combineResults Nothing results
 
 combineResults :: Maybe String
-               -> ((AST.PredicateLabel, [AST.Expr]), Bool, Exceptional Exception (Probability, Probability))
+               -> (AST.RuleBodyElement, Bool, Exceptional Exception (Probability, Probability))
                -> Maybe String
 combineResults mbErr (query, isExp, res)
     | isExp = mbErr
@@ -89,7 +89,4 @@ combineResults mbErr (query, isExp, res)
         "%sunexpected result '%s' for query '%s'"
         (maybe "" (printf "%s; ") mbErr)
         (show res)
-        (showQuery query)
-    where
-        showQuery :: (AST.PredicateLabel, [AST.Expr]) -> String
-        showQuery (l, args) = printf "%s(%s)" (show l) (showLst args)
+        (show query)
