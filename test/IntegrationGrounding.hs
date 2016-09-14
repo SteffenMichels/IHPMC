@@ -33,7 +33,7 @@ import qualified AST
 import qualified Grounder
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ types, varsInExpr, existVars, count
+tests = ("grounding", [ types, rfs, varsInExpr, existVars, count
                       ]
         )
 
@@ -56,20 +56,46 @@ types = IntegrationTest
               |]
     , expectedResults =
         [ (query "bool",      preciseProb 0.01)
-        , (query "boolErr",   expectTypeError)
+        , (query "boolErr",   typeError)
         , (query "real",      preciseProb 0.5)
-        , (query "realErr",   expectTypeError)
-        , (query "realErr2",  expectTypeError)
+        , (query "realErr",   typeError)
+        , (query "realErr2",  typeError)
         , (query "int",       preciseProb 1.0)
-        , (query "intErr",    expectTypeError)
-        , (query "intErr2",   expectTypeError)
+        , (query "intErr",    typeError)
+        , (query "intErr2",   typeError)
         , (query "string",    preciseProb 1.0)
-        , (query "stringErr", expectTypeError)
+        , (query "stringErr", typeError)
         ]
     }
-    where
-    expectTypeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) = True
-    expectTypeError _                                                             = False
+
+rfs :: IntegrationTest
+rfs = IntegrationTest
+    { label = "random functions"
+    , model = unpack $ [text|
+                  ~rf      ~ flip(0.99).
+                  ~rf(1)   ~ flip(0.991).
+                  ~rf(2)   ~ flip(0.992).
+                  ~rf(1,2) ~ flip(0.9912).
+                  rf             <- ~rf      = true.
+                  rf1            <- ~rf(1)   = true.
+                  rf2            <- ~rf(2)   = true.
+                  rfErrNonGround <- ~rf(X)   = true.
+                  rfErrUndefined <- ~rf2     = true.
+                  rfErrUndefVal  <- ~rf(3)   = true.
+                  rfErrUndefVal2 <- ~rf(1,3) = true.
+                  rfErrUndefVal3 <- ~rf(3,2) = true.
+              |]
+    , expectedResults =
+        [ (query "rf",             preciseProb 0.99)
+        , (query "rf1",            preciseProb 0.991)
+        , (query "rf2",            preciseProb 0.992)
+        , (query "rfErrNonGround", nonGround "rfErrNonGround" 0 1)
+        , (query "rfErrUndefined", undefinedRf "rf2" 0)
+        , (query "rfErrUndefVal",  undefinedRfVal "rf" 1)
+        , (query "rfErrUndefVal2", undefinedRfVal "rf" 2)
+        , (query "rfErrUndefVal3", undefinedRfVal "rf" 2)
+        ]
+    }
 
 varsInExpr :: IntegrationTest
 varsInExpr = IntegrationTest
@@ -104,16 +130,10 @@ existVars = IntegrationTest
                   nonGround <- p(X), Y = Z.
               |]
     , expectedResults =
-        [ (query "exists1", preciseProb 0.1)
-        , (query "exists2", preciseProb 0.89)
-        , (query "exists3", preciseProb 0.7)
-        , ( query "nonGround"
-          , \res -> case res of
-                Exception (Main.GrounderException (
-                    Grounder.NonGroundPreds prds (AST.PredicateLabel "nonGround") 0)
-                    ) | length prds == 2 -> True
-                _                        -> False
-          )
+        [ (query "exists1",   preciseProb 0.1)
+        , (query "exists2",   preciseProb 0.89)
+        , (query "exists3",   preciseProb 0.7)
+        , (query "nonGround", nonGround "nonGround" 0 2)
         ]
     }
 
@@ -144,3 +164,22 @@ queryInt label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.Constan
 preciseProb :: Probability -> Exceptional Exception (Probability, Probability) -> Bool
 preciseProb p (Success (l, u)) | l == u && l == p = True
 preciseProb _ _                                   = False
+
+nonGround :: String -> Int -> Int -> Exceptional Exception a -> Bool
+nonGround expLabel expN expNPreds (Exception (Main.GrounderException (Grounder.NonGroundPreds prds (AST.PredicateLabel label) n)))
+    | label == expLabel && n == expN && length prds == expNPreds = True
+nonGround _ _ _ _                                                = False
+
+typeError :: Exceptional Exception a -> Bool
+typeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) = True
+typeError _                                                             = False
+
+undefinedRf :: String -> Int -> Exceptional Exception a -> Bool
+undefinedRf expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRf rf n)))
+    | AST.RFuncLabel expRf == rf && expN == n = True
+undefinedRf _ _ _                             = False
+
+undefinedRfVal :: String -> Int -> Exceptional Exception a -> Bool
+undefinedRfVal expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRfValue rf args)))
+    | AST.RFuncLabel expRf == rf && expN == length args = True
+undefinedRfVal _ _ _                                    = False

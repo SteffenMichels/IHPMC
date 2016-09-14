@@ -75,7 +75,10 @@ instance Show PredicateLabel
     where
     show (PredicateLabel l) = l
 
-newtype RFuncLabel     = RFuncLabel String     deriving (Eq, Show, Generic)
+newtype RFuncLabel     = RFuncLabel String     deriving (Eq, Generic)
+instance Show RFuncLabel
+    where
+    show (RFuncLabel label) = label
 instance Hashable RFuncLabel
 
 data RFuncDef = Flip     Probability
@@ -159,7 +162,7 @@ data ConstantExpr = BoolConstant Bool
 
 instance Show ConstantExpr
     where
-    show (BoolConstant cnst) = printf "%s" (toLower <$> show cnst)
+    show (BoolConstant cnst) = toLower <$> show cnst
     show (RealConstant cnst) = printf "%f" (fromRat cnst::Float)
     show (StrConstant  cnst) = cnst
     show (IntConstant  cnst) = show cnst

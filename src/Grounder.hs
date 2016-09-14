@@ -49,8 +49,10 @@ import Exception
 
 type GState = ExceptionalT Exception (State GroundingState)
 
-data Exception = NonGroundPreds [AST.RuleBodyElement] AST.PredicateLabel Int
-               | TypeError      PropExprWithType PropExprWithType
+data Exception = NonGroundPreds   [AST.RuleBodyElement] AST.PredicateLabel Int
+               | TypeError        PropExprWithType PropExprWithType
+               | UndefinedRf      AST.RFuncLabel Int
+               | UndefinedRfValue AST.RFuncLabel [AST.ConstantExpr]
 
 instance Show Exception
     where
@@ -64,6 +66,14 @@ instance Show Exception
         "Types of expressions %s and %s do not match."
         (show exprX)
         (show exprY)
+    show (UndefinedRf label n) = printf
+        "Random function '%s/%i' is undefined."
+        (show label)
+        n
+    show (UndefinedRfValue rf args) = printf
+        "'%s(%s)' is undefined."
+        (show rf)
+        (showLst args)
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
@@ -287,7 +297,7 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
         rfDef <- case Map.lookup propRFuncLabel gRfDefs of
             Just def -> return def
             Nothing  -> do
-                let def = rfDefFor label propArgs rfDefs
+                def <- fromExceptional $ rfDefFor label propArgs rfDefs
                 lift $ modify (\st -> st{groundedRfDefs =
                     Map.insert propRFuncLabel def $ groundedRfDefs st
                 })
@@ -464,13 +474,15 @@ replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
 rfDefFor :: AST.RFuncLabel
          -> [AST.ConstantExpr]
          -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
-         -> AST.RFuncDef
-rfDefFor label args rfDefs = case matchingDefs of
-    []             -> error "Grounder: no matching RF def"
-    ((_,fstDef):_) -> fstDef
+         -> Exceptional Exception AST.RFuncDef
+rfDefFor label args rfDefs = do
+    defs <- exceptionalFromMaybe (UndefinedRf label nArgs) $ Map.lookup (label, nArgs) rfDefs
+    let matchingDefs = filter (\(defArgs, _) -> matchArgs args defArgs) defs
+    case matchingDefs of
+        []             -> throw $ UndefinedRfValue label args
+        ((_,fstDef):_) -> return fstDef
     where
-    defs = Map.lookupDefault (error "Grounder: RF not defined") (label, length args) rfDefs
-    matchingDefs = filter (\(defArgs, _) -> matchArgs args defArgs) defs
+    nArgs = length args
 
     matchArgs :: [AST.ConstantExpr] -> [AST.HeadArgument] -> Bool
     matchArgs givenArgs reqArgs = isJust $ foldl' match (Just Map.empty) (zip givenArgs reqArgs)

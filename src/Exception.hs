@@ -29,7 +29,9 @@ module Exception
     , fromEither
     , runExceptionalT
     , throwT
+    , throw
     , fromExceptional
+    , exceptionalFromMaybe
     ) where
 import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous
@@ -49,3 +51,6 @@ returnExceptional func = ExceptionalT $ return func
 fromExceptional :: Monad m => Exceptional e a -> ExceptionalT e m a
 fromExceptional (Success s)   = return s
 fromExceptional (Exception e) = throwT e
+
+exceptionalFromMaybe :: e -> Maybe a -> Exceptional e a
+exceptionalFromMaybe = fromMaybe
