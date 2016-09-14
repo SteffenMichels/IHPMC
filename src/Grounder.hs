@@ -50,7 +50,7 @@ import Exception
 type GState = ExceptionalT Exception (State GroundingState)
 
 data Exception = NonGroundPreds [AST.RuleBodyElement] AST.PredicateLabel Int
-               deriving Eq
+               | TypeError      PropExprWithType PropExprWithType
 
 instance Show Exception
     where
@@ -60,6 +60,10 @@ instance Show Exception
         (showLstEnc "'" "'" prds)
         (show headLabel)
         headNArgs
+    show (TypeError exprX exprY) = printf
+        "Types of expressions %s and %s do not match."
+        (show exprX)
+        (show exprY)
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
@@ -127,10 +131,11 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
         addGroundingBody :: ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
                          -> GState ()
         addGroundingBody (args, AST.RuleBody nonGroundBody, groundedBody)
-            | null nonGroundBody =
+            | null nonGroundBody = do
+                args' <- fromExceptional $ toPropArgs args
                 lift $ modify (\st -> st{groundedRules= Map.insertWith
                     (\[x] -> (x :))
-                    (toPropPredLabel label $ toPropArgs args)
+                    (toPropPredLabel label args')
                     [groundedBody]
                     (groundedRules st)
                 })
@@ -206,24 +211,24 @@ toPropRFuncLabel (AST.RFuncLabel label) args = GroundedAST.RFuncLabel $ printf
     label
     (if null args then "" else printf "(%s)" (showLst args))
 
-toPropArgs :: [AST.Expr] -> [AST.ConstantExpr]
-toPropArgs exprs = toPropArg <$> exprs
+toPropArgs :: [AST.Expr] -> Exceptional Exception [AST.ConstantExpr]
+toPropArgs exprs = forM exprs toPropArg
     where
-    toPropArg :: AST.Expr -> AST.ConstantExpr
+    toPropArg :: AST.Expr -> Exceptional Exception AST.ConstantExpr
     -- convert to grounded expr to perform simplification (e.g. for constant expr '1 + 1')
     toPropArg expr = case toPropExprWithoutRfs expr of
-        ExprBool (GroundedAST.ConstantExpr (GroundedAST.BoolConstant cnst)) -> AST.BoolConstant cnst
-        ExprReal (GroundedAST.ConstantExpr (GroundedAST.RealConstant cnst)) -> AST.RealConstant cnst
-        ExprInt  (GroundedAST.ConstantExpr (GroundedAST.IntConstant cnst))  -> AST.IntConstant  cnst
-        ExprStr  (GroundedAST.ConstantExpr (GroundedAST.StrConstant cnst))  -> AST.StrConstant  cnst
+        ExprBool (GroundedAST.ConstantExpr (GroundedAST.BoolConstant cnst)) -> return $ AST.BoolConstant cnst
+        ExprReal (GroundedAST.ConstantExpr (GroundedAST.RealConstant cnst)) -> return $ AST.RealConstant cnst
+        ExprInt  (GroundedAST.ConstantExpr (GroundedAST.IntConstant cnst))  -> return $ AST.IntConstant  cnst
+        ExprStr  (GroundedAST.ConstantExpr (GroundedAST.StrConstant cnst))  -> return $ AST.StrConstant  cnst
         expr'                                                               -> error $ printf "non constant expr '%s'" $ show expr'
 
--- precondition: no vars left in 'args'/'bip'
 toPropRuleElement :: AST.RuleBodyElement
                   -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
                   -> GState GroundedAST.RuleBodyElement
-toPropRuleElement (AST.UserPredicate label args) _ =
-    return $ GroundedAST.UserPredicate $ toPropPredLabel label $ toPropArgs args
+toPropRuleElement (AST.UserPredicate label args) _ = do
+    args' <- fromExceptional $ toPropArgs args
+    return $ GroundedAST.UserPredicate $ toPropPredLabel label args'
 toPropRuleElement (AST.BuildInPredicate bip) rfDefs = GroundedAST.BuildInPredicate <$> toPropBuildInPred bip rfDefs
 
 data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
@@ -262,12 +267,12 @@ toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
     toPropBuildInPred' bipConstructor exprX exprY = do
         exprX' <- toPropExpr exprX rfDefs
         exprY' <- toPropExpr exprY rfDefs
-        return $ case (exprX', exprY') of
-            (ExprReal exprX'', ExprReal exprY'') -> GroundedAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
-            (ExprBool exprX'', ExprBool exprY'') -> GroundedAST.BuildInPredicateBool $ bipConstructor exprX'' exprY''
-            (ExprInt  exprX'', ExprInt  exprY'') -> GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
-            (ExprStr  exprX'', ExprStr  exprY'') -> GroundedAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
-            _                                    -> error $ printf "Types of expressions %s and %s do not match." (show exprX') (show exprY')
+        case (exprX', exprY') of
+            (ExprReal exprX'', ExprReal exprY'') -> return $ GroundedAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
+            (ExprBool exprX'', ExprBool exprY'') -> return $ GroundedAST.BuildInPredicateBool $ bipConstructor exprX'' exprY''
+            (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
+            (ExprStr  exprX'', ExprStr  exprY'') -> return $ GroundedAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
+            _                                    -> throwT $ TypeError exprX' exprY'
 
 -- precondition: no vars left in 'expr'
 toPropExpr :: AST.Expr
@@ -277,6 +282,8 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
     AST.ConstantExpr cnst -> return $ toPropExprConst cnst
     AST.RFunc label args -> do
         gRfDefs <- lift $ gets groundedRfDefs
+        propArgs <- fromExceptional $ toPropArgs args
+        let propRFuncLabel = toPropRFuncLabel label propArgs
         rfDef <- case Map.lookup propRFuncLabel gRfDefs of
             Just def -> return def
             Nothing  -> do
@@ -289,9 +296,6 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
         case rfDef of
             AST.Flip _       -> return $ ExprBool $ GroundedAST.RFuncExpr rf
             AST.RealDist _ _ -> return $ ExprReal $ GroundedAST.RFuncExpr rf
-        where
-        propArgs       = toPropArgs args
-        propRFuncLabel = toPropRFuncLabel label propArgs
     AST.Sum exprX exprY ->toPropExprPairAdd GroundedAST.Sum exprX exprY
         where
         toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)
@@ -301,10 +305,10 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
         toPropExprPairAdd exprConstructor exprX' exprY' = do
             exprX'' <- toPropExpr exprX' rfDefs
             exprY'' <- toPropExpr exprY' rfDefs
-            return $ case (exprX'', exprY'') of
-                (ExprReal exprX''', ExprReal exprY''') -> ExprReal $ exprConstructor exprX''' exprY'''
-                (ExprInt  exprX''', ExprInt  exprY''') -> ExprInt  $ exprConstructor exprX''' exprY'''
-                _                                      -> error "type error"
+            case (exprX'', exprY'') of
+                (ExprReal exprX''', ExprReal exprY''') -> return $ ExprReal $ exprConstructor exprX''' exprY'''
+                (ExprInt  exprX''', ExprInt  exprY''') -> return $ ExprInt  $ exprConstructor exprX''' exprY'''
+                _                                      -> throwT $ TypeError exprX'' exprY''
     AST.Variable _ -> error "toPropExpr: precondition"
 
 -- assumes that there are no RFs in expression

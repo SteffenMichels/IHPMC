@@ -44,7 +44,6 @@ data Exception = GrounderException        Grounder.Exception
                | ParserException          String
                | IOException              IOException
                | TestException            String
-               deriving (Eq)
 
 instance Show Exception
     where
@@ -68,13 +67,13 @@ main' = do
     Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
         mapExceptionT CommandLineArgsException $ Options.parseConsoleArgs args
     assertT
-        (ParameterException "Error bound should be between 0.0 and 0.5.")
+        (ParameterException "Error bound has to be between 0.0 and 0.5.")
         (case errBound of
             Nothing -> True
             Just b  -> b >= 0.0 && b <= 0.5
         )
     assertT
-        (ParameterException "You should specify at least one stop condition.")
+        (ParameterException "You have to specify at least one stop condition.")
         (isJust nIterations || isJust errBound || isJust timeout)
     printIfSet "Stopping after %i iterations." nIterations
     printIfSet "Stopping if error bound is at most %s." $ show <$> errBound

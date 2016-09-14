@@ -29,11 +29,12 @@ module Exception
     , fromEither
     , runExceptionalT
     , throwT
+    , fromExceptional
     ) where
 import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous
 
-newtype IOException = IOException String deriving Eq
+newtype IOException = IOException String
 
 instance Show IOException
     where
@@ -44,3 +45,7 @@ doIO action = mapExceptionT (IOException . show) (fromEitherT (IOError.tryIOErro
 
 returnExceptional :: Monad m => Exceptional e a -> ExceptionalT e m a
 returnExceptional func = ExceptionalT $ return func
+
+fromExceptional :: Monad m => Exceptional e a -> ExceptionalT e m a
+fromExceptional (Success s)   = return s
+fromExceptional (Exception e) = throwT e

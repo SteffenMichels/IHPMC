@@ -33,9 +33,43 @@ import qualified AST
 import qualified Grounder
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ varsInExpr, existVars, count
+tests = ("grounding", [ types, varsInExpr, existVars, count
                       ]
         )
+
+types :: IntegrationTest
+types = IntegrationTest
+    { label = "type checking"
+    , model = unpack $ [text|
+                  ~bool ~ flip(0.01).
+                  bool    <- ~bool = true.
+                  boolErr <- ~bool = 1.
+                  ~real ~ norm(0.0, 1.0).
+                  real     <- ~real > 0.0.
+                  realErr  <- ~real > 0.
+                  realErr2 <- ~real + 1 > 0.0.
+                  int     <- 1 < 2.
+                  intErr  <- 1 < two.
+                  intErr2 <- 1 + zero < 2.
+                  string    <- abc /= abcd.
+                  stringErr <- abc /= false.
+              |]
+    , expectedResults =
+        [ (query "bool",      preciseProb 0.01)
+        , (query "boolErr",   expectTypeError)
+        , (query "real",      preciseProb 0.5)
+        , (query "realErr",   expectTypeError)
+        , (query "realErr2",  expectTypeError)
+        , (query "int",       preciseProb 1.0)
+        , (query "intErr",    expectTypeError)
+        , (query "intErr2",   expectTypeError)
+        , (query "string",    preciseProb 1.0)
+        , (query "stringErr", expectTypeError)
+        ]
+    }
+    where
+    expectTypeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) = True
+    expectTypeError _                                                             = False
 
 varsInExpr :: IntegrationTest
 varsInExpr = IntegrationTest
@@ -70,10 +104,10 @@ existVars = IntegrationTest
                   nonGround <- p(X), Y = Z.
               |]
     , expectedResults =
-        [ (queryStr "exists1"    [], preciseProb 0.1)
-        , (queryStr "exists2"    [], preciseProb 0.89)
-        , (queryStr "exists3"    [], preciseProb 0.7)
-        , ( queryStr "nonGround" []
+        [ (query "exists1", preciseProb 0.1)
+        , (query "exists2", preciseProb 0.89)
+        , (query "exists3", preciseProb 0.7)
+        , ( query "nonGround"
           , \res -> case res of
                 Exception (Main.GrounderException (
                     Grounder.NonGroundPreds prds (AST.PredicateLabel "nonGround") 0)
@@ -97,6 +131,9 @@ count = IntegrationTest
         , (queryInt "count" [10], preciseProb 0.1)
         ]
     }
+
+query :: String -> AST.RuleBodyElement
+query label = AST.UserPredicate (AST.PredicateLabel label) []
 
 queryStr :: String -> [String] -> AST.RuleBodyElement
 queryStr label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.ConstantExpr . AST.StrConstant <$> exprs)
