@@ -23,7 +23,6 @@
 
 module IntegrationGrounding (tests)
 where
-import BasicTypes
 import NeatInterpolation
 import IntegrationTest
 import Data.Text (unpack)
@@ -31,6 +30,7 @@ import Exception
 import Main (Exception(..))
 import qualified AST
 import qualified Grounder
+import Probability
 
 tests :: (String, [IntegrationTest])
 tests = ("grounding", [ types, rfs, varsInExpr, existVars, count

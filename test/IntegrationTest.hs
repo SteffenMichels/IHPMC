@@ -21,7 +21,7 @@
 
 module IntegrationTest (IntegrationTest(..))
 where
-import BasicTypes (Probability)
+import Probability
 import Main (Exception)
 import Exception
 import qualified AST

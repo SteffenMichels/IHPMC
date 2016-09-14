@@ -33,11 +33,10 @@ import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 import Exception
 import Numeric
-import BasicTypes
 import Data.Ratio ((%))
 import qualified Statistics.Distribution as Dist
 import qualified Statistics.Distribution.Normal as Norm
---import Interval (Interval, IntervalLimit(..))
+import Probability
 
 -- LEXER
 languageDef =

@@ -26,8 +26,8 @@ module Options
 import System.Console.ArgParser
 import Control.Monad.Exception.Synchronous
 import Exception
-import BasicTypes
 import GHC.Float (float2Double)
+import Probability
 
 data Options = Options
     { nIterations :: Maybe Int

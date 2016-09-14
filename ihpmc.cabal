@@ -31,10 +31,11 @@ executable ihpmc_float
         FormulaConverter
         IHPMC
         AST
-        BasicTypes
         Grounder
         Interval
         Exception
+        Probability
+        Util
     ghc-options: -Werror -rtsopts -Wall -O2 -ferror-spans
 
 executable ihpmc_exact
@@ -63,10 +64,11 @@ executable ihpmc_exact
         FormulaConverter
         IHPMC
         AST
-        BasicTypes
         Grounder
         Interval
         Exception
+        Probability
+        Util
     ghc-options: -Werror -rtsopts -Wall -O2 -ferror-spans
 
 test-suite integration
@@ -103,8 +105,9 @@ test-suite integration
         FormulaConverter
         IHPMC
         AST
-        BasicTypes
         Grounder
         Interval
         Exception
+        Probability
+        Util
     ghc-options: -Werror -Wall -ferror-spans

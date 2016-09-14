@@ -45,7 +45,6 @@ module Formula
     , Formula.negate
     , entryChoices
     ) where
-import BasicTypes
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
@@ -63,6 +62,7 @@ import Interval (Interval)
 import qualified Interval
 import Control.Monad.State.Strict
 import Data.Foldable (foldl')
+import Util
 
 -- INTERFACE
 data Node = Composed NodeType [NodeRef]

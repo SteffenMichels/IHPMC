@@ -38,7 +38,6 @@ module AST
     , exprRandomFunctions
     , negateOp
     ) where
-import BasicTypes
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
@@ -48,6 +47,8 @@ import Data.Char (toLower)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import Numeric (fromRat)
+import Probability
+import Util
 
 data AST = AST
     { rFuncDefs :: HashMap (RFuncLabel, Int)     [([HeadArgument], RFuncDef)] -- first matching def applies

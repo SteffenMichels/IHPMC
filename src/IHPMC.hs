@@ -30,7 +30,6 @@ import Formula (Formula)
 import qualified Formula
 import HPT (HPT, HPTNode)
 import qualified HPT
-import BasicTypes
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import qualified Data.HashSet as Set
@@ -45,6 +44,7 @@ import Data.List (maximumBy, subsequences)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Exception
 import Data.Foldable (foldl')
+import Probability
 --import System.IO.Unsafe (unsafePerformIO)
 --import Debug.Trace (trace)
 

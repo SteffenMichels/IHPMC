@@ -21,7 +21,6 @@
 
 module Integration (tests, IntegrationTest(..)) where
 import Distribution.TestSuite
-import BasicTypes
 import qualified Parser
 import qualified Grounder
 import qualified FormulaConverter
@@ -36,6 +35,7 @@ import Data.Foldable (foldl')
 import Main (Exception(..))
 import qualified AST
 import Control.Monad.Trans.Class (lift)
+import Probability
 
 allTests :: [(String, [IntegrationTest])]
 allTests = [IntegrationGrounding.tests]

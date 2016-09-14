@@ -25,7 +25,6 @@ module Grounder
     ( ground
     , Exception(..)
     ) where
-import BasicTypes
 import AST (AST)
 import qualified AST
 import GroundedAST (GroundedAST(..))
@@ -46,6 +45,7 @@ import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Exception
+import Util
 
 type GState = ExceptionalT Exception (State GroundingState)
 

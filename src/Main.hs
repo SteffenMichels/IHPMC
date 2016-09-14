@@ -22,7 +22,6 @@
 {-# LANGUAGE Strict #-}
 
 module Main (main, Exception(..)) where
-import BasicTypes
 import System.Environment (getArgs)
 import qualified Parser
 import qualified Grounder
@@ -37,6 +36,7 @@ import Control.Monad (forM_, when)
 import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
+import Probability
 
 data Exception = GrounderException        Grounder.Exception
                | ParameterException       String

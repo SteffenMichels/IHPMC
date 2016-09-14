@@ -36,13 +36,13 @@ module HPT
     , outsideEvidence
     , exportAsDot
     ) where
-import BasicTypes
 import qualified Formula
 import Exception
 import System.IO
 import Text.Printf (printf)
 import Numeric (fromRat)
 import qualified GroundedAST
+import Probability
 
 -- Hybrid Probability Tree
 data HPT     = Unfinished HPTNode ProbabilityTriple Double

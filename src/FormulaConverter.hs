@@ -32,7 +32,7 @@ import qualified Data.HashMap.Strict as Map
 import Control.Monad.State.Strict
 import Data.Foldable (foldrM)
 import Text.Printf (printf)
-import BasicTypes
+import Util
 
 convert :: GroundedAST
         -> Formula.CacheComputations cachedInfo

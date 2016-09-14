@@ -44,7 +44,6 @@ module GroundedAST ( GroundedAST(..)
                    , simplifiedBuildInPred
                    , simplifiedExpr
                    ) where
-import BasicTypes
 import qualified AST
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
@@ -58,6 +57,7 @@ import qualified Interval
 import Text.Printf (printf)
 import Data.Char (toLower)
 import Numeric (fromRat)
+import Util
 
 -- use sets here to avoid duplicate elements
 data GroundedAST = GroundedAST
