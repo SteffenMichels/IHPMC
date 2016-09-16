@@ -110,7 +110,7 @@ instance Hashable RuleBodyElement
 data HeadArgument = ArgVariable VarName
                   | ArgConstant ConstantExpr
                   | ArgDontCareVariable
-              deriving (Eq, Show, Generic)
+                  deriving (Eq, Show, Generic)
 instance Hashable HeadArgument
 
 data VarName = VarName String

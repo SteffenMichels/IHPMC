@@ -23,10 +23,13 @@ module Util
     ( getFirst
     , showLst
     , showLstEnc
+    , doState
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Data.List (intercalate)
+import Control.Monad.State.Strict
+import Control.Monad.Identity
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
@@ -36,3 +39,6 @@ showLst l = intercalate ", " $ show <$> l
 
 showLstEnc :: Show a => String -> String -> [a] -> String
 showLstEnc open close l = intercalate ", " $ (\el -> open ++ show el ++ close) <$> l
+
+doState :: Monad m => State s a -> StateT s m a
+doState = mapStateT (\(Identity x) -> return x)
