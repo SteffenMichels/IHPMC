@@ -33,7 +33,7 @@ import qualified Grounder
 import Probability
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ types, rfs, varsInExpr, existVars, count
+tests = ("grounding", [ types, preds, rfs, varsInExpr, existVars, count
                       ]
         )
 
@@ -68,6 +68,40 @@ types = IntegrationTest
         ]
     }
 
+preds :: IntegrationTest
+preds = IntegrationTest
+    { label = "predicates"
+    , model = unpack $ [text|
+                  ~x ~ flip(0.1).
+                  ~y ~ flip(0.2).
+                  a <- ~x = true.
+                  b <- ~y = true.
+                  c <- ~x = true, ~y = true.
+                  d <- ~x = true.
+                  d <- ~y = true.
+                  p(a) <- a.
+                  p(b) <- b.
+                  p(c) <- c.
+                  p(d) <- d.
+                  two(X, Y) <- p(Y), p(X).
+                  err <- two(a, ~x).
+              |]
+    , expectedResults =
+        [ (query "a",                preciseProb 0.1)
+        , (query "b",                preciseProb 0.2)
+        , (query "c",                preciseProb 0.02)
+        , (query "d",                preciseProb 0.28)
+        --, (query "e", preciseProb 0.0)
+        , (queryStr "two" ["a","a"], preciseProb 0.1)
+        , (queryStr "two" ["a","b"], preciseProb 0.02)
+        , (queryStr "two" ["a","c"], preciseProb 0.02)
+        , (queryStr "two" ["a","d"], preciseProb 0.1)
+        , (queryStr "two" ["c","d"], preciseProb 0.02)
+        --, (queryStr "two" ["e","d"], preciseProb 0.0)
+        , (query "err",              rfAsArg)
+        ]
+    }
+
 rfs :: IntegrationTest
 rfs = IntegrationTest
     { label = "random functions"
@@ -79,6 +113,7 @@ rfs = IntegrationTest
                   rf             <- ~rf      = true.
                   rf1            <- ~rf(1)   = true.
                   rf2            <- ~rf(2)   = true.
+                  rfErrRfAsArg   <- ~rf(~rf) = true.
                   rfErrNonGround <- ~rf(X)   = true.
                   rfErrUndefined <- ~rf2     = true.
                   rfErrUndefVal  <- ~rf(3)   = true.
@@ -89,6 +124,7 @@ rfs = IntegrationTest
         [ (query "rf",             preciseProb 0.99)
         , (query "rf1",            preciseProb 0.991)
         , (query "rf2",            preciseProb 0.992)
+        , (query "rfErrRfAsArg",   rfAsArg)
         , (query "rfErrNonGround", nonGround "rfErrNonGround" 0 1)
         , (query "rfErrUndefined", undefinedRf "rf2" 0)
         , (query "rfErrUndefVal",  undefinedRfVal "rf" 1)
@@ -126,14 +162,44 @@ existVars = IntegrationTest
                   s(4).
                   exists1 <- ~a(X) = true, q(X).
                   exists2 <- ~a(X) = ~a(Y), q(X), r(Y).
-                  exists3 <- ~a(X + Y + Z) = true, q(X), r(Y), s(Z).
+                  exists3Per01 <- ~a(X + Y + Z) = true, q(X), r(Y), s(Z).
+                  exists3Per02 <- ~a(X + Y + Z) = true, q(X), s(Z), r(Y).
+                  exists3Per03 <- ~a(X + Y + Z) = true, r(Y), q(X), s(Z).
+                  exists3Per04 <- ~a(X + Y + Z) = true, s(Z), q(X), r(Y).
+                  exists3Per05 <- q(X), ~a(X + Y + Z) = true, r(Y), s(Z).
+                  exists3Per06 <- q(X), ~a(X + Y + Z) = true, s(Z), r(Y).
+                  exists3Per07 <- r(Y), ~a(X + Y + Z) = true, q(X), s(Z).
+                  exists3Per08 <- s(Z), ~a(X + Y + Z) = true, q(X), r(Y).
+                  exists3Per09 <- q(X), r(Y), ~a(X + Y + Z) = true, s(Z).
+                  exists3Per10 <- q(X), s(Z), ~a(X + Y + Z) = true, r(Y).
+                  exists3Per11 <- r(Y), q(X), ~a(X + Y + Z) = true, s(Z).
+                  exists3Per12 <- s(Z), q(X), ~a(X + Y + Z) = true, r(Y).
+                  exists3Per13 <- q(X), r(Y), s(Z), ~a(X + Y + Z) = true.
+                  exists3Per14 <- q(X), s(Z), r(Y), ~a(X + Y + Z) = true.
+                  exists3Per15 <- r(Y), q(X), s(Z), ~a(X + Y + Z) = true.
+                  exists3Per16 <- s(Z), q(X), r(Y), ~a(X + Y + Z) = true.
                   nonGround <- p(X), Y = Z.
               |]
     , expectedResults =
-        [ (query "exists1",   preciseProb 0.1)
-        , (query "exists2",   preciseProb 0.89)
-        , (query "exists3",   preciseProb 0.7)
-        , (query "nonGround", nonGround "nonGround" 0 2)
+        [ (query "exists1",      preciseProb 0.1)
+        , (query "exists2",      preciseProb 0.89)
+        , (query "exists3Per01", preciseProb 0.7)
+        , (query "exists3Per02", preciseProb 0.7)
+        , (query "exists3Per03", preciseProb 0.7)
+        , (query "exists3Per04", preciseProb 0.7)
+        , (query "exists3Per05", preciseProb 0.7)
+        , (query "exists3Per06", preciseProb 0.7)
+        , (query "exists3Per07", preciseProb 0.7)
+        , (query "exists3Per08", preciseProb 0.7)
+        , (query "exists3Per09", preciseProb 0.7)
+        , (query "exists3Per10", preciseProb 0.7)
+        , (query "exists3Per11", preciseProb 0.7)
+        , (query "exists3Per12", preciseProb 0.7)
+        , (query "exists3Per13", preciseProb 0.7)
+        , (query "exists3Per14", preciseProb 0.7)
+        , (query "exists3Per15", preciseProb 0.7)
+        , (query "exists3Per16", preciseProb 0.7)
+        , (query "nonGround",    nonGround "nonGround" 0 2)
         ]
     }
 
@@ -144,11 +210,18 @@ count = IntegrationTest
                   ~count(X) ~ flip(0.1).
                   count(X) <- ~count(X) = true.
                   count(X) <- X < 10, Y = X + 1, count(Y).
+
+                  ~countPer(X) ~ flip(0.1).
+                  countPer(X) <- ~countPer(X) = true.
+                  countPer(X) <- countPer(Y), Y = X + 1, X < 10.
               |]
     , expectedResults =
-        [ (queryInt "count" [1],  preciseProb 0.6513215599)
-        , (queryInt "count" [6],  preciseProb 0.40951)
-        , (queryInt "count" [10], preciseProb 0.1)
+        [ (queryInt "count"     [1], preciseProb 0.6513215599)
+        , (queryInt "count"     [6], preciseProb 0.40951)
+        , (queryInt "count"    [10], preciseProb 0.1)
+        , (queryInt "countPer"  [1], preciseProb 0.6513215599)
+        , (queryInt "countPer"  [6], preciseProb 0.40951)
+        , (queryInt "countPer" [10], preciseProb 0.1)
         ]
     }
 
@@ -183,3 +256,7 @@ undefinedRfVal :: String -> Int -> Exceptional Exception a -> Bool
 undefinedRfVal expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRfValue rf args)))
     | AST.RFuncLabel expRf == rf && expN == length args = True
 undefinedRfVal _ _ _                                    = False
+
+rfAsArg :: Exceptional Exception a -> Bool
+rfAsArg (Exception (Main.GrounderException Grounder.RandomFuncUsedAsArg)) = True
+rfAsArg _ = False

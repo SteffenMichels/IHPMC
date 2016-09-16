@@ -53,6 +53,7 @@ data Exception = NonGroundPreds   [AST.RuleBodyElement] AST.PredicateLabel Int
                | TypeError        PropExprWithType PropExprWithType
                | UndefinedRf      AST.RFuncLabel Int
                | UndefinedRfValue AST.RFuncLabel [AST.ConstantExpr]
+               | RandomFuncUsedAsArg
 
 instance Show Exception
     where
@@ -74,6 +75,7 @@ instance Show Exception
         "'%s(%s)' is undefined."
         (show rf)
         (showLst args)
+    show RandomFuncUsedAsArg = "Random functions may not be used in arguments of predicates and functions."
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
@@ -227,19 +229,36 @@ toPropRFuncLabel (AST.RFuncLabel label) args = GroundedAST.RFuncLabel $ printf
     label
     (if null args then "" else printf "(%s)" (showLst args))
 
-
 -- precondition: no vars in expr
+-- throws exception if there are RFs in expressions
 toPropArgs :: [AST.Expr] -> Exceptional Exception [AST.ConstantExpr]
 toPropArgs exprs = forM exprs toPropArg
-    where
-    toPropArg :: AST.Expr -> Exceptional Exception AST.ConstantExpr
-    -- convert to grounded expr to perform simplification (e.g. for constant expr '1 + 1')
-    toPropArg expr = case toPropExprWithoutRfs expr of
+
+-- precondition: no vars in expr
+-- throws exception if there are RFs in expressions
+toPropArg :: AST.Expr -> Exceptional Exception AST.ConstantExpr
+-- convert to grounded expr to perform simplification (e.g. for constant expr '1 + 1')
+toPropArg expr = do
+    expr' <- toPropArgExpr expr
+    case expr' of
         ExprBool (GroundedAST.ConstantExpr (GroundedAST.BoolConstant cnst)) -> return $ AST.BoolConstant cnst
         ExprReal (GroundedAST.ConstantExpr (GroundedAST.RealConstant cnst)) -> return $ AST.RealConstant cnst
         ExprInt  (GroundedAST.ConstantExpr (GroundedAST.IntConstant  cnst)) -> return $ AST.IntConstant  cnst
         ExprStr  (GroundedAST.ConstantExpr (GroundedAST.StrConstant  cnst)) -> return $ AST.StrConstant  cnst
         _                                                                   -> error "precondition"
+    where
+    toPropArgExpr :: AST.Expr -> Exceptional Exception PropExprWithType
+    toPropArgExpr expr' = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr' of
+        AST.ConstantExpr cnst -> return $ toPropExprConst cnst
+        AST.RFunc _ _ -> throw RandomFuncUsedAsArg
+        AST.Sum exprX exprY -> do
+            exprX' <- toPropArgExpr exprX
+            exprY' <- toPropArgExpr exprY
+            return $ case (exprX', exprY') of
+                (ExprReal exprX''', ExprReal exprY''') -> ExprReal $ GroundedAST.Sum exprX''' exprY'''
+                (ExprInt  exprX''', ExprInt  exprY''') -> ExprInt  $ GroundedAST.Sum exprX''' exprY'''
+                _                                      -> error "type error"
+        AST.Variable _ -> error "precondition"
 
 toPropRuleElement :: AST.RuleBodyElement
                   -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
@@ -329,23 +348,6 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 _                                      -> lift $ throw $ TypeError exprX'' exprY''
     AST.Variable _ -> error "toPropExpr: precondition"
 
--- precondition: assumes that there are no RFs & vars in expression
-toPropExprWithoutRfs :: AST.Expr -> PropExprWithType
-toPropExprWithoutRfs expr = mapPropExprWithType GroundedAST.simplifiedExpr $ case expr of
-    AST.ConstantExpr cnst -> toPropExprConst cnst
-    AST.RFunc _ _ -> error "assumed no RFs"
-    AST.Sum exprX exprY -> toPropExprPairAdd GroundedAST.Sum exprX exprY
-        where
-        toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)
-                          -> AST.Expr
-                          -> AST.Expr
-                          -> PropExprWithType
-        toPropExprPairAdd exprConstructor exprX' exprY' = case (toPropExprWithoutRfs exprX', toPropExprWithoutRfs exprY') of
-            (ExprReal exprX''', ExprReal exprY''') -> ExprReal $ exprConstructor exprX''' exprY'''
-            (ExprInt  exprX''', ExprInt  exprY''') -> ExprInt  $ exprConstructor exprX''' exprY'''
-            _                                      -> error "type error"
-    AST.Variable var -> error $ printf "Cannot determine ground value for variable '%s' in expression '%s'." (show var) "BIP"
-
 toPropExprConst :: AST.ConstantExpr -> PropExprWithType
 toPropExprConst (AST.BoolConstant cnst) = ExprBool $ GroundedAST.ConstantExpr $ GroundedAST.BoolConstant cnst
 toPropExprConst (AST.RealConstant cnst) = ExprReal $ GroundedAST.ConstantExpr $ GroundedAST.RealConstant cnst
@@ -393,8 +395,8 @@ applyValuation :: HashMap AST.VarName AST.Expr
                -> GState Bool
 applyValuation valu rfDefs = do
     st            <- get
-    mbRules       <- runMaybeT $ foldlM applyValuRule Map.empty $ Map.toList $ rulesInProof st
-    let mbConstraints = foldlM applyValuConstraint Set.empty $ proofConstraints st
+    mbRules       <- runMaybeT        $ foldlM applyValuRule       Map.empty $ Map.toList $ rulesInProof st
+    mbConstraints <- lift $ runMaybeT $ foldlM applyValuConstraint Set.empty $ proofConstraints st
     case (mbRules, mbConstraints) of
         (Just rules, Just constraints) -> do
             modify' (\st' -> st'{rulesInProof = rules, proofConstraints = constraints})
@@ -438,11 +440,13 @@ applyValuation valu rfDefs = do
                     Nothing    -> return (elements, Set.insert gEl gElements) -- truthfullness depends on random functions
                 _ -> return (elements, Set.insert gEl gElements)
 
-    applyValuConstraint :: HashSet Constraint -> Constraint -> Maybe (HashSet Constraint)
+    applyValuConstraint :: HashSet Constraint -> Constraint -> MaybeT (Exceptional Exception) (HashSet Constraint)
     applyValuConstraint constraints (EqConstraint exprX exprY)
         | varsLeftX || varsLeftY  = return $ Set.insert constr' constraints
-        | constraintHolds constr' = return constraints -- true constraint can just be left out
-        | otherwise               = mzero              -- false constraint means proof becomes inconsistent
+        | otherwise = do
+            holds <- lift $ constraintHolds constr'
+            if holds then return constraints -- true constraint can just be left out
+                     else mzero              -- false constraint means proof becomes inconsistent
         where
         (varsLeftX, exprX') = applyValuHeadArg valu exprX
         (varsLeftY, exprY') = applyValuHeadArg valu exprY
@@ -517,17 +521,18 @@ match mbVal (given, req) = do
             _                         -> Nothing
         AST.ArgDontCareVariable -> return val
 
-constraintHolds :: Constraint -> Bool
-constraintHolds (EqConstraint exprX exprY) =  case (toPropExprWithoutRfs exprX, toPropExprWithoutRfs exprY) of
-    (ExprReal exprX', ExprReal exprY') -> checkEq exprX' exprY'
-    (ExprBool exprX', ExprBool exprY') -> checkEq exprX' exprY'
-    (ExprInt  exprX', ExprInt  exprY') -> checkEq exprX' exprY'
-    (ExprStr  exprX', ExprStr  exprY') -> checkEq exprX' exprY'
-    _                                  -> error $ printf "Types of expressions %s and %s do not match." (show exprX) (show exprY)
-    where
-    checkEq :: GroundedAST.Expr a -> GroundedAST.Expr a -> Bool
-    checkEq (GroundedAST.ConstantExpr cnstX) (GroundedAST.ConstantExpr cnstY) = cnstX == cnstY
-    checkEq _ _ = error "constraint could not be solved"
+-- precondition: no vars left in constraints
+-- throws exception if RF is included in constr
+constraintHolds :: Constraint -> Exceptional Exception Bool
+constraintHolds (EqConstraint exprX exprY) =  do
+    cnstX <- toPropArg exprX
+    cnstY <- toPropArg exprY
+    return $ case (cnstX, cnstY) of
+        (AST.BoolConstant x, AST.BoolConstant y) -> x == y
+        (AST.RealConstant x, AST.RealConstant y) -> x == y
+        (AST.IntConstant  x, AST.IntConstant  y) -> x == y
+        (AST.StrConstant  x, AST.StrConstant  y) -> x == y
+        _                                        -> error $ printf "Types of expressions %s and %s do not match." (show exprX) (show exprY)
 
 -- Utils
 -- traverses top-down
