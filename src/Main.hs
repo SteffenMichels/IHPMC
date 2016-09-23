@@ -63,7 +63,7 @@ main = do
 
 main' :: ExceptionalT Exception IO ()
 main' = do
-    args <- mapExceptionT IOException $ doIO getArgs
+    args <- doIOException getArgs
     Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
         mapExceptionT CommandLineArgsException $ Options.parseConsoleArgs args
     assertT
@@ -78,9 +78,10 @@ main' = do
     printIfSet "Stopping after %i iterations." nIterations
     printIfSet "Stopping if error bound is at most %s." $ show <$> errBound
     printIfSet "Stopping after %ims." timeout
-    src <- mapExceptionT IOException $ doIO $ readFile modelFile
+    src <- doIOException $ readFile modelFile
     ast <- returnExceptional $ mapException ParserException $ Parser.parsePclp src
     groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast
+    doIOException $ print groundedAst
     let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
     whenJust formExpPath $ \path -> mapExceptionT IOException $ Formula.exportAsDot path f
     let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
@@ -88,10 +89,10 @@ main' = do
                                              || maybe False (<= t)       timeout
     forM_ queries $ \(qLabel, qRef) -> do
         results <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred repInterval f
-        when (isJust repInterval) $ mapExceptionT IOException $ doIO $ putStrLn ""
+        when (isJust repInterval) $ doIOException $ putStrLn ""
         forM_
             results
-            (\(i, t, ProbabilityBounds l u) -> mapExceptionT IOException $ doIO $ putStrLn $ printf
+            (\(i, t, ProbabilityBounds l u) -> doIOException $ putStrLn $ printf
                 "%s (iteration %i, after %ims): %s (error bound: %s)"
                 (show qLabel)
                 i
@@ -100,8 +101,11 @@ main' = do
                 (show $ (u - l) / 2.0)
             )
 
+doIOException :: IO a -> ExceptionalT Exception IO a
+doIOException io = mapExceptionT IOException $ doIO io
+
 printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT Exception IO ()
-printIfSet fstr = maybe (return ()) $ mapExceptionT IOException . doIO . putStrLn . printf fstr
+printIfSet fstr = maybe (return ()) $ doIOException . putStrLn . printf fstr
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust Nothing _   = return ()

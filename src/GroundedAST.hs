@@ -65,6 +65,7 @@ data GroundedAST = GroundedAST
     , queries   :: HashSet RuleBodyElement
     , evidence  :: HashSet RuleBodyElement
     }
+    deriving Show
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
 newtype PredicateLabel = PredicateLabel String deriving (Eq, Generic)
