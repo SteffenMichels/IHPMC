@@ -118,7 +118,23 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
     computeGroundings :: Seq AST.RuleBodyElement -> GState ()
     computeGroundings todo = case Seq.viewl todo of
         Seq.EmptyL           -> addGroundings
-        nextGoal :< todoRest -> computeGroundingsGoal nextGoal todoRest
+        nextGoal :< todoRest -> do
+            inCurProof <- doState $ goalInCurrentProof nextGoal
+            case inCurProof of
+                True  -> computeGroundings todoRest
+                False -> computeGroundingsGoal nextGoal todoRest
+
+    goalInCurrentProof :: AST.RuleBodyElement -> State GroundingState Bool
+    goalInCurrentProof (AST.BuildInPredicate _) = return False
+    goalInCurrentProof (AST.UserPredicate label givenArgs) = do
+        let nGivenArgs = length givenArgs
+        rsInProof <- gets rulesInProof
+        case Map.lookup (label, nGivenArgs) rsInProof of
+            Nothing -> return False
+            Just rs -> return $ foldl'
+                (\inProof (args, _, _) -> inProof || (nGivenArgs == length args && givenArgs == args))
+                False
+                rs
 
     computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> GState ()
     computeGroundingsGoal goal remaining = case goal of

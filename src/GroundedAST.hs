@@ -96,7 +96,7 @@ makeRFunc label def = RFunc label def $ Hashable.hash label
 newtype RFuncLabel = RFuncLabel String deriving (Eq, Generic)
 instance Show RFuncLabel
     where
-    show (RFuncLabel l) = l
+    show (RFuncLabel l) = printf "~%s" l
 instance Hashable RFuncLabel
 
 newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)
@@ -132,7 +132,7 @@ data TypedBuildInPred a
     where
     Equality :: Bool       -> Expr a -> Expr a -> TypedBuildInPred a
     Ineq     :: AST.IneqOp -> Expr a -> Expr a -> TypedBuildInPred a
-    Constant :: Bool                                   -> TypedBuildInPred a
+    Constant :: Bool                           -> TypedBuildInPred a
 
 deriving instance Eq (TypedBuildInPred a)
 instance Show (TypedBuildInPred a)

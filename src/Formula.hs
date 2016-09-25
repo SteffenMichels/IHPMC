@@ -105,7 +105,7 @@ insert labelOrConds sign op children = do
                     Right conds -> let label' = GroundedAST.PredicateLabel $ show freshCounter
                                    in  ComposedLabel label' conds $ Hashable.hash label' -- only use label as hash (ignore conds) as node is unique anyhow
             let rFuncs = foldl' (\rfuncs child -> Set.union rfuncs $ entryRFuncs child) Set.empty children'
-            modify' (\f -> f{ nodes        = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
+            modify' (\f -> f{ nodes       = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren rFuncs cachedInfo) nodes
                            , freshCounter = succ freshCounter
                            , labels2ids   = Map.insert label (ComposedId freshCounter) labels2ids
                            }

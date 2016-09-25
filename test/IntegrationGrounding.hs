@@ -33,7 +33,7 @@ import qualified Grounder
 import Probability
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ types, preds, rfs, varsInExpr, existVars, count
+tests = ("grounding", [ types, preds, rfs, varsInExpr, existVars, count, tablingProp, tablingFO
                       ]
         )
 
@@ -222,6 +222,38 @@ count = IntegrationTest
         , (queryInt "countPer"  [1], preciseProb 0.6513215599)
         , (queryInt "countPer"  [6], preciseProb 0.40951)
         , (queryInt "countPer" [10], preciseProb 0.1)
+        ]
+    }
+
+tablingProp :: IntegrationTest
+tablingProp = IntegrationTest
+    { label = "tabling (propositional)"
+    , model = unpack $ [text|
+                  ~c ~ flip(0.123).
+
+                  a <- b.
+                  b <- a.
+                  b <- ~c = true.
+              |]
+    , expectedResults =
+        [ (query "a", preciseProb 0.123)
+        , (query "b", preciseProb 0.123)
+        ]
+    }
+
+tablingFO :: IntegrationTest
+tablingFO = IntegrationTest
+    { label = "tabling (first-order)"
+    , model = unpack $ [text|
+                  ~x ~ flip(0.123).
+
+                  p(X) <- p(X + 0), X = 1.
+                  p(2) <- p(1 + 0).
+                  p(2) <- ~x = true.
+              |]
+    , expectedResults =
+        [ (query "p(1)", preciseProb 0.123)
+        , (query "p(2)", preciseProb 0.123)
         ]
     }
 
