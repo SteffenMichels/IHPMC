@@ -34,6 +34,7 @@ import Probability
 
 tests :: (String, [IntegrationTest])
 tests = ("grounding", [ types, preds, rfs, varsInExpr, existVars, count, tablingProp, tablingFO
+                      , network1, network2
                       ]
         )
 
@@ -254,6 +255,46 @@ tablingFO = IntegrationTest
     , expectedResults =
         [ (queryInt "p" [1], preciseProb 0.123)
         , (queryInt "p" [2], preciseProb 0.123)
+        ]
+    }
+
+network1 :: IntegrationTest
+network1 = IntegrationTest
+    { label = "tabling (network, body element order 1)"
+    , model = unpack $ [text|
+                  ~e(X, Y) ~ flip(0.1).
+
+                  e(1, 2).
+                  e(1, 3).
+                  e(2, 4).
+                  e(3, 4).
+                  e(2, 1).
+                  e(3, 1).
+                  connected(X, Y) <- ~e(Z, Y) = true, e(Z, Y), connected(X, Z).
+                  connected(X, X).
+              |]
+    , expectedResults =
+        [ (queryInt "connected" [1, 4], preciseProb 0.0199)
+        ]
+    }
+
+network2 :: IntegrationTest
+network2 = IntegrationTest
+    { label = "tabling (network, body element order 2)"
+    , model = unpack $ [text|
+                  ~e(X, Y) ~ flip(0.1).
+
+                  e(1, 2).
+                  e(1, 3).
+                  e(2, 4).
+                  e(3, 4).
+                  e(2, 1).
+                  e(3, 1).
+                  connected(X, Y) <- ~e(Z, Y) = true, connected(X, Z), e(Z, Y).
+                  connected(X, X).
+              |]
+    , expectedResults =
+        [ (queryInt "connected" [1, 4], preciseProb 0.0199)
         ]
     }
 

@@ -45,6 +45,7 @@ import GHC.Generics (Generic)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Exception
 import Util
+import Data.Boolean (Boolean(..))
 
 type GState = StateT GroundingState (Exceptional Exception)
 
@@ -115,33 +116,46 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
         return (Set.fromList queries', Set.fromList evidence')
 
     computeGroundings :: Seq AST.RuleBodyElement -> GState ()
-    computeGroundings todo = case Seq.viewl todo of
-        Seq.EmptyL           -> addGroundings
-        nextGoal :< todoRest -> do
-            haveToProof <- goalHaveToProof nextGoal
-            case haveToProof of
-                False  -> computeGroundings todoRest
-                True -> computeGroundingsGoal nextGoal todoRest
+    computeGroundings todo = do
+        todo' <- Seq.filter ((/= False3) . snd) <$> forM todo (\g -> (g,) <$> goalHaveToProof g)
+        let (prefix, postfix) = Seq.breakl ((== True3) . snd) todo'
+        case Seq.viewl postfix of
+            (nextGoal, _) :< todoRest -> computeGroundingsGoal nextGoal (fst <$> prefix >< todoRest)
+            Seq.EmptyL -> do
+                let (prefix', postfix') = Seq.breakl ((== Unknown3) . snd) todo'
+                case Seq.viewl postfix' of
+                    (nextGoal, _) :< todoRest -> computeGroundingsGoal nextGoal (fst <$> prefix' >< todoRest)
+                    Seq.EmptyL                -> addGroundings -- no goal left
 
-    goalHaveToProof :: AST.RuleBodyElement -> GState Bool
-    goalHaveToProof (AST.BuildInPredicate _) = return False
+    goalHaveToProof :: AST.RuleBodyElement -> GState Bool3
+    goalHaveToProof (AST.BuildInPredicate _) = return True3
     goalHaveToProof (AST.UserPredicate label givenArgs) = do
         let nGivenArgs = length givenArgs
         rsInProof <- gets rulesInProof
         gRules    <- gets groundedRules
         let inCurProof = case Map.lookup (label, nGivenArgs) rsInProof of
-                Nothing -> False
+                Nothing -> False3
                 Just rs -> foldl'
-                    (\inProof (args, _, _) -> inProof || (nGivenArgs == length args && givenArgs == args))
-                    False
+                    (\inProof (args, _, _) -> inProof ||* compareArgs args)
+                    False3
                     rs
+                where
+                compareArgs args
+                    | nGivenArgs == length args = foldl' (\eq (x, y) -> eq &&* compareArg x y) True3 $ zip givenArgs args
+                    | otherwise = False3
+
+                compareArg (AST.ConstantExpr x) (AST.ConstantExpr y) = if x == y then True3 else False3
+                compareArg _                    _                    = Unknown3
+
         let allArgsGround = not $ any AST.varsInExpr givenArgs
         alreadyProven <- if allArgsGround then do
             args' <- lift $ toPropArgs givenArgs
-            return $ isJust $ Map.lookup (toPropPredLabel label  args') gRules
+            return $ if isJust $ Map.lookup (toPropPredLabel label  args') gRules
+                then True3
+                else False3
          else
-            return False
-        return $ not (inCurProof || alreadyProven)
+            return False3
+        return $ notB (inCurProof ||* alreadyProven)
 
     computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> GState ()
     computeGroundingsGoal goal remaining = case goal of
@@ -166,11 +180,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                         consistent <- applyValuation valu' rfDefs
                         if consistent then do
                             -- also apply valuation found to remaining goals todo
-                            remaining' <- lift $ forM remaining (\r -> AST.mapExprsInRuleBodyElementM
-                                    r
-                                    (applyValuArg valu')
-                                    (return . snd . applyValuExpr valu')
-                                )
+                            remaining'      <- applyVal remaining valu'
                             -- continue with rest
                             computeGroundings (remaining' >< Seq.fromList els')
                             -- recover previous state for next head rule, but keep groundings found
@@ -195,11 +205,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 consistent <- applyValuation  valu rfDefs
                 if consistent then do
                     -- also apply valuation found to remaining goals todo
-                    remaining' <- lift $ forM remaining (\r -> AST.mapExprsInRuleBodyElementM
-                            r
-                            (applyValuArg valu)
-                            (return . snd . applyValuExpr valu)
-                        )
+                    remaining'      <- applyVal remaining valu
                     computeGroundings remaining'
                 else
                     put oldSt -- recover old state
@@ -209,7 +215,13 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 AST.Equality True (AST.Variable var) expr -> Just (var, expr)
                 AST.Equality True expr (AST.Variable var) -> Just (var, expr)
                 _                                         -> Nothing
-
+        where
+        applyVal :: Seq AST.RuleBodyElement -> HashMap AST.VarName AST.Expr -> GState (Seq AST.RuleBodyElement)
+        applyVal goals valu = lift $ forM goals (\r -> AST.mapExprsInRuleBodyElementM
+                r
+                (applyValuArg valu)
+                (return . snd . applyValuExpr valu)
+            )
 -- add groundigs after proof is found
 addGroundings :: GState ()
 addGroundings = do
