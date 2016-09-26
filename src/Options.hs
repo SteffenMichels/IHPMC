@@ -36,6 +36,7 @@ data Options = Options
     , timeout     :: Maybe Int
     , repInterval :: Maybe Int
     , formExpPath :: Maybe String
+    , hptExpPath  :: Maybe String
     }
 
 -- this type is used, because argparse package does not support parsing Maybe values
@@ -46,16 +47,18 @@ data ParsedOptions = ParsedOptions
     , pTimeout     :: Int
     , pRepInterval :: Int
     , pFormExpPath :: String
+    , pHptExpPath  :: String
     }
 
 popts2opts :: ParsedOptions -> Options
-popts2opts ParsedOptions{pModelFile,pNIterations,pErrBound,pTimeout,pRepInterval,pFormExpPath} = Options
+popts2opts ParsedOptions{pModelFile,pNIterations,pErrBound,pTimeout,pRepInterval,pFormExpPath,pHptExpPath} = Options
     { modelFile   = pModelFile
     , nIterations = justIf (>  0)                                 pNIterations
     , errBound    = justIf (>= 0.0) $ doubleToProb $ float2Double pErrBound
     , timeout     = justIf (>  0)                                 pTimeout
     , repInterval = justIf (>= 0)                                 pRepInterval
     , formExpPath = justIf (/= "")                                pFormExpPath
+    , hptExpPath  = justIf (/= "")                                pHptExpPath
     }
     where
     justIf prd v = if prd v then Just v else Nothing
@@ -73,4 +76,5 @@ parseConsoleArgs args = do
         `andBy`    optFlag (-1) "errorbound"          `Descr` "maximal result error bound"
         `andBy`    optFlag 0    "timeout"             `Descr` "maximal inference runtime (ms)"
         `andBy`    optFlag (-1) "reporting_interval"  `Descr` "interval in which intermediate results are reported (ms)"
-        `andBy`    optFlag ""   "formula_export_path" `Descr` "path to file to which the initial formula as exported (as dot file)"
+        `andBy`    optFlag ""   "formula_export_path" `Descr` "path to file to which the initial formula is exported (as dot file)"
+        `andBy`    optFlag ""   "pt_export_path"      `Descr` "path to file to which the final hybrid probability tree is exported (as dot file)"

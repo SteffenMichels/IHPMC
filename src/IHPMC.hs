@@ -45,8 +45,6 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Exception
 import Data.Foldable (foldl')
 import Probability
---import System.IO.Unsafe (unsafePerformIO)
---import Debug.Trace (trace)
 
 -- number of rfs in primitives, split points + scores
 data CachedSplitPoints = CachedSplitPoints Int (HashMap (GroundedAST.RFunc, SplitPoint) Double)
@@ -62,26 +60,30 @@ ihpmc :: Formula.NodeRef
       -> (Int -> ProbabilityBounds -> Int -> Bool)
       -> Maybe Int
       -> Formula CachedSplitPoints
-      -> ExceptionalT IOException IO [(Int, Int, ProbabilityBounds)]
+      -> ExceptionalT IOException IO ([(Int, Int, ProbabilityBounds)], HPT)
 ihpmc query evidence finishPred mbRepInterval f = do
     t <- doIO getTime
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query $ Formula.entryRef evidenceConj) f'
     where
     (evidenceConj, f') = runState (Formula.insert (Right (Formula.Conditions Map.empty Map.empty)) True Formula.And evidence) f
-    ihpmc' :: Int -> Int -> Int -> HPTNode -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) [(Int, Int, ProbabilityBounds)]
+    ihpmc' :: Int
+           -> Int
+           -> Int
+           -> HPTNode
+           -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) ([(Int, Int, ProbabilityBounds)], HPT)
     ihpmc' i startTime lastReportedTime hptNode = do
         hpt <- state $ runState $ ihpmcIterate hptNode 1.0
         curTime <- lift $ doIO getTime
         let runningTime = curTime - startTime
         case hpt of
-            (HPT.Finished _ _)            -> return [(i, runningTime, HPT.bounds hpt)]
+            (HPT.Finished _ _)            -> return ([(i, runningTime, HPT.bounds hpt)], hpt)
             (HPT.Unfinished hptNode' _ _) -> do
                 let bounds = HPT.bounds hpt
                 if finishPred i bounds runningTime
-                    then return [(i, runningTime, bounds)]--return $ unsafePerformIO (runExceptionalT (HPT.exportAsDot "/tmp/hpt.dot" hpt >> Formula.exportAsDot "/tmp/f.dot" f) >> return [(i, runningTime, bounds)])
+                    then return ([(i, runningTime, bounds)], hpt)
                     else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                        then ihpmc' (succ i) startTime curTime hptNode' >>= \bs -> return ((i, runningTime, bounds) : bs)
-                        else ihpmc' (succ i) startTime lastReportedTime hptNode'
+                         then ihpmc' (succ i) startTime curTime hptNode' >>= \(bs, hpt') -> return ((i, runningTime, bounds) : bs, hpt')
+                         else ihpmc' (succ i) startTime lastReportedTime hptNode'
 
 ihpmcIterate :: HPTNode -> Double -> FState HPT
 ihpmcIterate hptNode partChoiceProb = do

@@ -75,7 +75,7 @@ checkResults src expRes = do
                 let ast' = ast{AST.queries = [query]}
                 groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast'
                 let (([(_, qRef)], _), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-                [(_, _, ProbabilityBounds l u)] <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred Nothing f
+                ([(_, _, ProbabilityBounds l u)], _) <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred Nothing f
                 return (l, u)
             return (query, isExp res, res)
         return $ maybe Pass Fail $ foldl' combineResults Nothing results

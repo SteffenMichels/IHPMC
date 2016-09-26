@@ -37,6 +37,7 @@ import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
 import Probability
+import qualified HPT
 
 data Exception = GrounderException        Grounder.Exception
                | ParameterException       String
@@ -64,7 +65,7 @@ main = do
 main' :: ExceptionalT Exception IO ()
 main' = do
     args <- doIOException getArgs
-    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
+    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath, hptExpPath} <-
         mapExceptionT CommandLineArgsException $ Options.parseConsoleArgs args
     assertT
         (ParameterException "Error bound has to be between 0.0 and 0.5.")
@@ -87,7 +88,7 @@ main' = do
                                              || maybe False (>= (u-l)/2) errBound
                                              || maybe False (<= t)       timeout
     forM_ queries $ \(qLabel, qRef) -> do
-        results <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred repInterval f
+        (results, hpt) <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred repInterval f
         when (isJust repInterval) $ doIOException $ putStrLn ""
         forM_
             results
@@ -99,6 +100,7 @@ main' = do
                 (show $ (u + l) / 2.0)
                 (show $ (u - l) / 2.0)
             )
+        whenJust hptExpPath $ \path -> mapExceptionT IOException $ HPT.exportAsDot path hpt
 
 doIOException :: IO a -> ExceptionalT Exception IO a
 doIOException io = mapExceptionT IOException $ doIO io
