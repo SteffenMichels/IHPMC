@@ -247,13 +247,13 @@ tablingFO = IntegrationTest
     , model = unpack $ [text|
                   ~x ~ flip(0.123).
 
-                  p(X) <- p(X + 0), X = 1.
+                  p(X) <- p(X + 1), X = 1.
                   p(2) <- p(1 + 0).
                   p(2) <- ~x = true.
               |]
     , expectedResults =
-        [ (query "p(1)", preciseProb 0.123)
-        , (query "p(2)", preciseProb 0.123)
+        [ (queryInt "p" [1], preciseProb 0.123)
+        , (queryInt "p" [2], preciseProb 0.123)
         ]
     }
 

@@ -37,6 +37,10 @@ module AST
     , predRandomFunctions
     , exprRandomFunctions
     , negateOp
+    , mapExprsInRuleBodyElement
+    , mapExprsInRuleBodyElementM
+    , mapAccExpr
+    , mapAccExprsInRuleBodyElement
     ) where
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
@@ -49,6 +53,8 @@ import GHC.Generics (Generic)
 import Numeric (fromRat)
 import Probability
 import Util
+import Control.Arrow (second)
+import Data.Traversable (forM, mapAccumL)
 
 data AST = AST
     { rFuncDefs :: HashMap (RFuncLabel, Int)     [([HeadArgument], RFuncDef)] -- first matching def applies
@@ -184,3 +190,59 @@ exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
 exprRandomFunctions (Variable _)       = Set.empty
 exprRandomFunctions (ConstantExpr _)   = Set.empty
 exprRandomFunctions (Sum x y)          = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
+
+-- traverses top-down
+mapExprsInRuleBodyElement :: (AST.Expr -> AST.Expr) -> AST.RuleBodyElement -> AST.RuleBodyElement
+mapExprsInRuleBodyElement f el = snd $ mapAccExprsInRuleBodyElement (\a e -> (a, f e)) () el
+
+mapExprsInRuleBodyElementM :: Monad m
+                           => AST.RuleBodyElement
+                           -> (AST.Expr -> m AST.Expr)
+                           -> (AST.Expr -> m AST.Expr)
+                           -> m AST.RuleBodyElement
+mapExprsInRuleBodyElementM el userPF bipF = case el of
+    AST.UserPredicate label args -> do
+        args' <- forM args (`mapExprM` userPF)
+        return $ AST.UserPredicate label args'
+    AST.BuildInPredicate bip -> do
+        bip' <- case bip of
+            AST.Equality eq exprX exprY -> do exprX' <- mapExprM exprX bipF
+                                              exprY' <- mapExprM exprY bipF
+                                              return $ AST.Equality eq exprX' exprY'
+            AST.Ineq op exprX exprY     -> do exprX' <- mapExprM exprX bipF
+                                              exprY' <- mapExprM exprY bipF
+                                              return $ AST.Ineq op exprX' exprY'
+        return $ AST.BuildInPredicate bip'
+
+mapExprM :: Monad m => AST.Expr -> (AST.Expr -> m AST.Expr) -> m AST.Expr
+mapExprM expr f = do
+    expr' <- f expr
+    case expr' of
+        AST.Sum exprX exprY -> do exprX' <- mapExprM exprX f
+                                  exprY' <- mapExprM exprY f
+                                  return $ AST.Sum exprX' exprY'
+        AST.RFunc label args -> do
+            args' <- forM args (`mapExprM` f)
+            return $ AST.RFunc label args'
+        _ -> return expr'
+
+mapAccExprsInRuleBodyElement :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.RuleBodyElement -> (a, AST.RuleBodyElement)
+mapAccExprsInRuleBodyElement f acc el = case el of
+    AST.UserPredicate label args -> second (AST.UserPredicate label) $ mapAccumL (mapAccExpr f) acc args
+    AST.BuildInPredicate bip -> second AST.BuildInPredicate $ case bip of
+        AST.Equality eq exprX exprY -> let (acc',  exprX') = mapAccExpr f acc  exprX
+                                           (acc'', exprY') = mapAccExpr f acc' exprY
+                                       in  (acc'', AST.Equality eq exprX' exprY')
+        AST.Ineq op exprX exprY     -> let (acc',  exprX') = mapAccExpr f acc  exprX
+                                           (acc'', exprY') = mapAccExpr f acc' exprY
+                                       in  (acc'', AST.Ineq op exprX' exprY')
+
+mapAccExpr :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.Expr -> (a, AST.Expr)
+mapAccExpr f acc expr = case expr' of
+    AST.Sum exprX exprY -> let (acc'',  exprX') = mapAccExpr f acc'  exprX
+                               (acc''', exprY') = mapAccExpr f acc'' exprY
+                           in (acc''', AST.Sum exprX' exprY')
+    AST.RFunc label args -> second (AST.RFunc label) $ mapAccumL (mapAccExpr f) acc' args
+    _ -> (acc', expr')
+    where
+    (acc', expr') = f acc expr

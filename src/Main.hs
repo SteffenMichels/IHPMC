@@ -81,7 +81,6 @@ main' = do
     src <- doIOException $ readFile modelFile
     ast <- returnExceptional $ mapException ParserException $ Parser.parsePclp src
     groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast
-    doIOException $ print groundedAst
     let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
     whenJust formExpPath $ \path -> mapExceptionT IOException $ Formula.exportAsDot path f
     let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations

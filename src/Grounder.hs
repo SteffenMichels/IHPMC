@@ -34,10 +34,9 @@ import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Control.Monad.State.Strict
-import Control.Arrow (second)
 import Text.Printf (printf)
 import Data.Foldable (foldl', foldlM)
-import Data.Traversable (mapAccumL)
+import Data.Traversable (forM)
 import Data.Sequence (Seq, ViewL((:<)), (><))
 import qualified Data.Sequence as Seq
 import Data.Maybe (isJust)
@@ -146,7 +145,8 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
             continueWithChosenRule :: ([AST.HeadArgument], AST.RuleBody) -> GState ()
             continueWithChosenRule (args, AST.RuleBody elements) = do
                 oldSt <- get
-                case applyArgs givenArgs args elements of
+                mbResult <- lift $ runMaybeT $ applyArgs givenArgs args elements
+                case mbResult of
                     Just (els, valu, constrs) -> do
                         let valu' = Map.map AST.ConstantExpr valu
                         -- replace left-over (existentially quantified) vars
@@ -158,7 +158,11 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                         consistent <- applyValuation valu' rfDefs
                         if consistent then do
                             -- also apply valuation found to remaining goals todo
-                            let remaining' = mapExprsInRuleBodyElement (snd . applyValuExpr valu') <$> remaining
+                            remaining' <- lift $ forM remaining (\r -> AST.mapExprsInRuleBodyElementM
+                                    r
+                                    (applyValuArg valu')
+                                    (return . snd . applyValuExpr valu')
+                                )
                             -- continue with rest
                             computeGroundings (remaining' >< Seq.fromList els')
                             -- recover previous state for next head rule, but keep groundings found
@@ -181,12 +185,17 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 -- apply newly found variable substitution and check if proof is still consistent
                 let valu = Map.singleton var expr
                 consistent <- applyValuation  valu rfDefs
-                if consistent then
+                if consistent then do
                     -- also apply valuation found to remaining goals todo
-                    computeGroundings $ mapExprsInRuleBodyElement (snd . applyValuExpr valu) <$> remaining
+                    remaining' <- lift $ forM remaining (\r -> AST.mapExprsInRuleBodyElementM
+                            r
+                            (applyValuArg valu)
+                            (return . snd . applyValuExpr valu)
+                        )
+                    computeGroundings remaining'
                 else
                     put oldSt -- recover old state
-            Nothing          -> computeGroundings remaining
+            Nothing -> computeGroundings remaining
             where
             mbEquality = case bip of
                 AST.Equality True (AST.Variable var) expr -> Just (var, expr)
@@ -276,6 +285,7 @@ toPropArg expr = do
                 _                                      -> error "type error"
         AST.Variable _ -> error "precondition"
 
+-- precondition: no vars left in rule element
 toPropRuleElement :: AST.RuleBodyElement
                   -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
                   -> GState GroundedAST.RuleBodyElement
@@ -373,10 +383,14 @@ toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ GroundedAST.ConstantExpr $ 
 applyArgs :: [AST.Expr]
           -> [AST.HeadArgument]
           -> [AST.RuleBodyElement]
-          -> Maybe ([AST.RuleBodyElement], HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
+          -> MaybeT (Exceptional Exception) ([AST.RuleBodyElement], HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
 applyArgs givenArgs args elements = do
-        (intValu, extValu, constrs) <- mbVals
-        let elements' = map (mapExprsInRuleBodyElement (replaceVars intValu)) elements
+        (intValu, extValu, constrs) <- doMaybe mbVals
+        elements' <- lift $ forM elements (\e -> AST.mapExprsInRuleBodyElementM
+                e
+                (applyValuArg intValu)
+                (return . snd . applyValuExpr intValu)
+            )
         return (elements', extValu, constrs)
     where
     mbVals = foldl' applyArgs' (Just (Map.empty, Map.empty, Set.empty)) (zip givenArgs args)
@@ -400,11 +414,6 @@ applyArgs givenArgs args elements = do
                 Nothing -> return (Map.insert var expr intValu, extValu, constrs)
             (expr, AST.ArgConstant cnst) -> return (intValu, extValu, Set.insert (EqConstraint expr $ AST.ConstantExpr cnst) constrs)
             (_, AST.ArgDontCareVariable) -> return (intValu, extValu, constrs)
-
-    replaceVars :: HashMap AST.VarName AST.Expr -> AST.Expr -> AST.Expr
-    replaceVars valu expr = case expr of
-        AST.Variable var -> Map.lookupDefault expr var valu
-        _                -> expr
 
 applyValuation :: HashMap AST.VarName AST.Expr
                -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
@@ -431,7 +440,7 @@ applyValuation valu rfDefs = do
                -> ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
                -> MaybeT GState [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
     applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements) = do
-        let args' = snd . applyValuExpr valu <$> args
+        args' <- lift $ lift $ forM args $ applyValuArg valu
         (elements', gElements') <- foldlM applyValuBodyEl ([], gElements) elements
         return $ (args', AST.RuleBody elements', GroundedAST.RuleBody gElements') : rules
 
@@ -439,7 +448,7 @@ applyValuation valu rfDefs = do
                     -> AST.RuleBodyElement
                     -> MaybeT GState ([AST.RuleBodyElement], HashSet GroundedAST.RuleBodyElement)
     applyValuBodyEl (elements, gElements) el = do
-        let (varPresent, el') = mapAccExprsInRuleBodyElement
+        let (varPresent, el') = AST.mapAccExprsInRuleBodyElement
                 (\varPresent' expr -> let (varPresent'', expr') = applyValuExpr valu expr
                                       in  (varPresent' || varPresent'', expr')
                 )
@@ -470,7 +479,7 @@ applyValuation valu rfDefs = do
 
 -- returns whether still a non-valued variable is present
 applyValuHeadArg :: HashMap AST.VarName AST.Expr -> AST.Expr-> (Bool, AST.Expr)
-applyValuHeadArg valu = mapAccExpr applyValuExpr' False
+applyValuHeadArg valu = AST.mapAccExpr applyValuExpr' False
     where
     applyValuExpr' :: Bool -> AST.Expr -> (Bool, AST.Expr)
     applyValuExpr' varPresent expr'@(AST.Variable var) = case Map.lookup var valu of
@@ -480,7 +489,7 @@ applyValuHeadArg valu = mapAccExpr applyValuExpr' False
 
 -- returns whether still a non-valued variable is present
 applyValuExpr :: HashMap AST.VarName AST.Expr -> AST.Expr -> (Bool, AST.Expr)
-applyValuExpr valu = mapAccExpr applyValuExpr' False
+applyValuExpr valu = AST.mapAccExpr applyValuExpr' False
     where
     applyValuExpr' :: Bool -> AST.Expr -> (Bool, AST.Expr)
     applyValuExpr' varPresent expr'@(AST.Variable var) = case Map.lookup var valu of
@@ -488,11 +497,22 @@ applyValuExpr valu = mapAccExpr applyValuExpr' False
         _           -> (True,                                                      expr')
     applyValuExpr' varPresent expr' = (varPresent, expr')
 
+-- simplifies if no vars are present any more
+-- assumes no Rfs in expr (as it a predicate arg)
+applyValuArg :: HashMap AST.VarName AST.Expr -> AST.Expr-> Exceptional Exception AST.Expr
+applyValuArg valu expr
+    | varPresent = return expr'
+    | otherwise = do
+        arg <- toPropArg expr'
+        return $ AST.ConstantExpr arg
+    where
+    (varPresent, expr') = applyValuExpr valu expr
+
 -- replace existentially quantified (occuring in body, but not head) variables
 replaceEVars :: [AST.RuleBodyElement] -> State GroundingState [AST.RuleBodyElement]
 replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
                                               (\(c, v2ids, elements'') el ->
-                                                  let ((c', v2ids'), el') = mapAccExprsInRuleBodyElement replaceEVars' (c, v2ids) el
+                                                  let ((c', v2ids'), el') = AST.mapAccExprsInRuleBodyElement replaceEVars' (c, v2ids) el
                                                   in  (c', v2ids', el' : elements'')
                                               )
                                               (varCounter st, Map.empty, [])
@@ -549,29 +569,3 @@ constraintHolds (EqConstraint exprX exprY) =  do
         (AST.IntConstant  x, AST.IntConstant  y) -> x == y
         (AST.StrConstant  x, AST.StrConstant  y) -> x == y
         _                                        -> error $ printf "Types of expressions %s and %s do not match." (show exprX) (show exprY)
-
--- Utils
--- traverses top-down
-mapExprsInRuleBodyElement :: (AST.Expr -> AST.Expr) -> AST.RuleBodyElement -> AST.RuleBodyElement
-mapExprsInRuleBodyElement f el = snd $ mapAccExprsInRuleBodyElement (\a e -> (a, f e)) () el
-
-mapAccExprsInRuleBodyElement :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.RuleBodyElement -> (a, AST.RuleBodyElement)
-mapAccExprsInRuleBodyElement f acc el = case el of
-    AST.UserPredicate label args -> second (AST.UserPredicate label) $ mapAccumL (mapAccExpr f) acc args
-    AST.BuildInPredicate bip -> second AST.BuildInPredicate $ case bip of
-        AST.Equality eq exprX exprY -> let (acc',  exprX') = mapAccExpr f acc  exprX
-                                           (acc'', exprY') = mapAccExpr f acc' exprY
-                                       in  (acc'', AST.Equality eq exprX' exprY')
-        AST.Ineq op exprX exprY     -> let (acc',  exprX') = mapAccExpr f acc  exprX
-                                           (acc'', exprY') = mapAccExpr f acc' exprY
-                                       in  (acc'', AST.Ineq op exprX' exprY')
-
-mapAccExpr :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.Expr -> (a, AST.Expr)
-mapAccExpr f acc expr = case expr' of
-    AST.Sum exprX exprY -> let (acc'',  exprX') = mapAccExpr f acc'  exprX
-                               (acc''', exprY') = mapAccExpr f acc'' exprY
-                           in (acc''', AST.Sum exprX' exprY')
-    AST.RFunc label args -> second (AST.RFunc label) $ mapAccumL (mapAccExpr f) acc' args
-    _ -> (acc', expr')
-    where
-    (acc', expr') = f acc expr
