@@ -118,22 +118,30 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
     computeGroundings todo = case Seq.viewl todo of
         Seq.EmptyL           -> addGroundings
         nextGoal :< todoRest -> do
-            inCurProof <- doState $ goalInCurrentProof nextGoal
-            case inCurProof of
-                True  -> computeGroundings todoRest
-                False -> computeGroundingsGoal nextGoal todoRest
+            haveToProof <- goalHaveToProof nextGoal
+            case haveToProof of
+                False  -> computeGroundings todoRest
+                True -> computeGroundingsGoal nextGoal todoRest
 
-    goalInCurrentProof :: AST.RuleBodyElement -> State GroundingState Bool
-    goalInCurrentProof (AST.BuildInPredicate _) = return False
-    goalInCurrentProof (AST.UserPredicate label givenArgs) = do
+    goalHaveToProof :: AST.RuleBodyElement -> GState Bool
+    goalHaveToProof (AST.BuildInPredicate _) = return False
+    goalHaveToProof (AST.UserPredicate label givenArgs) = do
         let nGivenArgs = length givenArgs
         rsInProof <- gets rulesInProof
-        case Map.lookup (label, nGivenArgs) rsInProof of
-            Nothing -> return False
-            Just rs -> return $ foldl'
-                (\inProof (args, _, _) -> inProof || (nGivenArgs == length args && givenArgs == args))
-                False
-                rs
+        gRules    <- gets groundedRules
+        let inCurProof = case Map.lookup (label, nGivenArgs) rsInProof of
+                Nothing -> False
+                Just rs -> foldl'
+                    (\inProof (args, _, _) -> inProof || (nGivenArgs == length args && givenArgs == args))
+                    False
+                    rs
+        let allArgsGround = not $ any AST.varsInExpr givenArgs
+        alreadyProven <- if allArgsGround then do
+            args' <- lift $ toPropArgs givenArgs
+            return $ isJust $ Map.lookup (toPropPredLabel label  args') gRules
+         else
+            return False
+        return $ not (inCurProof || alreadyProven)
 
     computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> GState ()
     computeGroundingsGoal goal remaining = case goal of
