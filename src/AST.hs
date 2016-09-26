@@ -34,8 +34,7 @@ module AST
     , ConstantExpr(..)
     , IneqOp(..)
     , VarName(..)
-    , predRandomFunctions
-    , exprRandomFunctions
+    , varsInExpr
     , negateOp
     , mapExprsInRuleBodyElement
     , mapExprsInRuleBodyElementM
@@ -44,8 +43,8 @@ module AST
     ) where
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
-import Data.HashSet (HashSet)
-import qualified Data.HashSet as Set
+--import Data.HashSet (HashSet)
+--import qualified Data.HashSet as Set
 import Text.Printf (printf)
 import Data.Char (toLower)
 import Data.Hashable (Hashable)
@@ -181,15 +180,11 @@ negateOp LtEq = Gt
 negateOp Gt   = LtEq
 negateOp GtEq = Lt
 
-predRandomFunctions :: BuildInPredicate -> HashSet (RFuncLabel, [Expr])
-predRandomFunctions (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions (Ineq     _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-
-exprRandomFunctions :: Expr -> HashSet (RFuncLabel, [Expr])
-exprRandomFunctions (RFunc label args) = Set.singleton (label, args)
-exprRandomFunctions (Variable _)       = Set.empty
-exprRandomFunctions (ConstantExpr _)   = Set.empty
-exprRandomFunctions (Sum x y)          = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
+varsInExpr :: Expr -> Bool
+varsInExpr (Variable _)      = True
+varsInExpr (ConstantExpr _)  = False
+varsInExpr (RFunc _ args)    = any varsInExpr args
+varsInExpr (Sum exprX exprY) = varsInExpr exprX || varsInExpr exprY
 
 -- traverses top-down
 mapExprsInRuleBodyElement :: (AST.Expr -> AST.Expr) -> AST.RuleBodyElement -> AST.RuleBodyElement

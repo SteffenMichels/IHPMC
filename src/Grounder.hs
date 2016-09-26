@@ -473,19 +473,9 @@ applyValuation valu rfDefs = do
             if holds then return constraints -- true constraint can just be left out
                      else mzero              -- false constraint means proof becomes inconsistent
         where
-        (varsLeftX, exprX') = applyValuHeadArg valu exprX
-        (varsLeftY, exprY') = applyValuHeadArg valu exprY
+        (varsLeftX, exprX') = applyValuExpr valu exprX
+        (varsLeftY, exprY') = applyValuExpr valu exprY
         constr' = EqConstraint exprX' exprY'
-
--- returns whether still a non-valued variable is present
-applyValuHeadArg :: HashMap AST.VarName AST.Expr -> AST.Expr-> (Bool, AST.Expr)
-applyValuHeadArg valu = AST.mapAccExpr applyValuExpr' False
-    where
-    applyValuExpr' :: Bool -> AST.Expr -> (Bool, AST.Expr)
-    applyValuExpr' varPresent expr'@(AST.Variable var) = case Map.lookup var valu of
-        Just expr'' -> (varPresent || not (null $ AST.exprRandomFunctions expr''), expr'')
-        _ ->           (True, expr')
-    applyValuExpr' varPresent expr' = (varPresent, expr')
 
 -- returns whether still a non-valued variable is present
 applyValuExpr :: HashMap AST.VarName AST.Expr -> AST.Expr -> (Bool, AST.Expr)
@@ -493,8 +483,8 @@ applyValuExpr valu = AST.mapAccExpr applyValuExpr' False
     where
     applyValuExpr' :: Bool -> AST.Expr -> (Bool, AST.Expr)
     applyValuExpr' varPresent expr'@(AST.Variable var) = case Map.lookup var valu of
-        Just expr'' -> (varPresent || not (null $ AST.exprRandomFunctions expr''), expr'')
-        _           -> (True,                                                      expr')
+        Just expr'' -> (varPresent || AST.varsInExpr expr'', expr'')
+        _           -> (True,                                expr')
     applyValuExpr' varPresent expr' = (varPresent, expr')
 
 -- simplifies if no vars are present any more
