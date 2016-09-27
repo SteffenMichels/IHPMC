@@ -23,6 +23,7 @@
 
 module Parser
     ( parsePclp
+    , Exception(..)
     ) where
 import AST (AST)
 import qualified AST
@@ -37,6 +38,10 @@ import Data.Ratio ((%))
 import qualified Statistics.Distribution as Dist
 import qualified Statistics.Distribution.Normal as Norm
 import Probability
+
+newtype Exception = InvalidSyntax ParseError
+instance Show Exception where
+    show (InvalidSyntax err) = show err
 
 -- LEXER
 languageDef =
@@ -101,7 +106,7 @@ variable   = Token.lexeme     lexer parseVar
         return (first:rest)
 
 -- PARSER
-parsePclp :: String -> Exceptional String AST
+parsePclp :: String -> Exceptional Exception AST
 parsePclp src =
     let initialState = AST.AST
             { AST.pFuncDefs = Map.empty
@@ -109,7 +114,7 @@ parsePclp src =
             , AST.queries   = []
             , AST.evidence  = []
             }
-    in mapException show (fromEither (parse (theory initialState) "PCLP theory" src))
+    in mapException InvalidSyntax (fromEither (parse (theory initialState) "PCLP theory" src))
 
 theory :: AST -> Parser AST
 theory ast = whiteSpace >>

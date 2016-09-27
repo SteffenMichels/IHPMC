@@ -42,7 +42,7 @@ import qualified HPT
 data Exception = GrounderException        Grounder.Exception
                | ParameterException       String
                | CommandLineArgsException String
-               | ParserException          String
+               | ParserException          Parser.Exception
                | IOException              IOException
                | TestException            String
 
@@ -51,7 +51,7 @@ instance Show Exception
     show (GrounderException e)        = printf "Invalid model: %s" $ show e
     show (ParameterException e)       = printf "Invalid parameter: %s" e
     show (CommandLineArgsException e) = e
-    show (ParserException e)          = printf "Invalid model syntax: %s" e
+    show (ParserException e)          = printf "Invalid model syntax: %s" $ show e
     show (IOException e)              = show e
     show (TestException e)            = printf "Invalid test: %s" e
 

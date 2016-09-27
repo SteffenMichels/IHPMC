@@ -7,4 +7,4 @@ node(5). node(6). node(7). node(8). node(9).
 connected(X, Y) <- ~edge(Z, Y) = true, connected(X, Z), node(Z), node(Y).
 connected(X, X).
 
-query connected(0, 1).
+query connected(0, 1).g
