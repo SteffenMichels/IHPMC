@@ -60,7 +60,7 @@ ihpmc :: Formula.NodeRef
       -> (Int -> ProbabilityBounds -> Int -> Bool)
       -> Maybe Int
       -> Formula CachedSplitPoints
-      -> ExceptionalT IOException IO ([(Int, Int, ProbabilityBounds)], HPT)
+      -> ExceptionalT IOException IO ([(Int, Int, Maybe ProbabilityBounds)], HPT)
 ihpmc query evidence finishPred mbRepInterval f = do
     t <- doIO getTime
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query $ Formula.entryRef evidenceConj) f'
@@ -70,7 +70,7 @@ ihpmc query evidence finishPred mbRepInterval f = do
            -> Int
            -> Int
            -> HPTNode
-           -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) ([(Int, Int, ProbabilityBounds)], HPT)
+           -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) ([(Int, Int, Maybe ProbabilityBounds)], HPT)
     ihpmc' i startTime lastReportedTime hptNode = do
         hpt <- state $ runState $ ihpmcIterate hptNode 1.0
         curTime <- lift $ doIO getTime
@@ -79,7 +79,7 @@ ihpmc query evidence finishPred mbRepInterval f = do
             (HPT.Finished _ _)            -> return ([(i, runningTime, HPT.bounds hpt)], hpt)
             (HPT.Unfinished hptNode' _ _) -> do
                 let bounds = HPT.bounds hpt
-                if finishPred i bounds runningTime
+                if maybe True (\bs -> finishPred i bs runningTime) bounds
                     then return ([(i, runningTime, bounds)], hpt)
                     else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
                          then ihpmc' (succ i) startTime curTime hptNode' >>= \(bs, hpt') -> return ((i, runningTime, bounds) : bs, hpt')

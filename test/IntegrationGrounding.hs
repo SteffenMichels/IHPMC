@@ -307,9 +307,9 @@ queryStr label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.Constan
 queryInt :: String -> [Integer] -> AST.RuleBodyElement
 queryInt label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.ConstantExpr . AST.IntConstant <$> exprs)
 
-preciseProb :: Probability -> Exceptional Exception (Probability, Probability) -> Bool
-preciseProb p (Success (l, u)) | l == u && l == p = True
-preciseProb _ _                                   = False
+preciseProb :: Probability -> Exceptional Exception (Maybe ProbabilityBounds) -> Bool
+preciseProb p (Success (Just (ProbabilityBounds l u))) | l == u && l == p = True
+preciseProb _ _                                                           = False
 
 nonGround :: String -> Int -> Int -> Exceptional Exception a -> Bool
 nonGround expLabel expN expNPreds (Exception (Main.GrounderException (Grounder.NonGroundPreds prds (AST.PredicateLabel label) n)))

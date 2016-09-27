@@ -92,13 +92,18 @@ main' = do
         when (isJust repInterval) $ doIOException $ putStrLn ""
         forM_
             results
-            (\(i, t, ProbabilityBounds l u) -> doIOException $ putStrLn $ printf
-                "%s (iteration %i, after %ims): %s (error bound: %s)"
+            (\(i, t, bounds) -> doIOException $ putStrLn $ printf
+                "%s (iteration %i, after %ims): %s"
                 (show qLabel)
                 i
                 t
-                (show $ (u + l) / 2.0)
-                (show $ (u - l) / 2.0)
+                (case bounds of
+                    Just (ProbabilityBounds l u) -> printf
+                        "%s (error bound: %s)"
+                        (show $ (u + l) / 2.0)
+                        (show $ (u - l) / 2.0)
+                    Nothing -> "inconsistent evidence"
+                )
             )
         whenJust hptExpPath $ \path -> mapExceptionT IOException $ HPT.exportAsDot path hpt
 

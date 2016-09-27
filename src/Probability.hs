@@ -83,4 +83,4 @@ instance Fractional Probability
     Probability x / Probability y = Probability (x / y)
     fromRational = ratToProb
 
-data ProbabilityBounds = ProbabilityBounds Probability Probability
+data ProbabilityBounds = ProbabilityBounds Probability Probability deriving Show

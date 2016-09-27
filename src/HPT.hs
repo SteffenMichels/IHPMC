@@ -56,13 +56,19 @@ data HPTNode = Leaf           Formula.NodeRef Formula.NodeRef -- query and evide
 initialNode :: Formula.NodeRef -> Formula.NodeRef -> HPTNode
 initialNode = Leaf
 
-bounds :: HPT -> ProbabilityBounds
+-- Nothing if evidence is inconsistent
+bounds :: HPT -> Maybe ProbabilityBounds
 bounds (Unfinished _ (ProbabilityTriple t f u) _)
-    | z > 0.0   = ProbabilityBounds (t / (z + u)) $ min 1.0 ((t + u) / z)
-    | otherwise = ProbabilityBounds 0.0 1.0
+    | z > 0.0   = Just $ ProbabilityBounds (t / (z + u)) $ min 1.0 ((t + u) / z)
+    | otherwise = Just $ ProbabilityBounds 0.0 1.0
     where
     z = t + f
-bounds (Finished t f) = let p = t / (t + f) in ProbabilityBounds p p
+bounds (Finished t f)
+    | z > 0.0   = Just $ ProbabilityBounds p p
+    | otherwise = Nothing
+    where
+    z = t + f
+    p = t / (t + f)
 
 triple :: HPT -> ProbabilityTriple
 triple (Unfinished _ t _) = t
@@ -134,7 +140,9 @@ exportAsDot path hpt = do
                 )))
 
         printBounds :: HPT -> String
-        printBounds pst = let ProbabilityBounds l u = HPT.bounds pst in printf "[%s-%s]" (show l) (show u)
+        printBounds pst = case HPT.bounds pst of
+            Just (ProbabilityBounds l u) -> printf "[%s-%s]" (show l) (show u)
+            Nothing                      -> "inconsistent evidence"
 
         {-nodeLabelToReadableString :: Formula.NodeRef -> String
         nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf

@@ -57,7 +57,7 @@ toTests IntegrationTest{label, model, expectedResults} = Test inst
          , setOption = \_ _ -> Right inst
          }
 
-checkResults :: String -> [(AST.RuleBodyElement, Exceptional Exception (Probability, Probability) -> Bool)] ->  IO Progress
+checkResults :: String -> [(AST.RuleBodyElement, Exceptional Exception (Maybe ProbabilityBounds) -> Bool)] ->  IO Progress
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
     return $ Finished $ case result of
@@ -69,19 +69,20 @@ checkResults src expRes = do
         ast <- returnExceptional $ mapException ParserException $ Parser.parsePclp src
         assertT (TestException "No queries in source expected.") $ null $ AST.queries ast
         assertT (TestException "No evidence expected.")          $ null $ AST.evidence ast
-        let stopPred _ (ProbabilityBounds l u) _ = l == u
         results <- forM expRes $ \(query, isExp) -> do
             res <- lift $ runExceptionalT $ do
                 let ast' = ast{AST.queries = [query]}
                 groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast'
                 let (([(_, qRef)], _), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-                ([(_, _, ProbabilityBounds l u)], _) <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred Nothing f
-                return (l, u)
+                ([(_, _, bounds)], _) <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred Nothing f
+                return bounds
             return (query, isExp res, res)
         return $ maybe Pass Fail $ foldl' combineResults Nothing results
 
+    stopPred _ (ProbabilityBounds l u) _ = l == u
+
 combineResults :: Maybe String
-               -> (AST.RuleBodyElement, Bool, Exceptional Exception (Probability, Probability))
+               -> (AST.RuleBodyElement, Bool, Exceptional Exception (Maybe ProbabilityBounds))
                -> Maybe String
 combineResults mbErr (query, isExp, res)
     | isExp = mbErr
