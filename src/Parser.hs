@@ -84,10 +84,10 @@ realIneqOp = Token.lexeme lexer parseRealIneqOp
                       <|>     (reservedOp "<=" >> return AST.LtEq)
                       <|> try (reservedOp ">"  >> return AST.Gt)
                       <|>     (reservedOp ">=" >> return AST.GtEq)
-rFuncL = Token.lexeme     lexer parseUserRFuncLabel
+pFuncL = Token.lexeme     lexer parseUserPFuncLabel
     where
-    parseUserRFuncLabel :: Parser AST.RFuncLabel
-    parseUserRFuncLabel = string "~" >> AST.RFuncLabel <$> identifier
+    parseUserPFuncLabel :: Parser AST.PFuncLabel
+    parseUserPFuncLabel = string "~" >> AST.PFuncLabel <$> identifier
 decimal    = Token.decimal    lexer
 integer    = Token.integer    lexer
 dot        = Token.dot        lexer
@@ -104,7 +104,7 @@ variable   = Token.lexeme     lexer parseVar
 parsePclp :: String -> Exceptional String AST
 parsePclp src =
     let initialState = AST.AST
-            { AST.rFuncDefs = Map.empty
+            { AST.pFuncDefs = Map.empty
             , AST.rules     = Map.empty
             , AST.queries   = []
             , AST.evidence  = []
@@ -123,10 +123,10 @@ theory ast = whiteSpace >>
             let ast' = ast {AST.evidence = e : AST.evidence ast}
             theory ast'
           )
-      <|> ( do -- random function definition
-            (lbl, args, def) <- rFuncDef
+      <|> ( do -- probabilistic function definition
+            (lbl, args, def) <- pFuncDef
             -- put together defs with same signature
-            let ast' = ast {AST.rFuncDefs = Map.insertWith (++) (lbl, length args) [(args, def)] (AST.rFuncDefs ast)}
+            let ast' = ast {AST.pFuncDefs = Map.insertWith (++) (lbl, length args) [(args, def)] (AST.pFuncDefs ast)}
             theory ast'
           )
       <|> ( do -- rule
@@ -176,28 +176,28 @@ buildInPredicate = do
     exprY <- expression
     return $ constr exprX exprY
 
--- rfunc defs
-rFuncDef :: Parser (AST.RFuncLabel, [AST.HeadArgument], AST.RFuncDef)
-rFuncDef = do
-    (lbl, args) <- rFunc headArgument
+-- pfunc defs
+pFuncDef :: Parser (AST.PFuncLabel, [AST.HeadArgument], AST.PFuncDef)
+pFuncDef = do
+    (lbl, args) <- pFunc headArgument
     reservedOp "~"
     def <- flipDef <|> normDef
     return (lbl, args, def)
 
-rFunc :: Parser arg -> Parser (AST.RFuncLabel, [arg])
-rFunc argument = do
-    lbl  <- rFuncL
+pFunc :: Parser arg -> Parser (AST.PFuncLabel, [arg])
+pFunc argument = do
+    lbl  <- pFuncL
     args <- option [] $ parens $ sepBy argument comma
     return (lbl, args)
 
-flipDef :: Parser AST.RFuncDef
+flipDef :: Parser AST.PFuncDef
 flipDef = do
     reserved "flip"
     prob <- parens $ fromRational <$> rational
     _ <- dot
     return $ AST.Flip prob
 
-normDef :: Parser AST.RFuncDef
+normDef :: Parser AST.PFuncDef
 normDef = do
     reserved "norm"
     (m, d) <- parens $ do
@@ -222,7 +222,7 @@ expression = buildExpressionParser operators term
 operators = [ [Infix  (reservedOp "+" >> return AST.Sum) AssocLeft] ]
 
 term =     AST.ConstantExpr           <$> constantExpression
-       <|> uncurry AST.RFunc          <$> rFunc expression
+       <|> uncurry AST.PFunc          <$> pFunc expression
        <|> AST.Variable . AST.VarName <$> variable
 
 constantExpression :: Parser AST.ConstantExpr

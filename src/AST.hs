@@ -24,12 +24,12 @@
 module AST
     ( AST(..)
     , PredicateLabel(..)
-    , RFuncLabel(..)
+    , PFuncLabel(..)
     , RuleBody(..)
     , RuleBodyElement(..)
     , BuildInPredicate(..)
     , HeadArgument(..)
-    , RFuncDef(..)
+    , PFuncDef(..)
     , Expr(..)
     , ConstantExpr(..)
     , IneqOp(..)
@@ -56,7 +56,7 @@ import Control.Arrow (second)
 import Data.Traversable (forM, mapAccumL)
 
 data AST = AST
-    { rFuncDefs :: HashMap (RFuncLabel, Int)     [([HeadArgument], RFuncDef)] -- first matching def applies
+    { pFuncDefs :: HashMap (PFuncLabel, Int)     [([HeadArgument], PFuncDef)] -- first matching def applies
     , rules     :: HashMap (PredicateLabel, Int) [([HeadArgument], RuleBody)]
     , queries   :: [RuleBodyElement]
     , evidence  :: [RuleBodyElement]
@@ -64,11 +64,11 @@ data AST = AST
 
 instance Show AST
     where
-    show ast = rfuncDefsStr ++ rulesStr ++ queryStr ++ evStr
+    show ast = pfuncDefsStr ++ rulesStr ++ queryStr ++ evStr
         where
-        rfuncDefsStr = concat $ concat [
+        pfuncDefsStr = concat $ concat [
                             [printf "~%s ~ %s.\n" (show label) $ show def | def <- defs]
-                       | (label, defs) <- Map.toList $ rFuncDefs ast]
+                       | (label, defs) <- Map.toList $ pFuncDefs ast]
         rulesStr     = concat $ concat [
                             [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args, body) <- bodies]
                        | (label,bodies) <- Map.toList $ rules ast]
@@ -81,16 +81,16 @@ instance Show PredicateLabel
     where
     show (PredicateLabel l) = l
 
-newtype RFuncLabel     = RFuncLabel String     deriving (Eq, Generic)
-instance Show RFuncLabel
+newtype PFuncLabel     = PFuncLabel String     deriving (Eq, Generic)
+instance Show PFuncLabel
     where
-    show (RFuncLabel label) = label
-instance Hashable RFuncLabel
+    show (PFuncLabel label) = label
+instance Hashable PFuncLabel
 
-data RFuncDef = Flip     Probability
+data PFuncDef = Flip     Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
 
-instance Show RFuncDef
+instance Show PFuncDef
     where
     show (Flip p)       = printf "flip(%s)" $ show p
     show (RealDist _ _) = printf "realDist"
@@ -147,7 +147,7 @@ instance Show IneqOp
 instance Hashable IneqOp
 
 data Expr = ConstantExpr ConstantExpr
-          | RFunc        RFuncLabel [Expr]
+          | PFunc        PFuncLabel [Expr]
           | Variable     VarName
           | Sum          Expr Expr
           deriving (Eq, Generic)
@@ -155,7 +155,7 @@ data Expr = ConstantExpr ConstantExpr
 instance Show Expr
     where
     show (ConstantExpr cnst)             = show cnst
-    show (RFunc (RFuncLabel label) args) = printf "~%s(%s)" label $ showLst args
+    show (PFunc (PFuncLabel label) args) = printf "~%s(%s)" label $ showLst args
     show (Variable var)                  = show var
     show (Sum x y)                       = printf "%s + %s" (show x) (show y)
 instance Hashable Expr
@@ -183,7 +183,7 @@ negateOp GtEq = Lt
 varsInExpr :: Expr -> Bool
 varsInExpr (Variable _)      = True
 varsInExpr (ConstantExpr _)  = False
-varsInExpr (RFunc _ args)    = any varsInExpr args
+varsInExpr (PFunc _ args)    = any varsInExpr args
 varsInExpr (Sum exprX exprY) = varsInExpr exprX || varsInExpr exprY
 
 -- traverses top-down
@@ -216,9 +216,9 @@ mapExprM expr f = do
         AST.Sum exprX exprY -> do exprX' <- mapExprM exprX f
                                   exprY' <- mapExprM exprY f
                                   return $ AST.Sum exprX' exprY'
-        AST.RFunc label args -> do
+        AST.PFunc label args -> do
             args' <- forM args (`mapExprM` f)
-            return $ AST.RFunc label args'
+            return $ AST.PFunc label args'
         _ -> return expr'
 
 mapAccExprsInRuleBodyElement :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.RuleBodyElement -> (a, AST.RuleBodyElement)
@@ -237,7 +237,7 @@ mapAccExpr f acc expr = case expr' of
     AST.Sum exprX exprY -> let (acc'',  exprX') = mapAccExpr f acc'  exprX
                                (acc''', exprY') = mapAccExpr f acc'' exprY
                            in (acc''', AST.Sum exprX' exprY')
-    AST.RFunc label args -> second (AST.RFunc label) $ mapAccumL (mapAccExpr f) acc' args
+    AST.PFunc label args -> second (AST.PFunc label) $ mapAccumL (mapAccExpr f) acc' args
     _ -> (acc', expr')
     where
     (acc', expr') = f acc expr

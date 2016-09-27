@@ -50,8 +50,8 @@ data HPT     = Unfinished HPTNode ProbabilityTriple Double
 
 data HPTNode = Leaf           Formula.NodeRef Formula.NodeRef -- query and evidence
              | WithinEvidence Formula.NodeRef                 -- only query
-             | ChoiceBool     GroundedAST.RFunc Probability HPT HPT
-             | ChoiceReal     GroundedAST.RFunc Probability Rational HPT HPT
+             | ChoiceBool     GroundedAST.PFunc Probability HPT HPT
+             | ChoiceReal     GroundedAST.PFunc Probability Rational HPT HPT
 
 initialNode :: Formula.NodeRef -> Formula.NodeRef -> HPTNode
 initialNode = Leaf
@@ -113,16 +113,16 @@ exportAsDot path hpt = do
             doIO (hPutStrLn file $ printf "%i[label=\"%s %s\"];" counter (show t) (show f))
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
-        Unfinished (ChoiceBool rf  prob left right) _ scr -> do
+        Unfinished (ChoiceBool pf  prob left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ triple hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s=true" (show prob) (show rf)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%s: %s=false" (show (1 - prob)) (show rf)) right counter' file
-        Unfinished (ChoiceReal rf prob splitPoint left right) _ scr -> do
+            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s=true" (show prob) (show pf)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%s: %s=false" (show (1 - prob)) (show pf)) right counter' file
+        Unfinished (ChoiceReal pf prob splitPoint left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ triple hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s<%f" (show prob) (show rf) (fromRat splitPoint::Float)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%s: %s>%f" (show (1 - prob)) (show rf) (fromRat splitPoint::Float)) right counter' file
+            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s<%f" (show prob) (show pf) (fromRat splitPoint::Float)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%s: %s>%f" (show (1 - prob)) (show pf) (fromRat splitPoint::Float)) right counter' file
         Unfinished (Leaf qRef eRef) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n||%s\n(%f)\"];" counter (show qRef) (show eRef) scr)
             printEdge mbParent (show counter) mbEdgeLabel
@@ -151,6 +151,6 @@ exportAsDot path hpt = do
                 (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ showCondReal <$> (Map.toList rConds)))
                 (if sign then "" else "-")
                 where
-                    showCondBool (rf, val)   = printf "%s=%s"    rf $ show val
-                    showCondReal (rf, (l,u)) = printf "%s in (%s,%s)" rf (show l) (show u)
+                    showCondBool (pf, val)   = printf "%s=%s"    pf $ show val
+                    showCondReal (pf, (l,u)) = printf "%s in (%s,%s)" pf (show l) (show u)
         nodeLabelToReadableString ref = show ref-}

@@ -24,21 +24,21 @@
 module GroundedAST ( GroundedAST(..)
                    , BuildInPredicate(..)
                    , TypedBuildInPred(..)
-                   , RFuncLabel(..)
-                   , RFunc
-                   , randomFuncDef
-                   , makeRFunc
+                   , PFuncLabel(..)
+                   , PFunc
+                   , probabilisticFuncDef
+                   , makePFunc
                    , Expr(..)
                    , PredicateLabel(..)
                    , ConstantExpr(..)
-                   , AST.RFuncDef(..)
+                   , AST.PFuncDef(..)
                    , Addition
                    , RealN
                    , RuleBody(..)
                    , RuleBodyElement(..)
                    , negatePred
-                   , predRandomFunctions
-                   , exprRandomFunctions
+                   , predProbabilisticFunctions
+                   , exprProbabilisticFunctions
                    , deterministicValue
                    , checkRealIneqPred
                    , simplifiedBuildInPred
@@ -74,30 +74,30 @@ instance Show PredicateLabel
     show (PredicateLabel l) = l
 instance Hashable PredicateLabel
 
-data RFunc = RFunc RFuncLabel AST.RFuncDef Int -- store hash for efficiency reasons
-instance Eq RFunc
+data PFunc = PFunc PFuncLabel AST.PFuncDef Int -- store hash for efficiency reasons
+instance Eq PFunc
     where
-    RFunc x _ hx == RFunc y _ hy = hx == hy && x == y
-instance Show RFunc
+    PFunc x _ hx == PFunc y _ hy = hx == hy && x == y
+instance Show PFunc
     where
-    show (RFunc l _ _) = show l
-instance Hashable RFunc
+    show (PFunc l _ _) = show l
+instance Hashable PFunc
     where
     hash = Hashable.hashWithSalt 0
-    -- there should never be more than one RF with the same name, so hash only name and ignore definition
-    hashWithSalt salt (RFunc _ _ hash) = Hashable.hashWithSalt salt hash
+    -- there should never be more than one PF with the same name, so hash only name and ignore definition
+    hashWithSalt salt (PFunc _ _ hash) = Hashable.hashWithSalt salt hash
 
-randomFuncDef :: RFunc -> AST.RFuncDef
-randomFuncDef (RFunc _ def _) = def
+probabilisticFuncDef :: PFunc -> AST.PFuncDef
+probabilisticFuncDef (PFunc _ def _) = def
 
-makeRFunc :: RFuncLabel -> AST.RFuncDef -> RFunc
-makeRFunc label def = RFunc label def $ Hashable.hash label
+makePFunc :: PFuncLabel -> AST.PFuncDef -> PFunc
+makePFunc label def = PFunc label def $ Hashable.hash label
 
-newtype RFuncLabel = RFuncLabel String deriving (Eq, Generic)
-instance Show RFuncLabel
+newtype PFuncLabel = PFuncLabel String deriving (Eq, Generic)
+instance Show PFuncLabel
     where
-    show (RFuncLabel l) = printf "~%s" l
-instance Hashable RFuncLabel
+    show (PFuncLabel l) = printf "~%s" l
+instance Hashable PFuncLabel
 
 newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)
 
@@ -150,20 +150,20 @@ instance Hashable (TypedBuildInPred a)
 data Expr a
     where
     ConstantExpr ::               ConstantExpr a   -> Expr a
-    RFuncExpr    ::               RFunc            -> Expr a
+    PFuncExpr    ::               PFunc            -> Expr a
     Sum          :: Addition a => Expr a -> Expr a -> Expr a
 
 deriving instance Eq (Expr a)
 instance Show (Expr a)
     where
     show (ConstantExpr cExpr) = show cExpr
-    show (RFuncExpr rf)       = show rf
+    show (PFuncExpr pf)       = show pf
     show (Sum x y)            = printf "%s + %s" (show x) (show y)
 instance Hashable (Expr a)
     where
     hash = Hashable.hashWithSalt 0
     hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
-    hashWithSalt salt (RFuncExpr r)        = Hashable.hashWithSalt salt r
+    hashWithSalt salt (PFuncExpr r)        = Hashable.hashWithSalt salt r
     hashWithSalt salt (Sum x y)            = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
 
 data ConstantExpr a
@@ -200,21 +200,21 @@ class Addition a
 instance Addition Integer
 instance Addition RealN
 
-predRandomFunctions :: BuildInPredicate -> HashSet RFunc
-predRandomFunctions (BuildInPredicateBool b) = predRandomFunctions' b
-predRandomFunctions (BuildInPredicateReal r) = predRandomFunctions' r
-predRandomFunctions (BuildInPredicateStr  s) = predRandomFunctions' s
-predRandomFunctions (BuildInPredicateInt  i) = predRandomFunctions' i
+predProbabilisticFunctions :: BuildInPredicate -> HashSet PFunc
+predProbabilisticFunctions (BuildInPredicateBool b) = predProbabilisticFunctions' b
+predProbabilisticFunctions (BuildInPredicateReal r) = predProbabilisticFunctions' r
+predProbabilisticFunctions (BuildInPredicateStr  s) = predProbabilisticFunctions' s
+predProbabilisticFunctions (BuildInPredicateInt  i) = predProbabilisticFunctions' i
 
-predRandomFunctions' :: TypedBuildInPred a -> HashSet RFunc
-predRandomFunctions' (Equality _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions' (Ineq     _ left right) = Set.union (exprRandomFunctions left) (exprRandomFunctions right)
-predRandomFunctions' (Constant _)            = Set.empty
+predProbabilisticFunctions' :: TypedBuildInPred a -> HashSet PFunc
+predProbabilisticFunctions' (Equality _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
+predProbabilisticFunctions' (Ineq     _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
+predProbabilisticFunctions' (Constant _)            = Set.empty
 
-exprRandomFunctions :: Expr a -> HashSet RFunc
-exprRandomFunctions (RFuncExpr rf)   = Set.singleton rf
-exprRandomFunctions (ConstantExpr _) = Set.empty
-exprRandomFunctions (Sum x y)        = Set.union (exprRandomFunctions x) (exprRandomFunctions y)
+exprProbabilisticFunctions :: Expr a -> HashSet PFunc
+exprProbabilisticFunctions (PFuncExpr pf)   = Set.singleton pf
+exprProbabilisticFunctions (ConstantExpr _) = Set.empty
+exprProbabilisticFunctions (Sum x y)        = Set.union (exprProbabilisticFunctions x) (exprProbabilisticFunctions y)
 
 negatePred :: BuildInPredicate -> BuildInPredicate
 negatePred (BuildInPredicateBool b) = BuildInPredicateBool $ negatePred' b
@@ -235,7 +235,7 @@ deterministicValue (BuildInPredicateInt  i) = deterministicValue' i
 
 deterministicValue' :: TypedBuildInPred a -> Maybe Bool
 deterministicValue' (Equality eq (ConstantExpr left) (ConstantExpr right))              = Just $ (if eq then (==) else (/=)) left right
-deterministicValue' (Equality eq (RFuncExpr left)    (RFuncExpr right)) | left == right = Just eq
+deterministicValue' (Equality eq (PFuncExpr left)    (PFuncExpr right)) | left == right = Just eq
 deterministicValue' (Ineq     op (ConstantExpr left) (ConstantExpr right))              = Just evalPred
     where
     evalPred = case op of
@@ -249,7 +249,7 @@ deterministicValue' _                                                        = N
 checkRealIneqPred :: AST.IneqOp
                   -> Expr RealN
                   -> Expr RealN
-                  -> Map.HashMap RFunc Interval.IntervalLimitPoint
+                  -> Map.HashMap PFunc Interval.IntervalLimitPoint
                   -> Maybe Bool -- result may be undetermined -> Nothing
 checkRealIneqPred op left right point = case op of
     AST.Lt   -> evalLeft ~<  evalRight
@@ -260,8 +260,8 @@ checkRealIneqPred op left right point = case op of
     evalLeft  = eval left  point
     evalRight = eval right point
 
-eval :: Expr RealN -> HashMap RFunc Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (RFuncExpr rf) point              = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" $ show rf) rf point
+eval :: Expr RealN -> HashMap PFunc Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
+eval (PFuncExpr pf) point              = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" $ show pf) pf point
 eval (ConstantExpr (RealConstant r)) _ = Interval.rat2IntervLimPoint r
 eval (Sum x y) point                   = eval x point + eval y point
 

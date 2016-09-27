@@ -51,9 +51,9 @@ type GState = StateT GroundingState (Exceptional Exception)
 
 data Exception = NonGroundPreds   [AST.RuleBodyElement] AST.PredicateLabel Int
                | TypeError        PropExprWithType PropExprWithType
-               | UndefinedRf      AST.RFuncLabel Int
-               | UndefinedRfValue AST.RFuncLabel [AST.ConstantExpr]
-               | RandomFuncUsedAsArg
+               | UndefinedRf      AST.PFuncLabel Int
+               | UndefinedRfValue AST.PFuncLabel [AST.ConstantExpr]
+               | ProbabilisticFuncUsedAsArg
 
 instance Show Exception
     where
@@ -68,21 +68,21 @@ instance Show Exception
         (show exprX)
         (show exprY)
     show (UndefinedRf label n) = printf
-        "Random function '%s/%i' is undefined."
+        "Probabilistic function '%s/%i' is undefined."
         (show label)
         n
-    show (UndefinedRfValue rf args) = printf
+    show (UndefinedRfValue pf args) = printf
         "'%s(%s)' is undefined."
-        (show rf)
+        (show pf)
         (showLst args)
-    show RandomFuncUsedAsArg = "Random functions may not be used in arguments of predicates and functions."
+    show ProbabilisticFuncUsedAsArg = "Probabilistic functions may not be used in arguments of predicates and functions."
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
 instance Hashable Constraint
 
 data GroundingState = GroundingState
     { groundedRules    :: HashMap GroundedAST.PredicateLabel [GroundedAST.RuleBody]
-    , groundedRfDefs   :: HashMap GroundedAST.RFuncLabel GroundedAST.RFuncDef
+    , groundedRfDefs   :: HashMap GroundedAST.PFuncLabel GroundedAST.PFuncDef
     , varCounter       :: Integer
     -- keep non-ground rule body elements and to ground elements as soon as all vars have a value
     -- this pruning partial proofs if predicate is false
@@ -91,7 +91,7 @@ data GroundingState = GroundingState
     }
 
 ground :: AST -> Exceptional Exception GroundedAST
-ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.rFuncDefs=rfDefs} = evalStateT
+ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.pFuncDefs=pfDefs} = evalStateT
     (do
         (queries', evidence') <- computeResultState
         gRules <- gets groundedRules
@@ -109,8 +109,8 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
     where
     computeResultState :: GState (HashSet GroundedAST.RuleBodyElement, HashSet GroundedAST.RuleBodyElement)
     computeResultState = do
-        queries'  <- forM queries  (`toPropRuleElement` rfDefs)
-        evidence' <- forM evidence (`toPropRuleElement` rfDefs)
+        queries'  <- forM queries  (`toPropRuleElement` pfDefs)
+        evidence' <- forM evidence (`toPropRuleElement` pfDefs)
         forM_ (queries ++ evidence) $
             \el -> computeGroundings $ Seq.singleton el
         return (Set.fromList queries', Set.fromList evidence')
@@ -177,7 +177,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                         -- add newly found constraints to state
                         modify (\st -> st{proofConstraints = Set.union constrs $ proofConstraints st})
                         -- apply newly found variable values and check if proof is still consistent
-                        consistent <- applyValuation valu' rfDefs
+                        consistent <- applyValuation valu' pfDefs
                         if consistent then do
                             -- also apply valuation found to remaining goals todo
                             remaining'      <- applyVal remaining valu'
@@ -202,7 +202,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 oldSt <- get
                 -- apply newly found variable substitution and check if proof is still consistent
                 let valu = Map.singleton var expr
-                consistent <- applyValuation  valu rfDefs
+                consistent <- applyValuation  valu pfDefs
                 if consistent then do
                     -- also apply valuation found to remaining goals todo
                     remaining'      <- applyVal remaining valu
@@ -268,19 +268,19 @@ toPropPredLabel (AST.PredicateLabel label) args = GroundedAST.PredicateLabel $ p
     label
     (if null args then "" else printf "(%s)" (showLst args))
 
-toPropRFuncLabel :: AST.RFuncLabel -> [AST.ConstantExpr] -> GroundedAST.RFuncLabel
-toPropRFuncLabel (AST.RFuncLabel label) args = GroundedAST.RFuncLabel $ printf
+toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GroundedAST.PFuncLabel
+toPropPFuncLabel (AST.PFuncLabel label) args = GroundedAST.PFuncLabel $ printf
     "%s%s"
     label
     (if null args then "" else printf "(%s)" (showLst args))
 
 -- precondition: no vars in expr
--- throws exception if there are RFs in expressions
+-- throws exception if there are PFs in expressions
 toPropArgs :: [AST.Expr] -> Exceptional Exception [AST.ConstantExpr]
 toPropArgs exprs = forM exprs toPropArg
 
 -- precondition: no vars in expr
--- throws exception if there are RFs in expressions
+-- throws exception if there are PFs in expressions
 toPropArg :: AST.Expr -> Exceptional Exception AST.ConstantExpr
 -- convert to grounded expr to perform simplification (e.g. for constant expr '1 + 1')
 toPropArg expr = do
@@ -295,7 +295,7 @@ toPropArg expr = do
     toPropArgExpr :: AST.Expr -> Exceptional Exception PropExprWithType
     toPropArgExpr expr' = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr' of
         AST.ConstantExpr cnst -> return $ toPropExprConst cnst
-        AST.RFunc _ _ -> throw RandomFuncUsedAsArg
+        AST.PFunc _ _ -> throw ProbabilisticFuncUsedAsArg
         AST.Sum exprX exprY -> do
             exprX' <- toPropArgExpr exprX
             exprY' <- toPropArgExpr exprY
@@ -307,12 +307,12 @@ toPropArg expr = do
 
 -- precondition: no vars left in rule element
 toPropRuleElement :: AST.RuleBodyElement
-                  -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
+                  -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                   -> GState GroundedAST.RuleBodyElement
 toPropRuleElement (AST.UserPredicate label args) _ = do
     args' <- lift $ toPropArgs args
     return $ GroundedAST.UserPredicate $ toPropPredLabel label args'
-toPropRuleElement (AST.BuildInPredicate bip) rfDefs = GroundedAST.BuildInPredicate <$> toPropBuildInPred bip rfDefs
+toPropRuleElement (AST.BuildInPredicate bip) pfDefs = GroundedAST.BuildInPredicate <$> toPropBuildInPred bip pfDefs
 
 data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
                       | ExprReal (GroundedAST.Expr GroundedAST.RealN)
@@ -337,9 +337,9 @@ mapPropExprWithType f (ExprInt  expr) = ExprInt  $ f expr
 
 -- precondition: no vars left in 'bip'
 toPropBuildInPred :: AST.BuildInPredicate
-                  -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
+                  -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                   -> GState GroundedAST.BuildInPredicate
-toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
+toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
     AST.Equality eq exprX exprY -> toPropBuildInPred' (GroundedAST.Equality eq) exprX exprY
     AST.Ineq     op exprX exprY -> toPropBuildInPred' (GroundedAST.Ineq     op) exprX exprY
     where
@@ -348,8 +348,8 @@ toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
                        -> AST.Expr
                        -> GState GroundedAST.BuildInPredicate
     toPropBuildInPred' bipConstructor exprX exprY = do
-        exprX' <- toPropExpr exprX rfDefs
-        exprY' <- toPropExpr exprY rfDefs
+        exprX' <- toPropExpr exprX pfDefs
+        exprY' <- toPropExpr exprY pfDefs
         case (exprX', exprY') of
             (ExprReal exprX'', ExprReal exprY'') -> return $ GroundedAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
             (ExprBool exprX'', ExprBool exprY'') -> return $ GroundedAST.BuildInPredicateBool $ bipConstructor exprX'' exprY''
@@ -359,26 +359,26 @@ toPropBuildInPred bip rfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
 
 -- precondition: no vars left in 'expr'
 toPropExpr :: AST.Expr
-           -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
+           -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
            -> GState PropExprWithType
-toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr of
+toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr of
     AST.ConstantExpr cnst -> return $ toPropExprConst cnst
-    AST.RFunc label args -> do
-        gRfDefs <- gets groundedRfDefs
+    AST.PFunc label args -> do
+        gPfDefs <- gets groundedRfDefs
         propArgs <- lift $ toPropArgs args
-        let propRFuncLabel = toPropRFuncLabel label propArgs
-        rfDef <- case Map.lookup propRFuncLabel gRfDefs of
+        let propPFuncLabel = toPropPFuncLabel label propArgs
+        pfDef <- case Map.lookup propPFuncLabel gPfDefs of
             Just def -> return def
             Nothing  -> do
-                def <- lift $ rfDefFor label propArgs rfDefs
+                def <- lift $ pfDefFor label propArgs pfDefs
                 modify (\st -> st{groundedRfDefs =
-                    Map.insert propRFuncLabel def $ groundedRfDefs st
+                    Map.insert propPFuncLabel def $ groundedRfDefs st
                 })
                 return def
-        let rf = GroundedAST.makeRFunc propRFuncLabel rfDef
-        case rfDef of
-            AST.Flip _       -> return $ ExprBool $ GroundedAST.RFuncExpr rf
-            AST.RealDist _ _ -> return $ ExprReal $ GroundedAST.RFuncExpr rf
+        let pf = GroundedAST.makePFunc propPFuncLabel pfDef
+        case pfDef of
+            AST.Flip _       -> return $ ExprBool $ GroundedAST.PFuncExpr pf
+            AST.RealDist _ _ -> return $ ExprReal $ GroundedAST.PFuncExpr pf
     AST.Sum exprX exprY ->toPropExprPairAdd GroundedAST.Sum exprX exprY
         where
         toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)
@@ -386,8 +386,8 @@ toPropExpr expr rfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                           -> AST.Expr
                           -> GState PropExprWithType
         toPropExprPairAdd exprConstructor exprX' exprY' = do
-            exprX'' <- toPropExpr exprX' rfDefs
-            exprY'' <- toPropExpr exprY' rfDefs
+            exprX'' <- toPropExpr exprX' pfDefs
+            exprY'' <- toPropExpr exprY' pfDefs
             case (exprX'', exprY'') of
                 (ExprReal exprX''', ExprReal exprY''') -> return $ ExprReal $ exprConstructor exprX''' exprY'''
                 (ExprInt  exprX''', ExprInt  exprY''') -> return $ ExprInt  $ exprConstructor exprX''' exprY'''
@@ -436,9 +436,9 @@ applyArgs givenArgs args elements = do
             (_, AST.ArgDontCareVariable) -> return (intValu, extValu, constrs)
 
 applyValuation :: HashMap AST.VarName AST.Expr
-               -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
+               -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                -> GState Bool
-applyValuation valu rfDefs = do
+applyValuation valu pfDefs = do
     st            <- get
     mbRules       <- runMaybeT        $ foldlM applyValuRule       Map.empty $ Map.toList $ rulesInProof st
     mbConstraints <- lift $ runMaybeT $ foldlM applyValuConstraint Set.empty $ proofConstraints st
@@ -477,12 +477,12 @@ applyValuation valu rfDefs = do
         if varPresent then
             return (el' : elements, gElements)
         else do
-            gEl <- lift $ toPropRuleElement el' rfDefs
+            gEl <- lift $ toPropRuleElement el' pfDefs
             case gEl of
                 GroundedAST.BuildInPredicate bip -> case GroundedAST.deterministicValue bip of
                     Just True  -> return (elements, gElements)                -- true predicate can just be left out
                     Just False -> mzero                                       -- false predicate means proof becomes inconsistent
-                    Nothing    -> return (elements, Set.insert gEl gElements) -- truthfullness depends on random functions
+                    Nothing    -> return (elements, Set.insert gEl gElements) -- truthfullness depends on probabilistic functions
                 _ -> return (elements, Set.insert gEl gElements)
 
     applyValuConstraint :: HashSet Constraint -> Constraint -> MaybeT (Exceptional Exception) (HashSet Constraint)
@@ -537,12 +537,12 @@ replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
             Nothing -> ((succ counter, Map.insert var counter vars2ids), AST.Variable $ AST.TempVar counter)
         otherExpr -> ((counter, vars2ids), otherExpr)
 
-rfDefFor :: AST.RFuncLabel
+pfDefFor :: AST.PFuncLabel
          -> [AST.ConstantExpr]
-         -> HashMap (AST.RFuncLabel, Int) [([AST.HeadArgument], AST.RFuncDef)]
-         -> Exceptional Exception AST.RFuncDef
-rfDefFor label args rfDefs = do
-    defs <- exceptionalFromMaybe (UndefinedRf label nArgs) $ Map.lookup (label, nArgs) rfDefs
+         -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
+         -> Exceptional Exception AST.PFuncDef
+pfDefFor label args pfDefs = do
+    defs <- exceptionalFromMaybe (UndefinedRf label nArgs) $ Map.lookup (label, nArgs) pfDefs
     let matchingDefs = filter (\(defArgs, _) -> matchArgs args defArgs) defs
     case matchingDefs of
         []             -> throw $ UndefinedRfValue label args
@@ -568,7 +568,7 @@ match mbVal (given, req) = do
         AST.ArgDontCareVariable -> return val
 
 -- precondition: no vars left in constraints
--- throws exception if RF is included in constr
+-- throws exception if PF is included in constr
 constraintHolds :: Constraint -> Exceptional Exception Bool
 constraintHolds (EqConstraint exprX exprY) =  do
     cnstX <- toPropArg exprX

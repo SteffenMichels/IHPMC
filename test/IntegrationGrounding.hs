@@ -33,7 +33,7 @@ import qualified Grounder
 import Probability
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ types, preds, rfs, varsInExpr, existVars, count, tablingProp, tablingFO
+tests = ("grounding", [ types, preds, pfs, varsInExpr, existVars, count, tablingProp, tablingFO
                       , network1, network2
                       ]
         )
@@ -99,38 +99,38 @@ preds = IntegrationTest
         , (queryStr "two" ["a","d"], preciseProb 0.1)
         , (queryStr "two" ["c","d"], preciseProb 0.02)
         --, (queryStr "two" ["e","d"], preciseProb 0.0)
-        , (query "err",              rfAsArg)
+        , (query "err",              pfAsArg)
         ]
     }
 
-rfs :: IntegrationTest
-rfs = IntegrationTest
-    { label = "random functions"
+pfs :: IntegrationTest
+pfs = IntegrationTest
+    { label = "probabilistic functions"
     , model = unpack $ [text|
-                  ~rf      ~ flip(0.99).
-                  ~rf(1)   ~ flip(0.991).
-                  ~rf(2)   ~ flip(0.992).
-                  ~rf(1,2) ~ flip(0.9912).
-                  rf             <- ~rf      = true.
-                  rf1            <- ~rf(1)   = true.
-                  rf2            <- ~rf(2)   = true.
-                  rfErrRfAsArg   <- ~rf(~rf) = true.
-                  rfErrNonGround <- ~rf(X)   = true.
-                  rfErrUndefined <- ~rf2     = true.
-                  rfErrUndefVal  <- ~rf(3)   = true.
-                  rfErrUndefVal2 <- ~rf(1,3) = true.
-                  rfErrUndefVal3 <- ~rf(3,2) = true.
+                  ~pf      ~ flip(0.99).
+                  ~pf(1)   ~ flip(0.991).
+                  ~pf(2)   ~ flip(0.992).
+                  ~pf(1,2) ~ flip(0.9912).
+                  pf             <- ~pf      = true.
+                  pf1            <- ~pf(1)   = true.
+                  pf2            <- ~pf(2)   = true.
+                  pfErrRfAsArg   <- ~pf(~pf) = true.
+                  pfErrNonGround <- ~pf(X)   = true.
+                  pfErrUndefined <- ~pf2     = true.
+                  pfErrUndefVal  <- ~pf(3)   = true.
+                  pfErrUndefVal2 <- ~pf(1,3) = true.
+                  pfErrUndefVal3 <- ~pf(3,2) = true.
               |]
     , expectedResults =
-        [ (query "rf",             preciseProb 0.99)
-        , (query "rf1",            preciseProb 0.991)
-        , (query "rf2",            preciseProb 0.992)
-        , (query "rfErrRfAsArg",   rfAsArg)
-        , (query "rfErrNonGround", nonGround "rfErrNonGround" 0 1)
-        , (query "rfErrUndefined", undefinedRf "rf2" 0)
-        , (query "rfErrUndefVal",  undefinedRfVal "rf" 1)
-        , (query "rfErrUndefVal2", undefinedRfVal "rf" 2)
-        , (query "rfErrUndefVal3", undefinedRfVal "rf" 2)
+        [ (query "pf",             preciseProb 0.99)
+        , (query "pf1",            preciseProb 0.991)
+        , (query "pf2",            preciseProb 0.992)
+        , (query "pfErrRfAsArg",   pfAsArg)
+        , (query "pfErrNonGround", nonGround "pfErrNonGround" 0 1)
+        , (query "pfErrUndefined", undefinedRf "pf2" 0)
+        , (query "pfErrUndefVal",  undefinedRfVal "pf" 1)
+        , (query "pfErrUndefVal2", undefinedRfVal "pf" 2)
+        , (query "pfErrUndefVal3", undefinedRfVal "pf" 2)
         ]
     }
 
@@ -321,15 +321,15 @@ typeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) = True
 typeError _                                                             = False
 
 undefinedRf :: String -> Int -> Exceptional Exception a -> Bool
-undefinedRf expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRf rf n)))
-    | AST.RFuncLabel expRf == rf && expN == n = True
+undefinedRf expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRf pf n)))
+    | AST.PFuncLabel expRf == pf && expN == n = True
 undefinedRf _ _ _                             = False
 
 undefinedRfVal :: String -> Int -> Exceptional Exception a -> Bool
-undefinedRfVal expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRfValue rf args)))
-    | AST.RFuncLabel expRf == rf && expN == length args = True
+undefinedRfVal expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRfValue pf args)))
+    | AST.PFuncLabel expRf == pf && expN == length args = True
 undefinedRfVal _ _ _                                    = False
 
-rfAsArg :: Exceptional Exception a -> Bool
-rfAsArg (Exception (Main.GrounderException Grounder.RandomFuncUsedAsArg)) = True
-rfAsArg _ = False
+pfAsArg :: Exceptional Exception a -> Bool
+pfAsArg (Exception (Main.GrounderException Grounder.ProbabilisticFuncUsedAsArg)) = True
+pfAsArg _                                                                        = False

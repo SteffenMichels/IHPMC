@@ -193,8 +193,8 @@ oneArgIndet _     _     = False
 
 corners :: (Eq k, Hashable k) => [(k, Interval)] -> [Map.HashMap k IntervalLimitPoint]
 corners choices = foldl'
-        ( \crnrs (rf, Interval l u) ->
-          [Map.insert rf (Interval.toPoint Lower l) c | c <- crnrs] ++ [Map.insert rf (Interval.toPoint Upper u) c | c <- crnrs]
+        ( \crnrs (pf, Interval l u) ->
+          [Map.insert pf (Interval.toPoint Lower l) c | c <- crnrs] ++ [Map.insert pf (Interval.toPoint Upper u) c | c <- crnrs]
         )
         [Map.fromList [(firstRf, Interval.toPoint Lower firstLower)], Map.fromList [(firstRf, Interval.toPoint Upper firstUpper)]]
         otherConditions
