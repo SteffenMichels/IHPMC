@@ -170,7 +170,7 @@ instance Show ConstantExpr
     where
     show (BoolConstant cnst) = toLower <$> show cnst
     show (RealConstant cnst) = printf "%f" (fromRat cnst::Float)
-    show (StrConstant  cnst) = cnst
+    show (StrConstant  cnst) = printf "\"%s\"" cnst
     show (IntConstant  cnst) = show cnst
 instance Hashable ConstantExpr
 

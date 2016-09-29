@@ -93,12 +93,13 @@ pFuncL = Token.lexeme     lexer parseUserPFuncLabel
     where
     parseUserPFuncLabel :: Parser AST.PFuncLabel
     parseUserPFuncLabel = string "~" >> AST.PFuncLabel <$> identifier
-decimal    = Token.decimal    lexer
-integer    = Token.integer    lexer
-dot        = Token.dot        lexer
-comma      = Token.comma      lexer
-whiteSpace = Token.whiteSpace lexer
-variable   = Token.lexeme     lexer parseVar
+decimal    = Token.decimal       lexer
+integer    = Token.integer       lexer
+stringLit  = Token.stringLiteral lexer
+dot        = Token.dot           lexer
+comma      = Token.comma         lexer
+whiteSpace = Token.whiteSpace    lexer
+variable   = Token.lexeme        lexer parseVar
     where
     parseVar = do
         first <- upper
@@ -234,6 +235,7 @@ constantExpression :: Parser AST.ConstantExpr
 constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
                      <|> const (AST.BoolConstant False) <$> reserved "false"
                      <|> AST.StrConstant                <$> identifier
+                     <|> AST.StrConstant                <$> stringLit
                      <|> AST.RealConstant               <$> try rational
                      <|> AST.IntConstant                <$> integer
 

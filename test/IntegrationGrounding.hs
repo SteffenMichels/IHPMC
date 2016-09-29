@@ -33,14 +33,38 @@ import qualified Grounder
 import Probability
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ types, preds, pfs, varsInExpr, existVars, count, tablingProp, tablingFO
-                      , network1, network2
+tests = ("grounding", [ types, strLits, preds, pfs, varsInExpr, existVars, count, tablingProp
+                      , tablingFO, network1, network2
                       ]
         )
 
 types :: IntegrationTest
 types = IntegrationTest
     { label = "type checking"
+    , model = unpack $ [text|
+                  ~p("1")         ~ flip(0.1).
+                  ~p(1)           ~ flip(0.2).
+                  ~p("abc")       ~ flip(0.3).
+                  ~p("\"@§$%&^'") ~ flip(0.4).
+
+                  oneStr       <- ~p("1") = true.
+                  oneInt       <- ~p(1)   = true.
+                  str          <- ~p(abc) = true.
+                  strLit       <- ~p("abc") = true.
+                  strangeChars <- ~p("\"@§$%&^'") = true.
+              |]
+    , expectedResults =
+        [ (query "oneStr",       preciseProb 0.1)
+        , (query "oneInt",       preciseProb 0.2)
+        , (query "str",          preciseProb 0.3)
+        , (query "strLit",       preciseProb 0.3)
+        , (query "strangeChars", preciseProb 0.4)
+        ]
+    }
+
+strLits :: IntegrationTest
+strLits = IntegrationTest
+    { label = "string literals"
     , model = unpack $ [text|
                   ~bool ~ flip(0.01).
                   bool    <- ~bool = true.

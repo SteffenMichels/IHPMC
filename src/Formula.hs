@@ -63,6 +63,7 @@ import qualified Interval
 import Control.Monad.State.Strict
 import Data.Foldable (foldl')
 import Util
+import Data.Text (replace, pack, unpack)
 
 -- INTERFACE
 data Node = Composed NodeType [NodeRef]
@@ -306,7 +307,7 @@ exportAsDot path Formula{nodes} = do
     where
         printNode :: Handle -> (ComposedId, (ComposedLabel, FormulaEntry cachedInfo)) -> ExceptionalT IOException IO ()
         printNode file (ComposedId i, (label, FormulaEntry op children _ _)) = do
-            doIO (hPutStrLn file (printf "%i[label=\"%i: %s\\n%s\"];" i i (show label) descr))
+            doIO (hPutStrLn file (printf "%i[label=\"%i: %s\\n%s\"];" i i (unpack $ replace (pack "\"") (pack "\\\"") $ pack $ show label) descr))
             void $ forM_ children writeEdge
             where
                 descr = case op of And -> "AND"; Or -> "OR"
@@ -314,7 +315,7 @@ exportAsDot path Formula{nodes} = do
 
                 childStr :: NodeRef -> String
                 childStr (RefComposed sign (ComposedId childId)) = printf "%i[label=\"%s\"]" childId (show sign)
-                childStr (RefBuildInPredicate prd _)             = printf "%i;\n%i[label=\"%s\"]" h h $ show prd
+                childStr (RefBuildInPredicate prd _)             = printf "%i;\n%i[label=\"%s\"]" h h $ unpack $ replace (pack "\"") (pack "\\\"") $ pack $ show prd
                     where
                     h = Hashable.hashWithSalt (Hashable.hash i) prd
                 childStr (RefDeterministic _)                    = error "Formula export: should this happen?"
