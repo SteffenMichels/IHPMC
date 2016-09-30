@@ -33,38 +33,14 @@ import qualified Grounder
 import Probability
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ types, strLits, preds, pfs, varsInExpr, existVars, count, tablingProp
-                      , tablingFO, network1, network2
+tests = ("grounding", [ typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars, count
+                      , tablingProp, tablingFO, network1, network2
                       ]
         )
 
-types :: IntegrationTest
-types = IntegrationTest
-    { label = "type checking"
-    , model = unpack $ [text|
-                  ~p("1")         ~ flip(0.1).
-                  ~p(1)           ~ flip(0.2).
-                  ~p("abc")       ~ flip(0.3).
-                  ~p("\"@§$%&^'") ~ flip(0.4).
-
-                  oneStr       <- ~p("1") = true.
-                  oneInt       <- ~p(1)   = true.
-                  str          <- ~p(abc) = true.
-                  strLit       <- ~p("abc") = true.
-                  strangeChars <- ~p("\"@§$%&^'") = true.
-              |]
-    , expectedResults =
-        [ (query "oneStr",       preciseProb 0.1)
-        , (query "oneInt",       preciseProb 0.2)
-        , (query "str",          preciseProb 0.3)
-        , (query "strLit",       preciseProb 0.3)
-        , (query "strangeChars", preciseProb 0.4)
-        ]
-    }
-
-strLits :: IntegrationTest
-strLits = IntegrationTest
-    { label = "string literals"
+typesBip :: IntegrationTest
+typesBip = IntegrationTest
+    { label = "type checking (build-in predicates)"
     , model = unpack $ [text|
                   ~bool ~ flip(0.01).
                   bool    <- ~bool = true.
@@ -90,6 +66,53 @@ strLits = IntegrationTest
         , (query "intErr2",   typeError)
         , (query "string",    preciseProb 1.0)
         , (query "stringErr", typeError)
+        ]
+    }
+
+typesArgs :: IntegrationTest
+typesArgs = IntegrationTest
+    { label = "type checking (predicate/random function arguments)"
+    , model = unpack $ [text|
+                  p(_).
+                  argPredOk  <- p(1 + 1).
+                  argPredErr <- p(1 + 1.0).
+
+                  ~f(1)   ~ flip(0.1).
+                  ~f(1.0) ~ flip(0.2).
+                  int  <- ~f(1 + 0) = false.
+                  real <- ~f(0.5 + 0.5) = false.
+                  err <- ~f(1.0 + 0) = false.
+              |]
+    , expectedResults =
+        [ (query "argPredOk",  preciseProb 1.0)
+        , (query "argPredErr", typeError)
+        , (query "int",        preciseProb 0.9)
+        , (query "real",       preciseProb 0.8)
+        , (query "err",        typeError)
+        ]
+    }
+
+strLits :: IntegrationTest
+strLits = IntegrationTest
+    { label = "string literals"
+    , model = unpack $ [text|
+                  ~p("1")         ~ flip(0.1).
+                  ~p(1)           ~ flip(0.2).
+                  ~p("abc")       ~ flip(0.3).
+                  ~p("\"@§$%&^'") ~ flip(0.4).
+
+                  oneStr       <- ~p("1") = true.
+                  oneInt       <- ~p(1)   = true.
+                  str          <- ~p(abc) = true.
+                  strLit       <- ~p("abc") = true.
+                  strangeChars <- ~p("\"@§$%&^'") = true.
+              |]
+    , expectedResults =
+        [ (query "oneStr",       preciseProb 0.1)
+        , (query "oneInt",       preciseProb 0.2)
+        , (query "str",          preciseProb 0.3)
+        , (query "strLit",       preciseProb 0.3)
+        , (query "strangeChars", preciseProb 0.4)
         ]
     }
 

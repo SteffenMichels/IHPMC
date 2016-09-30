@@ -305,10 +305,10 @@ toPropArg expr = do
         AST.Sum exprX exprY -> do
             exprX' <- toPropArgExpr exprX
             exprY' <- toPropArgExpr exprY
-            return $ case (exprX', exprY') of
-                (ExprReal exprX''', ExprReal exprY''') -> ExprReal $ GroundedAST.Sum exprX''' exprY'''
-                (ExprInt  exprX''', ExprInt  exprY''') -> ExprInt  $ GroundedAST.Sum exprX''' exprY'''
-                _                                      -> error "type error"
+            case (exprX', exprY') of
+                (ExprReal exprX''', ExprReal exprY''') -> return $ ExprReal $ GroundedAST.Sum exprX''' exprY'''
+                (ExprInt  exprX''', ExprInt  exprY''') -> return $ ExprInt  $ GroundedAST.Sum exprX''' exprY'''
+                _                                      -> throw $ TypeError exprX' exprY'
         AST.Variable _ -> error "precondition"
 
 -- precondition: no vars left in rule element
@@ -398,7 +398,7 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 (ExprReal exprX''', ExprReal exprY''') -> return $ ExprReal $ exprConstructor exprX''' exprY'''
                 (ExprInt  exprX''', ExprInt  exprY''') -> return $ ExprInt  $ exprConstructor exprX''' exprY'''
                 _                                      -> lift $ throw $ TypeError exprX'' exprY''
-    AST.Variable _ -> error "toPropExpr: precondition"
+    AST.Variable _ -> error "precondition"
 
 toPropExprConst :: AST.ConstantExpr -> PropExprWithType
 toPropExprConst (AST.BoolConstant cnst) = ExprBool $ GroundedAST.ConstantExpr $ GroundedAST.BoolConstant cnst
