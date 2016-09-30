@@ -27,6 +27,7 @@ module Probability
     , doubleToProb
     , probToDouble
     ) where
+import Control.Arrow (first)
 #ifdef FLOAT_PROBS
 import Text.Printf (printf)
 #else
@@ -64,6 +65,11 @@ doubleToProb = Probability . toRational
 probToDouble :: Probability -> Double
 probToDouble (Probability p) = fromRat p
 #endif
+
+instance Read Probability
+    where
+    readsPrec i = (first Probability <$>)       . readsPrec i
+    readList    = (first (Probability <$>) <$>) . readList
 
 instance Ord Probability
     where

@@ -84,7 +84,7 @@ main' = do
     groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast
     let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
     whenJust formExpPath $ \path -> mapExceptionT IOException $ Formula.exportAsDot path f
-    let stopPred n (ProbabilityBounds l u) t =  maybe False (== n)       nIterations
+    let stopPred n (ProbabilityBounds l u) t =  maybe False (<= n)       nIterations
                                              || maybe False (>= (u-l)/2) errBound
                                              || maybe False (<= t)       timeout
     forM_ queries $ \(qLabel, qRef) -> do

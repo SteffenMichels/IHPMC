@@ -26,6 +26,7 @@ module Util
     , doState
     , doMaybe
     , Bool3(..)
+    , maybeRead
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
@@ -34,6 +35,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe (MaybeT)
 import Data.Boolean
+import Data.Maybe (listToMaybe)
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
@@ -72,3 +74,6 @@ instance Boolean Bool3 where
     Unknown3 ||* _        = Unknown3
     _        ||* Unknown3 = Unknown3
     _        ||* _        = False3
+
+maybeRead :: Read a => String -> Maybe a
+maybeRead = (fst <$>) . listToMaybe . reads

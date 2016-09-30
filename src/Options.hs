@@ -26,12 +26,15 @@ module Options
 import System.Console.ArgParser
 import Control.Monad.Exception.Synchronous
 import Exception
-import GHC.Float (float2Double)
 import Probability
+import System.Console.ArgParser.Params
+--import System.Console.ArgParser.Run
+import Util
+import Text.Printf (printf)
 
 data Options = Options
-    { nIterations :: Maybe Int
-    , modelFile   :: String
+    { modelFile   :: String
+    , nIterations :: Maybe Int
     , errBound    :: Maybe Probability
     , timeout     :: Maybe Int
     , repInterval :: Maybe Int
@@ -39,42 +42,25 @@ data Options = Options
     , hptExpPath  :: Maybe String
     }
 
--- this type is used, because argparse package does not support parsing Maybe values
-data ParsedOptions = ParsedOptions
-    { pModelFile   :: String
-    , pNIterations :: Int
-    , pErrBound    :: Float
-    , pTimeout     :: Int
-    , pRepInterval :: Int
-    , pFormExpPath :: String
-    , pHptExpPath  :: String
-    }
-
-popts2opts :: ParsedOptions -> Options
-popts2opts ParsedOptions{pModelFile,pNIterations,pErrBound,pTimeout,pRepInterval,pFormExpPath,pHptExpPath} = Options
-    { modelFile   = pModelFile
-    , nIterations = justIf (>  0)                                 pNIterations
-    , errBound    = justIf (>= 0.0) $ doubleToProb $ float2Double pErrBound
-    , timeout     = justIf (>  0)                                 pTimeout
-    , repInterval = justIf (>= 0)                                 pRepInterval
-    , formExpPath = justIf (/= "")                                pFormExpPath
-    , hptExpPath  = justIf (/= "")                                pHptExpPath
-    }
-    where
-    justIf prd v = if prd v then Just v else Nothing
-
 parseConsoleArgs :: Args -> ExceptionalT String IO Options
 parseConsoleArgs args = do
     interf <- mapExceptionT show $ doIO $ mkApp spec
-    popts <- returnExceptional $ fromEither $ parseArgs args interf
-    return $ popts2opts popts
+    let interf' = setAppDescr interf "Interative Hybrid Probabilistic Model Counting (IHPMC) 0.0.1\nCopyright (c) 2016 Steffen Michels\nLicense: MIT"
+    returnExceptional $ fromEither $ parseArgs args interf'
     where
-    spec :: ParserSpec ParsedOptions
-    spec = ParsedOptions
-        `parsedBy` reqPos       "modelfile"           `Descr` "file containing the probabilistic model"
-        `andBy`    optFlag 0    "iterations"          `Descr` "maximal number of iterations"
-        `andBy`    optFlag (-1) "errorbound"          `Descr` "maximal result error bound"
-        `andBy`    optFlag 0    "timeout"             `Descr` "maximal inference runtime (ms)"
-        `andBy`    optFlag (-1) "reporting_interval"  `Descr` "interval in which intermediate results are reported (ms)"
-        `andBy`    optFlag ""   "formula_export_path" `Descr` "path to file to which the initial formula is exported (as dot file)"
-        `andBy`    optFlag ""   "pt_export_path"      `Descr` "path to file to which the final hybrid probability tree is exported (as dot file)"
+    spec :: ParserSpec Options
+    spec = Options
+        `parsedBy` reqPos    "modelfile"           `Descr` "file containing the probabilistic model"
+        `andBy`    maybeFlag "iterations"          `Descr` "maximal number of iterations"
+        `andBy`    maybeFlag "errorbound"          `Descr` "maximal result error bound"
+        `andBy`    maybeFlag "timeout"             `Descr` "maximal inference runtime (ms)"
+        `andBy`    maybeFlag "reporting_interval"  `Descr` "interval in which intermediate results are reported (ms)"
+        `andBy`    maybeFlag "formula_export_path" `Descr` "path to file to which the initial formula is exported (as dot file)"
+        `andBy`    maybeFlag "pt_export_path"      `Descr` "path to file to which the final hybrid probability tree is exported (as dot file)"
+
+maybeFlag :: Read a => Key -> StdArgParam (Maybe a)
+maybeFlag key = StdArgParam (Optional Nothing) Flag key (SingleArgParser $ readArg key)
+    where
+    readArg key' arg = case maybeRead arg of
+      Just val -> Right $ Just val
+      Nothing  -> Left $ printf "Invalid value '%s' for parameter %s." arg key'
