@@ -33,10 +33,31 @@ import qualified Grounder
 import Probability
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars, constraints
-                      , count, tablingProp, tablingFO, network1, network2
+tests = ("grounding", [ queries, typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars
+                      , constraints, count, tablingProp, tablingFO, network1, network2
                       ]
         )
+
+queries :: IntegrationTest
+queries = IntegrationTest
+    { label = "queries"
+    , model = unpack $ [text|
+                  ~x ~ flip(0.1).
+                  p(_).
+              |]
+    , expectedResults =
+        [ (queryInt "p" [1], preciseProb 1.0)
+        , (AST.UserPredicate (AST.PredicateLabel "p") [AST.Variable (AST.VarName "X")], nonGroundQuery)
+        , ( AST.BuildInPredicate
+            (AST.Equality False (AST.PFunc (AST.PFuncLabel "x") []) (AST.ConstantExpr (AST.BoolConstant False)))
+          , preciseProb 0.1
+          )
+        , ( AST.BuildInPredicate
+            (AST.Equality False (AST.PFunc (AST.PFuncLabel "x") []) (AST.Variable (AST.VarName "X")))
+          , nonGroundQuery
+          )
+        ]
+    }
 
 typesBip :: IntegrationTest
 typesBip = IntegrationTest
@@ -388,6 +409,10 @@ nonGround _ _ _ _                                                = False
 typeError :: Exceptional Exception a -> Bool
 typeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) = True
 typeError _                                                             = False
+
+nonGroundQuery :: Exceptional Exception a -> Bool
+nonGroundQuery (Exception (Main.GrounderException (Grounder.NonGroundQuery _))) = True
+nonGroundQuery _                                                                = False
 
 unsolvableConstrs :: Exceptional Exception a -> Bool
 unsolvableConstrs (Exception (Main.GrounderException (Grounder.UnsolvableConstraints _))) = True

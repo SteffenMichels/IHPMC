@@ -56,6 +56,8 @@ data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel 
                | UndefinedPred         AST.PredicateLabel Int
                | ProbabilisticFuncUsedAsArg
                | UnsolvableConstraints [Constraint]
+               | NonGroundQuery        AST.RuleBodyElement
+               | NonGroundEvidence     AST.RuleBodyElement
 
 instance Show Exception
     where
@@ -86,6 +88,12 @@ instance Show Exception
         "Could not solve constraint%s %s."
         (if length constrs > 1 then "s" else "")
         (showLstEnc "'" "'" constrs)
+    show (NonGroundQuery q) = printf
+        "All queries have to be ground. Query '%s' is not ground."
+        (show q)
+    show (NonGroundEvidence e) = printf
+        "All evidence has to be ground. Evidence '%s' is not ground."
+        (show e)
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic)
 instance Show Constraint where
@@ -121,12 +129,15 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
     where
     computeResultState :: GState (HashSet GroundedAST.RuleBodyElement, HashSet GroundedAST.RuleBodyElement)
     computeResultState = do
-        queries'  <- forM queries  (`toPropRuleElement` pfDefs)
-        evidence' <- forM evidence (`toPropRuleElement` pfDefs)
+        queries'  <- forM queries  $ toPropQueryEvidence NonGroundQuery
+        evidence' <- forM evidence $ toPropQueryEvidence NonGroundEvidence
         forM_ (queries ++ evidence) $
             \el -> computeGroundings $ Seq.singleton el
         return (Set.fromList queries', Set.fromList evidence')
-
+            where
+            toPropQueryEvidence exception x
+                | AST.varsInRuleBodyElement x = lift $ throw $ exception x
+                | otherwise                   = toPropRuleElement x pfDefs
     computeGroundings :: Seq AST.RuleBodyElement -> GState ()
     computeGroundings todo = do
         todo' <- Seq.filter ((/= False3) . snd) <$> forM todo (\g -> (g,) <$> goalHaveToProof g)

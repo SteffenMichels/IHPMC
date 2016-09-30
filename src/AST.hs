@@ -35,6 +35,7 @@ module AST
     , IneqOp(..)
     , VarName(..)
     , varsInExpr
+    , varsInRuleBodyElement
     , negateOp
     , mapExprsInRuleBodyElement
     , mapExprsInRuleBodyElementM
@@ -179,6 +180,14 @@ negateOp Lt   = GtEq
 negateOp LtEq = Gt
 negateOp Gt   = LtEq
 negateOp GtEq = Lt
+
+varsInRuleBodyElement :: RuleBodyElement -> Bool
+varsInRuleBodyElement (UserPredicate _ args) = any varsInExpr args
+varsInRuleBodyElement (BuildInPredicate bip) = varsInBip bip
+
+varsInBip :: BuildInPredicate -> Bool
+varsInBip (AST.Equality _ exprX exprY) = varsInExpr exprX || varsInExpr exprY
+varsInBip (AST.Ineq _     exprX exprY) = varsInExpr exprX || varsInExpr exprY
 
 varsInExpr :: Expr -> Bool
 varsInExpr (Variable _)      = True
