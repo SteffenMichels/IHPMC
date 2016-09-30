@@ -46,8 +46,8 @@ import Exception
 import Data.Foldable (foldl')
 import Probability
 
--- number of pfs in primitives, split points + scores
-data CachedSplitPoints = CachedSplitPoints Int (HashMap (GroundedAST.PFunc, SplitPoint) Double)
+-- total score, split points + scores
+data CachedSplitPoints = CachedSplitPoints Double (HashMap (GroundedAST.PFunc, SplitPoint) Double)
 type FState = Formula.FState CachedSplitPoints
 data SplitPoint = DiscreteSplit | ContinuousSplit Rational deriving (Eq, Generic)
 instance Hashable SplitPoint
@@ -207,25 +207,23 @@ heuristicDeterministic = const $ CachedSplitPoints 0 Map.empty
 heuristicBuildInPred :: HashMap GroundedAST.PFunc Interval -> GroundedAST.BuildInPredicate -> CachedSplitPoints
 heuristicBuildInPred prevChoicesReal prd =
         let predRfs = GroundedAST.predProbabilisticFunctions prd
-            nRfs    = Set.size predRfs
+            nPfs    = Set.size predRfs
         in case prd of
-            (GroundedAST.BuildInPredicateBool{}) -> CachedSplitPoints nRfs $ foldl' (\pts pf -> Map.insert (pf, DiscreteSplit) 1.0 pts) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
+            (GroundedAST.BuildInPredicateBool{}) -> CachedSplitPoints (fromIntegral nPfs) $ foldl' (\pts pf -> Map.insert (pf, DiscreteSplit) 1.0 pts) Map.empty predRfs -- TODO: weight for constraint with 2 boolean vars
             (GroundedAST.BuildInPredicateStr{}) -> error "IHMC: string-valued probabilistic functions not supported"
             (GroundedAST.BuildInPredicateInt{}) -> error "IHMC: integer-valued probabilistic functions not supported"
             (GroundedAST.BuildInPredicateReal rPrd) -> case rPrd of
                 (GroundedAST.Equality{}) -> error "IHPMC: real equality not implemented"
-                (GroundedAST.Constant _) -> CachedSplitPoints nRfs Map.empty
-                (GroundedAST.Ineq op exprX exprY) -> CachedSplitPoints
-                    nRfs
-                    ( snd $ foldl'
-                        (\(nSols, splitPs) (pfs, nSols', splitPs') -> if any (\pf -> Map.lookupDefault nRfs pf nSols < length pfs) pfs
-                                                                      then (nSols, splitPs)
-                                                                      else (Map.union nSols nSols', Map.unionWith (+) splitPs splitPs')
-                        )
-                        (Map.empty, Map.empty)
-                        (splitPoints <$> subsequences (Set.toList predRfs))
-                    )
+                (GroundedAST.Constant _) -> CachedSplitPoints 0.0 Map.empty
+                (GroundedAST.Ineq op exprX exprY) -> CachedSplitPoints (foldl' (\tot s -> tot + (2 - s)) 0.0 scores) scores
                     where
+                    scores = snd $ foldl'
+                            (\(nSols, splitPs) (pfs, nSols', splitPs') -> if any (\pf -> Map.lookupDefault nPfs pf nSols < length pfs) pfs
+                                                                          then (nSols, splitPs)
+                                                                          else (Map.union nSols nSols', Map.unionWith (+) splitPs splitPs')
+                            )
+                            (Map.empty, Map.empty)
+                            (splitPoints <$> subsequences (Set.toList predRfs))
                     equalSplits = Map.fromList [(pf,equalSplit pf) | pf <- Set.toList predRfs]
                         where
                             equalSplit pf = case  GroundedAST.probabilisticFuncDef pf of
@@ -237,7 +235,7 @@ heuristicBuildInPred prevChoicesReal prd =
                                 _ -> error "IHPMC.equalSplit failed"
                     splitPoints pfs
                         | null pfs || null result = (pfs, Map.empty,                             result)
-                        | otherwise               = (pfs, Map.fromList [(pf, nRfs') | pf <- pfs], result)
+                        | otherwise               = (pfs, Map.fromList [(pf, nPfs') | pf <- pfs], result)
                         where
                         result = Map.filterWithKey notOnBoundary $ foldl'
                             (Map.unionWith (+))
@@ -268,9 +266,9 @@ heuristicBuildInPred prevChoicesReal prd =
                             chLeft  = Map.insert pf (Interval.Interval curLower (Open splitP)) choices
                             chRight = Map.insert pf (Interval.Interval (Open splitP) curUpper) choices
 
-                        splitPoint pf remRfsCornerPts = (   (fromIntegral nRfs' - 1.0)*equalSplit pf
+                        splitPoint pf remRfsCornerPts = (   (fromIntegral nPfs' - 1.0)*equalSplit pf
                                                           + (if pfOnLeft then 1.0 else -1.0) * (sumExpr exprY evalVals - sumExpr exprX evalVals)
-                                                        ) / fromIntegral nRfs'
+                                                        ) / fromIntegral nPfs'
                             where
                             evalVals = Map.union remRfsCornerPts equalSplits
                             pfOnLeft = Set.member pf $ GroundedAST.exprProbabilisticFunctions exprX
@@ -283,7 +281,7 @@ heuristicBuildInPred prevChoicesReal prd =
                                 | otherwise = fromMaybe (error "IHPMC.sumExpr: Just expected") $ Map.lookup pf' vals
                             sumExpr (GroundedAST.Sum x y) vals = sumExpr x vals + sumExpr y vals
 
-                        nRfs' = length pfs
+                        nPfs' = length pfs
 
                         remRfsCorners = foldl'
                             (\corners pf -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) pf prevChoicesReal
@@ -309,12 +307,15 @@ heuristicBuildInPred prevChoicesReal prd =
                             _ -> error "IHPMC.heuristicBuildInPred.cdf"
 
 heuristicComposed :: [CachedSplitPoints] -> CachedSplitPoints
-heuristicComposed = foldl'
-                        ( \(CachedSplitPoints pfsInPrims splitPoints) (CachedSplitPoints pfsInPrims' splitPoints') ->
-                          CachedSplitPoints (pfsInPrims + pfsInPrims') $ combineSplitPoints splitPoints splitPoints'
-                        )
-                        (CachedSplitPoints 0 Map.empty)
+heuristicComposed points = CachedSplitPoints total ((/ total) <$> splitPts)
     where
+    CachedSplitPoints total splitPts = foldl'
+                        ( \(CachedSplitPoints total' splitPoints) (CachedSplitPoints total'' splitPoints') ->
+                          CachedSplitPoints (total' + total'') $ combineSplitPoints splitPoints splitPoints'
+                        )
+                        (CachedSplitPoints 0.0 Map.empty)
+                        points
+
     combineSplitPoints :: HashMap (GroundedAST.PFunc, SplitPoint) Double
                        -> HashMap (GroundedAST.PFunc, SplitPoint) Double
                        -> HashMap (GroundedAST.PFunc, SplitPoint) Double
