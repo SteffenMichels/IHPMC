@@ -53,6 +53,7 @@ data Exception = NonGroundPreds   [AST.RuleBodyElement] AST.PredicateLabel Int
                | TypeError        PropExprWithType PropExprWithType
                | UndefinedRf      AST.PFuncLabel Int
                | UndefinedRfValue AST.PFuncLabel [AST.ConstantExpr]
+               | UndefinedPred    AST.PredicateLabel Int
                | ProbabilisticFuncUsedAsArg
 
 instance Show Exception
@@ -75,6 +76,10 @@ instance Show Exception
         "'%s(%s)' is undefined."
         (show pf)
         (showLst args)
+    show (UndefinedPred label n) = printf
+        "Predicate '%s/%i' is undefined."
+        (show label)
+        n
     show ProbabilisticFuncUsedAsArg = "Probabilistic functions may not be used in arguments of predicates and functions."
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
@@ -159,9 +164,10 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
 
     computeGroundingsGoal :: AST.RuleBodyElement -> Seq AST.RuleBodyElement -> GState ()
     computeGroundingsGoal goal remaining = case goal of
-        AST.UserPredicate label givenArgs -> forM_ headRules continueWithChosenRule
+        AST.UserPredicate label givenArgs -> case Map.lookup (label, nArgs) rules of
+            Just headRules -> forM_ headRules continueWithChosenRule
+            Nothing        -> lift $ throw $ UndefinedPred label nArgs
             where
-            headRules = Map.lookupDefault (error $ printf "head '%s/%i' undefined" (show label) nArgs) (label, nArgs) rules
             nArgs     = length givenArgs
 
             continueWithChosenRule :: ([AST.HeadArgument], AST.RuleBody) -> GState ()

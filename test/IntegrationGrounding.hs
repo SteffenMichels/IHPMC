@@ -116,13 +116,13 @@ preds = IntegrationTest
         , (query "b",                preciseProb 0.2)
         , (query "c",                preciseProb 0.02)
         , (query "d",                preciseProb 0.28)
-        --, (query "e", preciseProb 0.0)
+        , (query "e",                undefinedPred "e" 0)
         , (queryStr "two" ["a","a"], preciseProb 0.1)
         , (queryStr "two" ["a","b"], preciseProb 0.02)
         , (queryStr "two" ["a","c"], preciseProb 0.02)
         , (queryStr "two" ["a","d"], preciseProb 0.1)
         , (queryStr "two" ["c","d"], preciseProb 0.02)
-        --, (queryStr "two" ["e","d"], preciseProb 0.0)
+        , (queryStr "two" ["e","d"], preciseProb 0.0)
         , (query "err",              pfAsArg)
         ]
     }
@@ -348,6 +348,11 @@ undefinedRf :: String -> Int -> Exceptional Exception a -> Bool
 undefinedRf expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRf pf n)))
     | AST.PFuncLabel expRf == pf && expN == n = True
 undefinedRf _ _ _                             = False
+
+undefinedPred :: String -> Int -> Exceptional Exception a -> Bool
+undefinedPred expPred expN  (Exception (Main.GrounderException (Grounder.UndefinedPred prd n)))
+    | AST.PredicateLabel expPred == prd && expN == n = True
+undefinedPred _ _ _                                  = False
 
 undefinedRfVal :: String -> Int -> Exceptional Exception a -> Bool
 undefinedRfVal expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRfValue pf args)))
