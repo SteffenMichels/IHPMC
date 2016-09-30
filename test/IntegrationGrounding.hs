@@ -33,8 +33,8 @@ import qualified Grounder
 import Probability
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars, count
-                      , tablingProp, tablingFO, network1, network2
+tests = ("grounding", [ typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars, constraints
+                      , count, tablingProp, tablingFO, network1, network2
                       ]
         )
 
@@ -251,6 +251,28 @@ existVars = IntegrationTest
         ]
     }
 
+constraints :: IntegrationTest
+constraints = IntegrationTest
+    { label = "constraints"
+    , model = unpack $ [text|
+                  p(X, X). // p introduces equality constraint
+                  easyT        <- p(X + 1, Y + 2), p(Y + 3, Z + 4), X = 1, Y = 0, Z = -1.
+                  easyF        <- p(X + 1, Y + 2), p(Y + 3, Z + 4), X = 1, Y = 1, Z = -1.
+                  // this should be possible with a better implementation
+                  difficult    <- p(X + 1, Y + 2), p(Y + 3, Z + 4), X = 1,        Z = -1.
+                  substitution <- p(X, Y), X = 1, Y > 0.
+
+                  typeErr <- p(X, Y), X = 1, Y = 1.0.
+              |]
+    , expectedResults =
+        [ (query "easyT",        preciseProb 1.0)
+        , (query "easyF",        preciseProb 0.0)
+        , (query "difficult",    unsolvableConstrs)
+        , (query "substitution", unsolvableConstrs)
+        , (query "typeErr",      typeError)
+        ]
+    }
+
 count :: IntegrationTest
 count = IntegrationTest
     { label = "count"
@@ -366,6 +388,10 @@ nonGround _ _ _ _                                                = False
 typeError :: Exceptional Exception a -> Bool
 typeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) = True
 typeError _                                                             = False
+
+unsolvableConstrs :: Exceptional Exception a -> Bool
+unsolvableConstrs (Exception (Main.GrounderException (Grounder.UnsolvableConstraints _))) = True
+unsolvableConstrs _                                                                       = False
 
 undefinedRf :: String -> Int -> Exceptional Exception a -> Bool
 undefinedRf expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRf pf n)))

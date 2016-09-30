@@ -49,12 +49,13 @@ import Data.Boolean (Boolean(..))
 
 type GState = StateT GroundingState (Exceptional Exception)
 
-data Exception = NonGroundPreds   [AST.RuleBodyElement] AST.PredicateLabel Int
-               | TypeError        PropExprWithType PropExprWithType
-               | UndefinedRf      AST.PFuncLabel Int
-               | UndefinedRfValue AST.PFuncLabel [AST.ConstantExpr]
-               | UndefinedPred    AST.PredicateLabel Int
+data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel Int
+               | TypeError             PropExprWithType PropExprWithType
+               | UndefinedRf           AST.PFuncLabel Int
+               | UndefinedRfValue      AST.PFuncLabel [AST.ConstantExpr]
+               | UndefinedPred         AST.PredicateLabel Int
                | ProbabilisticFuncUsedAsArg
+               | UnsolvableConstraints [Constraint]
 
 instance Show Exception
     where
@@ -81,8 +82,14 @@ instance Show Exception
         (show label)
         n
     show ProbabilisticFuncUsedAsArg = "Probabilistic functions may not be used in arguments of predicates and functions."
+    show (UnsolvableConstraints constrs) = printf
+        "Could not solve constraint%s %s."
+        (if length constrs > 1 then "s" else "")
+        (showLstEnc "'" "'" constrs)
 
-data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Show)
+data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic)
+instance Show Constraint where
+    show (EqConstraint exprX exprY) = printf "%s = %s" (show exprX) (show exprY)
 instance Hashable Constraint
 
 data GroundingState = GroundingState
@@ -238,7 +245,7 @@ addGroundings = do
         -- from here on we can assume that no vars are left in rule heads
         forM_ rules addGroundingsHead
     else
-        error $ printf "constraints could not be grounded: %s" $ show constrs
+        lift $ throw $ UnsolvableConstraints $ Set.toList constrs
     where
     checkAllElementsGrounded :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
                              -> Exceptional Exception (AST.PredicateLabel, Int, [([AST.Expr], GroundedAST.RuleBody)])
@@ -579,9 +586,9 @@ constraintHolds :: Constraint -> Exceptional Exception Bool
 constraintHolds (EqConstraint exprX exprY) =  do
     cnstX <- toPropArg exprX
     cnstY <- toPropArg exprY
-    return $ case (cnstX, cnstY) of
-        (AST.BoolConstant x, AST.BoolConstant y) -> x == y
-        (AST.RealConstant x, AST.RealConstant y) -> x == y
-        (AST.IntConstant  x, AST.IntConstant  y) -> x == y
-        (AST.StrConstant  x, AST.StrConstant  y) -> x == y
-        _                                        -> error $ printf "Types of expressions %s and %s do not match." (show exprX) (show exprY)
+    case (cnstX, cnstY) of
+        (AST.BoolConstant x, AST.BoolConstant y) -> return $ x == y
+        (AST.RealConstant x, AST.RealConstant y) -> return $ x == y
+        (AST.IntConstant  x, AST.IntConstant  y) -> return $ x == y
+        (AST.StrConstant  x, AST.StrConstant  y) -> return $ x == y
+        _                                        -> throw $ TypeError (toPropExprConst cnstX) (toPropExprConst cnstY)
