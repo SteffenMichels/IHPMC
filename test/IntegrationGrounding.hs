@@ -34,7 +34,7 @@ import Probability
 
 tests :: (String, [IntegrationTest])
 tests = ("grounding", [ queries, typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars
-                      , constraints, count, tablingProp, tablingFO, network1, network2
+                      , constraints, count, tablingProp, tablingFO, tablingPrune, network1, network2
                       ]
         )
 
@@ -345,6 +345,18 @@ tablingFO = IntegrationTest
     , expectedResults =
         [ (queryInt "p" [1], preciseProb 0.123)
         , (queryInt "p" [2], preciseProb 0.123)
+        ]
+    }
+
+tablingPrune :: IntegrationTest
+tablingPrune = IntegrationTest
+    { label = "tabling (requires pruning after goal is selected)"
+    , model = unpack $ [text|
+                  a(a, X) <- b(Y, a), a(Y, b).
+                  b(a, a).
+              |]
+    , expectedResults =
+        [ (queryStr "a" ["a", "a"], preciseProb 0.0)
         ]
     }
 
