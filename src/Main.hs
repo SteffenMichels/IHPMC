@@ -94,8 +94,8 @@ main' = do
             _            -> \_      _ _      _ _       -> Nothing
     forM_ queries $ \(qLabel, qRef) -> do
         (n, t, mbBounds, hpt) <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f
-        when (isJust repInterval) $ doIOException $ putStrLn ""
         mapExceptionT IOException $ printResult qLabel n t mbBounds
+        when (isJust repInterval) $ doIOException $ putStrLn ""
         whenJust hptExpPath $ \path -> mapExceptionT IOException $ HPT.exportAsDot path hpt
         where
         printResult qLabel n t mbBounds = doIO $ putStrLn $ printf
