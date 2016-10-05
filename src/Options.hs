@@ -19,6 +19,9 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module Options
     ( parseConsoleArgs
     , Options(..)
@@ -28,7 +31,6 @@ import Control.Monad.Exception.Synchronous
 import Exception
 import Probability
 import System.Console.ArgParser.Params
---import System.Console.ArgParser.Run
 import Util
 import Text.Printf (printf)
 
@@ -58,9 +60,21 @@ parseConsoleArgs args = do
         `andBy`    maybeFlag "formula_export_path" `Descr` "path to file to which the initial formula is exported (as dot file)"
         `andBy`    maybeFlag "pt_export_path"      `Descr` "path to file to which the final hybrid probability tree is exported (as dot file)"
 
-maybeFlag :: Read a => Key -> StdArgParam (Maybe a)
-maybeFlag key = StdArgParam (Optional Nothing) Flag key (SingleArgParser $ readArg key)
+maybeFlag :: ReadArg a => Key -> StdArgParam (Maybe a)
+maybeFlag key = StdArgParam (Optional Nothing) Flag key (SingleArgParser $ readArg' key)
     where
-    readArg key' arg = case maybeRead arg of
+    readArg' key' arg = case readArg arg of
       Just val -> Right $ Just val
       Nothing  -> Left $ printf "Invalid value '%s' for parameter %s." arg key'
+
+class ReadArg a where
+    readArg :: String -> Maybe a
+
+instance ReadArg Int where
+    readArg = maybeRead
+
+instance ReadArg Probability where
+    readArg = maybeRead
+
+instance ReadArg String where
+    readArg = Just
