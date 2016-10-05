@@ -19,8 +19,6 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-{-# LANGUAGE Strict #-}
-
 module FormulaConverter ( convert
                         ) where
 import GroundedAST (GroundedAST(..))
@@ -29,16 +27,20 @@ import Formula (Formula)
 import qualified Formula
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
+import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Control.Monad.State.Strict
-import Data.Foldable (foldrM)
+import Data.Maybe (isJust, fromMaybe, isNothing)
+import Control.Monad (unless)
+import Control.Arrow (second, (***))
+import Data.Foldable (foldrM, foldl')
 import Text.Printf (printf)
 import Util
 
 convert :: GroundedAST
         -> Formula.CacheComputations cachedInfo
         -> (([(GroundedAST.RuleBodyElement, Formula.NodeRef)], [Formula.NodeRef]), Formula cachedInfo)
-convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, GroundedAST.rules=rules} cachedInfoComps =
+convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = evidence, GroundedAST.rules = rules} cachedInfoComps =
     runState (do groundedQueries  <- forM (Set.toList queries)  (\q -> (\ref -> (q, ref)) <$> headFormula q Set.empty)
                  groundedEvidence <- forM (Set.toList evidence) (`headFormula` Set.empty)
                  return (groundedQueries, groundedEvidence)
@@ -47,36 +49,77 @@ convert GroundedAST{GroundedAST.queries=queries, GroundedAST.evidence=evidence, 
     headFormula :: GroundedAST.RuleBodyElement
                 -> HashSet GroundedAST.PredicateLabel
                 -> Formula.FState cachedInfo Formula.NodeRef
-    headFormula (GroundedAST.UserPredicate label) activeGoals
-        | Set.member label activeGoals = return $ Formula.refDeterministic False -- cycle detected
-        | otherwise = do
+    headFormula (GroundedAST.UserPredicate label) excludedGoals = do
             mbNodeId <- Formula.labelId flabel
             case mbNodeId of
                 Just nodeId -> return $ Formula.refComposed nodeId
                 _ -> do
-                    (fBodies,_) <- foldM (ruleFormulas label) ([], 0::Integer) headRules
+                    (fBodies,_) <- foldM (ruleFormulas label) ([], 0::Integer) $ Map.lookupDefault Set.empty label rules
                     Formula.entryRef <$> Formula.insert (Left flabel) True Formula.Or fBodies
             where
-            flabel    = Formula.uncondComposedLabel label
-            headRules = Map.lookupDefault Set.empty label rules
-            activeGoals' = Set.insert label activeGoals
+            flabel    = Formula.uncondComposedLabel $ GroundedAST.PredicateLabel $ printf "%s-%s" (show label) $ showLst $ Set.toList excludedGoals'
+            excludedGoals' = Set.intersection excludedGoals children
+            children = Map.lookupDefault (error "not in predChildren") label predChildren
 
             ruleFormulas :: GroundedAST.PredicateLabel
                          -> ([Formula.NodeRef], Integer)
                          -> GroundedAST.RuleBody
                          -> Formula.FState cachedInfo ([Formula.NodeRef], Integer)
             ruleFormulas (GroundedAST.PredicateLabel lbl) (fBodies, counter) body = do
-                newChild <- bodyFormula (GroundedAST.PredicateLabel (printf "%s%i" lbl counter)) body
+                newChild <- bodyFormula (GroundedAST.PredicateLabel (printf "%s#%i" lbl counter)) body
                 return (newChild : fBodies, succ counter)
 
             bodyFormula :: GroundedAST.PredicateLabel
                         -> GroundedAST.RuleBody
                         -> Formula.FState cachedInfo Formula.NodeRef
-            bodyFormula label' (GroundedAST.RuleBody elements) = case length elements of
-                0 -> return $ Formula.refDeterministic True
-                1 -> headFormula (getFirst elements) activeGoals'
-                _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el activeGoals'
-                                                                 return $ newChild : fChildren
-                                            ) [] elements
-                        Formula.entryRef <$> Formula.insert (Left $ Formula.uncondComposedLabel label') True Formula.And fChildren
+            bodyFormula label' (GroundedAST.RuleBody elements)
+                | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] = return $ Formula.refDeterministic False
+                | otherwise = case length elements of
+                        0 -> return $ Formula.refDeterministic True
+                        1 -> headFormula (getFirst elements) excludedGoals''
+                        _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el excludedGoals''
+                                                                         return $ newChild : fChildren
+                                                    ) [] elements
+                                Formula.entryRef <$> Formula.insert (Left $ Formula.uncondComposedLabel label') True Formula.And fChildren
+               where
+               excludedGoals''
+                   | Set.member label children = Set.insert label excludedGoals'
+                   | otherwise                 = excludedGoals'
     headFormula (GroundedAST.BuildInPredicate bip) _ = return $ Formula.refBuildInPredicate bip
+
+    predChildren = fst $ execState
+        (do forM_ [q | GroundedAST.UserPredicate q <- Set.toList queries]  (\q -> (\ref -> (q, ref)) <$> determinePredChildren q)
+            forM_ [e | GroundedAST.UserPredicate e <- Set.toList evidence] determinePredChildren
+        ) (Map.empty, Map.empty)
+
+    determinePredChildren :: GroundedAST.PredicateLabel
+                 -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel), HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) ()
+    determinePredChildren goal = do
+        alreadyKnown <- gets $ isJust . Map.lookup goal . fst
+        unless alreadyKnown $ do
+            children <- fst <$> determineChildren goal Set.empty
+            modify' (Map.insert goal children *** Map.delete goal)
+            forM_ children determinePredChildren
+        where
+        determineChildren :: GroundedAST.PredicateLabel
+                          -> HashSet GroundedAST.PredicateLabel
+                          -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel), HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) (HashSet GroundedAST.PredicateLabel, Bool)
+        determineChildren goal' activeGoals
+            | Set.member goal' activeGoals = return (Set.empty, True)
+            | otherwise = do
+                mbChildren <- gets $ Map.lookup goal' . fst
+                case mbChildren of
+                    Just children -> return (children, False)
+                    Nothing -> do
+                        mbCachedDirChildren <- gets $ Map.lookup goal' . snd
+                        let directChildren = fromMaybe
+                                (Set.unions [ Set.fromList [child | GroundedAST.UserPredicate child <- Set.toList elements]
+                                                           | GroundedAST.RuleBody elements <- Set.toList $ Map.lookupDefault Set.empty goal' rules ]
+                                )
+                                mbCachedDirChildren
+                        let activeGoals' = Set.insert goal' activeGoals
+                        childrensChildren <- forM (Set.toList directChildren) (`determineChildren` activeGoals')
+                        let res@(allChildren, cycl) = foldl' (\(chldrnX, cycleX) (chldrnY, cycleY) -> (Set.union chldrnX chldrnY, cycleX || cycleY)) (directChildren, False) childrensChildren
+                        unless cycl $ modify' (Map.insert goal' allChildren *** Map.delete goal')
+                        when   (cycl && isNothing mbCachedDirChildren) $ modify' $ second $ Map.insert goal' directChildren -- cannot determine all children, cache at least direct ones
+                        return res
