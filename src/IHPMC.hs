@@ -58,10 +58,10 @@ untilFinished _ _ _ = False
 ihpmc :: Formula.NodeRef
       -> [Formula.NodeRef]
       -> (Int -> ProbabilityBounds -> Int -> Bool)
-      -> Maybe Int
+      -> (Int -> ProbabilityBounds -> Int -> Int -> Maybe (ExceptionalT IOException IO ()))
       -> Formula CachedSplitPoints
-      -> ExceptionalT IOException IO ([(Int, Int, Maybe ProbabilityBounds)], HPT)
-ihpmc query evidence finishPred mbRepInterval f = do
+      -> ExceptionalT IOException IO (Int, Int, Maybe ProbabilityBounds, HPT)
+ihpmc query evidence finishPred reportingIO f = do
     t <- doIO getTime
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query $ Formula.entryRef evidenceConj) f'
     where
@@ -70,20 +70,20 @@ ihpmc query evidence finishPred mbRepInterval f = do
            -> Int
            -> Int
            -> HPTNode
-           -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) ([(Int, Int, Maybe ProbabilityBounds)], HPT)
+           -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) (Int, Int, Maybe ProbabilityBounds, HPT)
     ihpmc' i startTime lastReportedTime hptNode = do
         hpt <- state $ runState $ ihpmcIterate hptNode 1.0
         curTime <- lift $ doIO getTime
         let runningTime = curTime - startTime
         case hpt of
-            (HPT.Finished _ _)            -> return ([(i, runningTime, HPT.bounds hpt)], hpt)
+            (HPT.Finished _ _)            -> return (i, runningTime, HPT.bounds hpt, hpt)
             (HPT.Unfinished hptNode' _ _) -> do
                 let bounds = HPT.bounds hpt
-                if maybe True (\bs -> finishPred i bs runningTime) bounds
-                    then return ([(i, runningTime, bounds)], hpt)
-                    else if case mbRepInterval of Just repInterv -> curTime - lastReportedTime >= repInterv; _ -> False
-                         then ihpmc' (succ i) startTime curTime hptNode' >>= \(bs, hpt') -> return ((i, runningTime, bounds) : bs, hpt')
-                         else ihpmc' (succ i) startTime lastReportedTime hptNode'
+                case bounds of
+                    Just bs | not $ finishPred i bs runningTime -> case reportingIO i bs runningTime (lastReportedTime - startTime) of
+                        Just repIO -> lift repIO >> ihpmc' (succ i) startTime curTime hptNode'
+                        Nothing    -> ihpmc' (succ i) startTime lastReportedTime hptNode'
+                    _ -> return (i, runningTime, bounds, hpt)
 
 ihpmcIterate :: HPTNode -> Double -> FState HPT
 ihpmcIterate hptNode partChoiceProb = do

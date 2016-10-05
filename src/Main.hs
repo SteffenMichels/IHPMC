@@ -87,25 +87,29 @@ main' = do
     let stopPred n (ProbabilityBounds l u) t =  maybe False (<= n)       nIterations
                                              || maybe False (>= (u-l)/2) errBound
                                              || maybe False (<= t)       timeout
+    let reportingIO = case repInterval of
+            Just rInterv -> \qLabel n bounds t lastRep -> if   t - lastRep >= rInterv
+                                                          then Just $ printResult qLabel n t $ Just bounds
+                                                          else Nothing
+            _            -> \_      _ _      _ _       -> Nothing
     forM_ queries $ \(qLabel, qRef) -> do
-        (results, hpt) <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred repInterval f
+        (n, t, mbBounds, hpt) <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f
         when (isJust repInterval) $ doIOException $ putStrLn ""
-        forM_
-            results
-            (\(i, t, bounds) -> doIOException $ putStrLn $ printf
-                "%s (iteration %i, after %ims): %s"
-                (show qLabel)
-                i
-                t
-                (case bounds of
-                    Just (ProbabilityBounds l u) -> printf
-                        "%s (error bound: %s)"
-                        (show $ (u + l) / 2.0)
-                        (show $ (u - l) / 2.0)
-                    Nothing -> "inconsistent evidence"
-                )
-            )
+        mapExceptionT IOException $ printResult qLabel n t mbBounds
         whenJust hptExpPath $ \path -> mapExceptionT IOException $ HPT.exportAsDot path hpt
+        where
+        printResult qLabel n t mbBounds = doIO $ putStrLn $ printf
+            "%s (iteration %i, after %ims): %s"
+            (show qLabel)
+            n
+            t
+            (case mbBounds of
+                Just (ProbabilityBounds l u) -> printf
+                    "%s (error bound: %s)"
+                    (show $ (u + l) / 2.0)
+                    (show $ (u - l) / 2.0)
+                Nothing -> "inconsistent evidence"
+            )
 
 doIOException :: IO a -> ExceptionalT Exception IO a
 doIOException io = mapExceptionT IOException $ doIO io
