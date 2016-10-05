@@ -366,10 +366,14 @@ condComposedLabelBool pf val (ComposedLabel name (Conditions bConds rConds) hash
     hash'   = hash + Hashable.hashWithSalt (Hashable.hash pf) val
 
 condComposedLabelReal :: GroundedAST.PFunc -> Interval -> ComposedLabel -> ComposedLabel
-condComposedLabelReal pf interv (ComposedLabel name (Conditions bConds rConds) hash) = ComposedLabel name (Conditions bConds rConds') hash'
+condComposedLabelReal pf interv (ComposedLabel name (Conditions bConds rConds) hash) = ComposedLabel name (Conditions bConds rConds') hash''
     where
     rConds' = Map.insert pf interv rConds
-    hash'   = hash + Hashable.hashWithSalt (Hashable.hash pf) interv
+    hashPf  = Hashable.hash pf
+    hash'   = hash + Hashable.hashWithSalt hashPf interv
+    hash''  = case Map.lookup pf rConds of
+        Just interv' -> hash' - Hashable.hashWithSalt hashPf interv'
+        Nothing      -> hash'
 
 labelId :: ComposedLabel -> FState cachednInfo (Maybe ComposedId)
 labelId label = gets labels2ids >>= \l2ids -> return $ Map.lookup label l2ids
