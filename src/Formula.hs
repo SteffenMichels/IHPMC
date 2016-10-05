@@ -145,9 +145,9 @@ insert labelOrConds sign op children = do
     nodeChildren _                       = []
 
 augmentWithEntry :: NodeRef -> FState cachedInfo (RefWithNode cachedInfo)
-augmentWithEntry label = fromMaybe (error $ printf "Formula: non-existing Formula node '%s'" $ show label)
-                         <$>
-                         tryAugmentWithEntry label
+augmentWithEntry ref = fromMaybe (error $ printf "Formula: non-existing Formula node '%s'" $ show ref)
+                       <$>
+                       tryAugmentWithEntry ref
 
 tryAugmentWithEntry :: NodeRef -> FState cachedInfo (Maybe (RefWithNode cachedInfo))
 tryAugmentWithEntry ref@(RefComposed _ i) = do
@@ -372,7 +372,7 @@ condComposedLabelReal pf interv (ComposedLabel name (Conditions bConds rConds) h
     hash'   = hash + Hashable.hashWithSalt (Hashable.hash pf) interv
 
 labelId :: ComposedLabel -> FState cachednInfo (Maybe ComposedId)
-labelId label = get >>= \Formula{labels2ids} -> return $ Map.lookup label labels2ids
+labelId label = gets labels2ids >>= \l2ids -> return $ Map.lookup label l2ids
 
 -- the FormulaEntry contains composed node, plus additional, redundant, cached information to avoid recomputations
 data FormulaEntry cachedInfo = FormulaEntry NodeType [NodeRef] (HashSet GroundedAST.PFunc) cachedInfo
