@@ -296,16 +296,10 @@ addGroundings = do
 
 -- turn constructs from ordinary ones (with arguments) to propositional ones (after grounding)
 toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> GroundedAST.PredicateLabel
-toPropPredLabel (AST.PredicateLabel label) args = GroundedAST.PredicateLabel $ printf
-    "%s%s"
-    label
-    (if null args then "" else printf "(%s)" (showLst args))
+toPropPredLabel (AST.PredicateLabel label) args = GroundedAST.stringNamePredicateLabel label args
 
 toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GroundedAST.PFuncLabel
-toPropPFuncLabel (AST.PFuncLabel label) args = GroundedAST.PFuncLabel $ printf
-    "%s%s"
-    label
-    (if null args then "" else printf "(%s)" (showLst args))
+toPropPFuncLabel = GroundedAST.PFuncLabel
 
 -- precondition: no vars in expr
 -- throws exception if there are PFs in expressions

@@ -103,7 +103,7 @@ insert labelOrConds sign op children = do
         Composed nType nChildren -> do
             let label = case labelOrConds of
                     Left label' -> label'
-                    Right conds -> let label' = GroundedAST.PredicateLabel $ show freshCounter
+                    Right conds -> let label' = GroundedAST.numberNamePredicateLabel freshCounter []
                                    in  ComposedLabel label' conds $ Hashable.hash label' -- only use label as hash (ignore conds) as node is unique anyhow
             let pFuncs = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
             modify' (\f -> f{ nodes       = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren pFuncs cachedInfo) nodes

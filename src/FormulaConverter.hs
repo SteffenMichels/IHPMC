@@ -34,7 +34,6 @@ import Data.Maybe (isJust, fromMaybe, isNothing)
 import Control.Monad (unless)
 import Control.Arrow (second, (***))
 import Data.Foldable (foldrM, foldl')
-import Text.Printf (printf)
 import Util
 
 convert :: GroundedAST
@@ -57,7 +56,7 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                     (fBodies,_) <- foldM (ruleFormulas label) ([], 0::Integer) $ Map.lookupDefault Set.empty label rules
                     Formula.entryRef <$> Formula.insert (Left flabel) True Formula.Or fBodies
             where
-            flabel    = Formula.uncondComposedLabel $ GroundedAST.PredicateLabel $ printf "%s-%s" (show label) $ showLst $ Set.toList excludedGoals'
+            flabel    = Formula.uncondComposedLabel $ GroundedAST.setExcluded excludedGoals' label
             excludedGoals' = Set.intersection excludedGoals children
             children = Map.lookupDefault (error "not in predChildren") label predChildren
 
@@ -65,8 +64,8 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                          -> ([Formula.NodeRef], Integer)
                          -> GroundedAST.RuleBody
                          -> Formula.FState cachedInfo ([Formula.NodeRef], Integer)
-            ruleFormulas (GroundedAST.PredicateLabel lbl) (fBodies, counter) body = do
-                newChild <- bodyFormula (GroundedAST.PredicateLabel (printf "%s#%i" lbl counter)) body
+            ruleFormulas label' (fBodies, counter) body = do
+                newChild <- bodyFormula (GroundedAST.setBodyNr counter label') body
                 return (newChild : fBodies, succ counter)
 
             bodyFormula :: GroundedAST.PredicateLabel

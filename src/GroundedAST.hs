@@ -29,7 +29,11 @@ module GroundedAST ( GroundedAST(..)
                    , probabilisticFuncDef
                    , makePFunc
                    , Expr(..)
-                   , PredicateLabel(..)
+                   , PredicateLabel
+                   , stringNamePredicateLabel
+                   , numberNamePredicateLabel
+                   , setBodyNr
+                   , setExcluded
                    , ConstantExpr(..)
                    , AST.PFuncDef(..)
                    , Addition
@@ -68,11 +72,35 @@ data GroundedAST = GroundedAST
     deriving Show
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
-newtype PredicateLabel = PredicateLabel String deriving (Eq, Generic)
-instance Show PredicateLabel
-    where
-    show (PredicateLabel l) = l
+data PredicateLabel = PredicateLabel PredicateName [AST.ConstantExpr] (Maybe Integer) (HashSet PredicateLabel) deriving (Eq,Generic)
+instance Show PredicateLabel where
+    show (PredicateLabel name args mbNr excluded) = printf
+        "%s%s%s%s"
+        (show name)
+        (if null args then "" else printf "(%s)" (showLst args))
+        (case mbNr of Just n -> printf "#%i" n; Nothing -> "")
+        (if null excluded then "" else printf "-%s" $ showLst $ Set.toList excluded)
 instance Hashable PredicateLabel
+
+data PredicateName = StringName String
+                   | NumberName Integer
+                    deriving (Eq, Generic)
+instance Show PredicateName where
+    show (StringName n) = n
+    show (NumberName n) = show n
+instance Hashable PredicateName
+
+stringNamePredicateLabel :: String -> [AST.ConstantExpr] -> PredicateLabel
+stringNamePredicateLabel name args = PredicateLabel (StringName name) args Nothing Set.empty
+
+numberNamePredicateLabel :: Integer -> [AST.ConstantExpr] -> PredicateLabel
+numberNamePredicateLabel name args = PredicateLabel (NumberName name) args Nothing Set.empty
+
+setBodyNr :: Integer -> PredicateLabel -> PredicateLabel
+setBodyNr n (PredicateLabel name args _ excluded) = PredicateLabel name args (Just n) excluded
+
+setExcluded :: HashSet PredicateLabel -> PredicateLabel -> PredicateLabel
+setExcluded excluded (PredicateLabel name args mbNr _) = PredicateLabel name args mbNr excluded
 
 data PFunc = PFunc PFuncLabel AST.PFuncDef Int -- store hash for efficiency reasons
 instance Eq PFunc
@@ -93,10 +121,13 @@ probabilisticFuncDef (PFunc _ def _) = def
 makePFunc :: PFuncLabel -> AST.PFuncDef -> PFunc
 makePFunc label def = PFunc label def $ Hashable.hash label
 
-newtype PFuncLabel = PFuncLabel String deriving (Eq, Generic)
+data PFuncLabel = PFuncLabel AST.PFuncLabel [AST.ConstantExpr] deriving (Eq, Generic)
 instance Show PFuncLabel
     where
-    show (PFuncLabel l) = printf "~%s" l
+    show (PFuncLabel label args) = printf
+        "%s%s"
+        (show label)
+        (if null args then "" else printf "(%s)" (showLst args))
 instance Hashable PFuncLabel
 
 newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)

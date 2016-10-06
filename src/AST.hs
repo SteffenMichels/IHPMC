@@ -82,7 +82,7 @@ instance Show PredicateLabel
     where
     show (PredicateLabel l) = l
 
-newtype PFuncLabel     = PFuncLabel String     deriving (Eq, Generic)
+newtype PFuncLabel = PFuncLabel String deriving (Eq, Generic)
 instance Show PFuncLabel
     where
     show (PFuncLabel label) = label
