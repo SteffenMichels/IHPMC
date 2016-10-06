@@ -72,15 +72,16 @@ data GroundedAST = GroundedAST
     deriving Show
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
-data PredicateLabel = PredicateLabel PredicateName [AST.ConstantExpr] (Maybe Integer) (HashSet PredicateLabel) deriving (Eq,Generic)
+data PredicateLabel = PredicateLabel PredicateName [AST.ConstantExpr] (Maybe Integer) (HashSet PredicateLabel) Int deriving Eq
 instance Show PredicateLabel where
-    show (PredicateLabel name args mbNr excluded) = printf
+    show (PredicateLabel name args mbNr excluded _) = printf
         "%s%s%s%s"
         (show name)
         (if null args then "" else printf "(%s)" (showLst args))
         (case mbNr of Just n -> printf "#%i" n; Nothing -> "")
         (if null excluded then "" else printf "-%s" $ showLst $ Set.toList excluded)
-instance Hashable PredicateLabel
+instance Hashable PredicateLabel where
+    hashWithSalt salt (PredicateLabel _ _ _ _ hash) = Hashable.hashWithSalt salt hash
 
 data PredicateName = StringName String
                    | NumberName Integer
@@ -91,16 +92,23 @@ instance Show PredicateName where
 instance Hashable PredicateName
 
 stringNamePredicateLabel :: String -> [AST.ConstantExpr] -> PredicateLabel
-stringNamePredicateLabel name args = PredicateLabel (StringName name) args Nothing Set.empty
+stringNamePredicateLabel name args = PredicateLabel strName args Nothing Set.empty $ predicateLabelHash strName args Nothing Set.empty
+    where
+    strName = StringName name
 
 numberNamePredicateLabel :: Integer -> [AST.ConstantExpr] -> PredicateLabel
-numberNamePredicateLabel name args = PredicateLabel (NumberName name) args Nothing Set.empty
+numberNamePredicateLabel name args = PredicateLabel nrName args Nothing Set.empty $ predicateLabelHash nrName args Nothing Set.empty
+    where
+    nrName = NumberName name
 
 setBodyNr :: Integer -> PredicateLabel -> PredicateLabel
-setBodyNr n (PredicateLabel name args _ excluded) = PredicateLabel name args (Just n) excluded
+setBodyNr n (PredicateLabel name args _ excluded _) = PredicateLabel name args (Just n) excluded $ predicateLabelHash name args (Just n) excluded
 
 setExcluded :: HashSet PredicateLabel -> PredicateLabel -> PredicateLabel
-setExcluded excluded (PredicateLabel name args mbNr _) = PredicateLabel name args mbNr excluded
+setExcluded excluded (PredicateLabel name args mbNr _ _) = PredicateLabel name args mbNr excluded $ predicateLabelHash name args mbNr excluded
+
+predicateLabelHash :: PredicateName -> [AST.ConstantExpr] -> Maybe Integer -> HashSet PredicateLabel -> Int
+predicateLabelHash name args mbNr = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hash name) args) mbNr)
 
 data PFunc = PFunc PFuncLabel AST.PFuncDef Int -- store hash for efficiency reasons
 instance Eq PFunc

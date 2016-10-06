@@ -18,7 +18,8 @@ executable ihpmc_float
         explicit-exception -any,
         time -any,
         transformers -any,
-        Boolean -any
+        Boolean -any,
+        text -any
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
@@ -53,7 +54,8 @@ executable ihpmc_exact
         explicit-exception -any,
         time -any,
         transformers -any,
-        Boolean -any
+        Boolean -any,
+        text -any
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
     hs-source-dirs: src
@@ -92,7 +94,8 @@ test-suite integration
         transformers -any,
         neat-interpolation >=0.3.2.1,
         text -any,
-        Boolean -any
+        Boolean -any,
+        text -any
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
     hs-source-dirs: test src
