@@ -69,7 +69,16 @@ data GroundedAST = GroundedAST
     , queries   :: HashSet RuleBodyElement
     , evidence  :: HashSet RuleBodyElement
     }
-    deriving Show
+
+instance Show GroundedAST
+    where
+    show ast = rulesStr ++ queryStr ++ evStr
+        where
+        rulesStr     = concat $ concat [
+                            [printf "%s <- %s.\n" (show label) $ show body | body <- Set.toList bodies]
+                       | (label, bodies) <- Map.toList $ rules ast]
+        queryStr     = concat [printf "query %s.\n"    $ show query | query <- Set.toList $ queries  ast]
+        evStr        = concat [printf "evidence %s.\n" $ show ev    | ev    <- Set.toList $ evidence ast]
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
 data PredicateLabel = PredicateLabel PredicateName [AST.ConstantExpr] (Maybe Integer) (HashSet PredicateLabel) Int deriving Eq
@@ -133,7 +142,7 @@ data PFuncLabel = PFuncLabel AST.PFuncLabel [AST.ConstantExpr] deriving (Eq, Gen
 instance Show PFuncLabel
     where
     show (PFuncLabel label args) = printf
-        "%s%s"
+        "~%s%s"
         (show label)
         (if null args then "" else printf "(%s)" (showLst args))
 instance Hashable PFuncLabel
