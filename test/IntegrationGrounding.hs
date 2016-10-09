@@ -289,7 +289,7 @@ constraints = IntegrationTest
         [ (query "easyT",        preciseProb 1.0)
         , (query "easyF",        preciseProb 0.0)
         , (query "difficult",    unsolvableConstrs)
-        , (query "substitution", unsolvableConstrs)
+        , (query "substitution", preciseProb 1.0)
         , (query "typeErr",      typeError)
         ]
     }

@@ -170,7 +170,6 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 mbResult <- lift $ runMaybeT $ applyArgs givenArgs args elements
                 case mbResult of
                     Just (els, valu, constrs) -> do
-                        let valu' = Map.map AST.ConstantExpr valu
                         -- replace left-over (existentially quantified) vars
                         els' <- doState $ replaceEVars els
                         parents' <- doState $ if maybeGoal then do
@@ -182,8 +181,8 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                         -- add newly found constraints to state
                         modify' (\st -> st{proofConstraints = Set.union constrs $ proofConstraints st})
                         -- apply newly found variable values and check if proof is still consistent
-                        consistent <- applyValuation valu' pfDefs
-                        mbToPrune  <- applyValuationMaybeInProof valu' pfDefs
+                        consistent <- applyValuation valu pfDefs
+                        mbToPrune  <- applyValuationMaybeInProof valu pfDefs
                         case (consistent, mbToPrune) of
                             -- valuation is consistent with proofs (and maybe proofs)
                             (True, Just toPrune) ->
@@ -191,9 +190,9 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                                     let notToPrune (_, parents'') = null $ Set.intersection toPrune parents''
                                         remaining' = Seq.filter notToPrune remaining
                                         els''      = Seq.fromList $ filter notToPrune $ (, parents') <$> els'
-                                    continue remaining' els'' valu' oldSt
+                                    continue remaining' els'' valu oldSt
                                 else -- prune proof (continue without elements of current rule)
-                                    continue remaining Seq.empty valu' oldSt
+                                    continue remaining Seq.empty valu oldSt
                             _ -> put oldSt -- recover old state
                     Nothing -> put oldSt -- recover old state
                 where
@@ -460,7 +459,7 @@ haveToProof (AST.UserPredicate label givenArgs) = do
 applyArgs :: [AST.Expr]
           -> [AST.HeadArgument]
           -> [AST.RuleBodyElement]
-          -> MaybeT (Exceptional Exception) ([AST.RuleBodyElement], HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
+          -> MaybeT (Exceptional Exception) ([AST.RuleBodyElement], HashMap AST.VarName AST.Expr, HashSet Constraint)
 applyArgs givenArgs args elements = do
         (intValu, extValu, constrs) <- doMaybe mbVals
         elements' <- lift $ forM elements (\e -> AST.mapExprsInRuleBodyElementM
@@ -474,23 +473,36 @@ applyArgs givenArgs args elements = do
 
     -- keep two valuation: an internal one for replacing variables in the current rule body
     --                     an external one for replacing existentially quantified variables in current proof
-    applyArgs' :: Maybe (HashMap AST.VarName AST.Expr, HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
+    applyArgs' :: Maybe (HashMap AST.VarName AST.Expr, HashMap AST.VarName AST.Expr, HashSet Constraint)
                -> (AST.Expr, AST.HeadArgument)
-               -> Maybe (HashMap AST.VarName AST.Expr, HashMap AST.VarName AST.ConstantExpr, HashSet Constraint)
-    applyArgs' mbVals' givenReqArg = do
+               -> Maybe (HashMap AST.VarName AST.Expr, HashMap AST.VarName AST.Expr, HashSet Constraint)
+    applyArgs' mbVals' (given, req) = do
         (intValu, extValu, constrs) <- mbVals'
-        case givenReqArg of
-            (AST.Variable var, AST.ArgConstant cnst) -> case Map.lookup var extValu of
-                Just cnst' -> if cnst == cnst' then
-                                  return (intValu, extValu, constrs)
-                              else
-                                  Nothing
-                Nothing -> return (intValu, Map.insert var cnst extValu, constrs)
-            (expr, AST.ArgVariable var) -> case Map.lookup var intValu of
-                Just expr'  -> return (intValu, extValu, Set.insert (EqConstraint expr expr') constrs)
-                Nothing -> return (Map.insert var expr intValu, extValu, constrs)
-            (expr, AST.ArgConstant cnst) -> return (intValu, extValu, Set.insert (EqConstraint expr $ AST.ConstantExpr cnst) constrs)
-            (_, AST.ArgDontCareVariable) -> return (intValu, extValu, constrs)
+        case req of
+            AST.ArgConstant cnstR -> case given of
+                AST.ConstantExpr cnstG | cnstG == cnstR -> return (intValu, extValu, constrs)
+                                       | otherwise      -> Nothing
+                AST.Variable varG -> (\(extValu', constrs') -> (intValu, extValu', constrs')) <$>
+                                     updateValu varG (AST.ConstantExpr cnstR) extValu constrs
+                _ -> return (intValu, extValu, Set.insert (EqConstraint given $ AST.ConstantExpr cnstR) constrs)
+            AST.ArgVariable varR -> case given of
+                AST.Variable varG -> case Map.lookup varR intValu of
+                    Just val -> (\(extValu', constrs') -> (intValu, extValu', constrs')) <$>
+                                updateValu varG val extValu constrs
+                    Nothing -> return (Map.insert varR given intValu, extValu, constrs)
+                _ -> (\(intValu', constrs') -> (intValu', extValu, constrs')) <$>
+                     updateValu varR given intValu constrs
+            AST.ArgDontCareVariable -> return (intValu, extValu, constrs)
+        where
+        updateValu :: AST.VarName
+                   -> AST.Expr
+                   -> HashMap AST.VarName AST.Expr
+                   -> HashSet Constraint
+                   -> Maybe (HashMap AST.VarName AST.Expr, HashSet Constraint)
+        updateValu var val valu constrs = case Map.lookup var valu of
+            Just val' | val == val' -> Just (valu, constrs) -- this is type safe: if values are equal they are also of same type
+                      | otherwise   -> Just (valu, Set.insert (EqConstraint val val') constrs)
+            Nothing -> Just (Map.insert var val valu, constrs)
 
 applyValuation :: HashMap AST.VarName AST.Expr
                -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
