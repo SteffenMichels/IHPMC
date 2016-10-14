@@ -62,6 +62,8 @@ identifier = Token.identifier lexer
 reserved   = Token.reserved   lexer
 reservedOp = Token.reservedOp lexer
 parens     = Token.parens     lexer
+braces     = Token.braces     lexer
+colon      = Token.colon      lexer
 rational   = Token.lexeme     lexer parseRat
     where
     parseRat :: Parser Rational
@@ -105,6 +107,7 @@ variable   = Token.lexeme        lexer parseVar
         first <- upper
         rest  <- many alphaNum
         return (first:rest)
+
 
 -- PARSER
 parsePclp :: String -> Exceptional Exception AST
@@ -187,7 +190,7 @@ pFuncDef :: Parser (AST.PFuncLabel, [AST.HeadArgument], AST.PFuncDef)
 pFuncDef = do
     (lbl, args) <- pFunc headArgument
     reservedOp "~"
-    def <- flipDef <|> normDef
+    def <- flipDef <|> normDef <|> strDef
     return (lbl, args, def)
 
 pFunc :: Parser arg -> Parser (AST.PFuncLabel, [arg])
@@ -216,6 +219,15 @@ normDef = do
         (doubleToProb . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
         (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
 
+strDef :: Parser AST.PFuncDef
+strDef = const <$> braces (AST.StrDist <$> sepBy choicesElement comma) <*> dot
+    where
+        choicesElement :: Parser (Probability, String)
+        choicesElement =     (\p _ s -> (p, s))
+                         <$> fromRational <$> rational
+                         <*> colon
+                         <*> stringConstant
+
 headArgument :: Parser AST.HeadArgument
 headArgument =     AST.ArgConstant               <$> constantExpression
                <|> AST.ArgVariable . AST.VarName <$> variable
@@ -234,10 +246,11 @@ term =     AST.ConstantExpr           <$> constantExpression
 constantExpression :: Parser AST.ConstantExpr
 constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
                      <|> const (AST.BoolConstant False) <$> reserved "false"
-                     <|> AST.StrConstant                <$> identifier
-                     <|> AST.StrConstant                <$> stringLit
+                     <|> AST.StrConstant                <$> stringConstant
                      <|> AST.RealConstant               <$> try rational
                      <|> AST.IntConstant                <$> integer
+
+stringConstant = identifier <|> stringLit
 
 -- queries
 query :: Parser AST.RuleBodyElement

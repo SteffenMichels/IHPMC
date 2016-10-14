@@ -37,6 +37,7 @@ module GroundedAST ( GroundedAST(..)
                    , ConstantExpr(..)
                    , AST.PFuncDef(..)
                    , Addition
+                   , Ineq
                    , RealN
                    , RuleBody(..)
                    , RuleBodyElement(..)
@@ -44,6 +45,8 @@ module GroundedAST ( GroundedAST(..)
                    , predProbabilisticFunctions
                    , exprProbabilisticFunctions
                    , deterministicValue
+                   , deterministicValueTyped
+                   , possibleValues
                    , checkRealIneqPred
                    , simplifiedBuildInPred
                    , simplifiedExpr
@@ -178,9 +181,9 @@ instance Hashable BuildInPredicate
 
 data TypedBuildInPred a
     where
-    Equality :: Bool       -> Expr a -> Expr a -> TypedBuildInPred a
-    Ineq     :: AST.IneqOp -> Expr a -> Expr a -> TypedBuildInPred a
-    Constant :: Bool                           -> TypedBuildInPred a
+    Equality ::           Bool       -> Expr a -> Expr a -> TypedBuildInPred a
+    Ineq     :: Ineq a => AST.IneqOp -> Expr a -> Expr a -> TypedBuildInPred a
+    Constant ::           Bool                           -> TypedBuildInPred a
 
 deriving instance Eq (TypedBuildInPred a)
 instance Show (TypedBuildInPred a)
@@ -248,51 +251,49 @@ class Addition a
 instance Addition Integer
 instance Addition RealN
 
-predProbabilisticFunctions :: BuildInPredicate -> HashSet PFunc
-predProbabilisticFunctions (BuildInPredicateBool b) = predProbabilisticFunctions' b
-predProbabilisticFunctions (BuildInPredicateReal r) = predProbabilisticFunctions' r
-predProbabilisticFunctions (BuildInPredicateStr  s) = predProbabilisticFunctions' s
-predProbabilisticFunctions (BuildInPredicateInt  i) = predProbabilisticFunctions' i
+class Ineq a
+instance Ineq Integer
+instance Ineq RealN
 
-predProbabilisticFunctions' :: TypedBuildInPred a -> HashSet PFunc
-predProbabilisticFunctions' (Equality _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
-predProbabilisticFunctions' (Ineq     _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
-predProbabilisticFunctions' (Constant _)            = Set.empty
+predProbabilisticFunctions :: TypedBuildInPred a -> HashSet PFunc
+predProbabilisticFunctions (Equality _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
+predProbabilisticFunctions (Ineq     _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
+predProbabilisticFunctions (Constant _)            = Set.empty
 
 exprProbabilisticFunctions :: Expr a -> HashSet PFunc
 exprProbabilisticFunctions (PFuncExpr pf)   = Set.singleton pf
 exprProbabilisticFunctions (ConstantExpr _) = Set.empty
 exprProbabilisticFunctions (Sum x y)        = Set.union (exprProbabilisticFunctions x) (exprProbabilisticFunctions y)
 
-negatePred :: BuildInPredicate -> BuildInPredicate
-negatePred (BuildInPredicateBool b) = BuildInPredicateBool $ negatePred' b
-negatePred (BuildInPredicateReal r) = BuildInPredicateReal $ negatePred' r
-negatePred (BuildInPredicateStr  s) = BuildInPredicateStr  $ negatePred' s
-negatePred (BuildInPredicateInt  i) = BuildInPredicateInt  $ negatePred' i
-
-negatePred' :: TypedBuildInPred a -> TypedBuildInPred a
-negatePred' (Equality eq exprX exprY) = Equality (not eq) exprX exprY
-negatePred' (Ineq     op exprX exprY) = Ineq (AST.negateOp op) exprX exprY
-negatePred' (Constant cnst)           = Constant $ not cnst
+negatePred :: TypedBuildInPred a -> TypedBuildInPred a
+negatePred (Equality eq exprX exprY) = Equality (not eq) exprX exprY
+negatePred (Ineq     op exprX exprY) = Ineq (AST.negateOp op) exprX exprY
+negatePred (Constant cnst)           = Constant $ not cnst
 
 deterministicValue :: BuildInPredicate -> Maybe Bool
-deterministicValue (BuildInPredicateBool b) = deterministicValue' b
-deterministicValue (BuildInPredicateReal r) = deterministicValue' r
-deterministicValue (BuildInPredicateStr  s) = deterministicValue' s
-deterministicValue (BuildInPredicateInt  i) = deterministicValue' i
+deterministicValue (BuildInPredicateBool b) = deterministicValueTyped b
+deterministicValue (BuildInPredicateReal r) = deterministicValueTyped r
+deterministicValue (BuildInPredicateStr  s) = deterministicValueTyped s
+deterministicValue (BuildInPredicateInt  i) = deterministicValueTyped i
 
-deterministicValue' :: TypedBuildInPred a -> Maybe Bool
-deterministicValue' (Equality eq (ConstantExpr left) (ConstantExpr right))              = Just $ (if eq then (==) else (/=)) left right
-deterministicValue' (Equality eq (PFuncExpr left)    (PFuncExpr right)) | left == right = Just eq
-deterministicValue' (Ineq     op (ConstantExpr left) (ConstantExpr right))              = Just evalPred
+deterministicValueTyped :: TypedBuildInPred a -> Maybe Bool
+deterministicValueTyped (Equality eq (ConstantExpr left) (ConstantExpr right))              = Just $ (if eq then (==) else (/=)) left right
+deterministicValueTyped (Equality eq (PFuncExpr left)    (PFuncExpr right)) | left == right = Just eq
+deterministicValueTyped (Ineq     op (ConstantExpr left) (ConstantExpr right))              = Just evalPred
     where
     evalPred = case op of
         AST.Lt   -> left <  right
         AST.LtEq -> left <= right
         AST.Gt   -> left >  right
         AST.GtEq -> left >= right
-deterministicValue' (Constant val)                                           = Just val
-deterministicValue' _                                                        = Nothing
+deterministicValueTyped (Constant val) = Just val
+deterministicValueTyped _              = Nothing
+
+possibleValues :: Expr String -> HashMap PFunc (HashSet String) -> HashSet String
+possibleValues (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
+possibleValues (PFuncExpr pf@(PFunc _ (AST.StrDist elements) _)) sConds =
+    Map.lookupDefault (Set.fromList $ snd <$> elements) pf sConds
+possibleValues _ _ = undefined
 
 checkRealIneqPred :: AST.IneqOp
                   -> Expr RealN

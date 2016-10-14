@@ -366,8 +366,8 @@ toPropBuildInPred :: AST.BuildInPredicate
                   -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                   -> GState GroundedAST.BuildInPredicate
 toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
-    AST.Equality eq exprX exprY -> toPropBuildInPred' (GroundedAST.Equality eq) exprX exprY
-    AST.Ineq     op exprX exprY -> toPropBuildInPred' (GroundedAST.Ineq     op) exprX exprY
+    AST.Equality eq exprX exprY -> toPropBuildInPred'     (GroundedAST.Equality eq) exprX exprY
+    AST.Ineq     op exprX exprY -> toPropBuildInPredIneq' (GroundedAST.Ineq     op) exprX exprY
     where
     toPropBuildInPred' :: (forall a. GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.TypedBuildInPred a)
                        -> AST.Expr
@@ -381,6 +381,18 @@ toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
             (ExprBool exprX'', ExprBool exprY'') -> return $ GroundedAST.BuildInPredicateBool $ bipConstructor exprX'' exprY''
             (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
             (ExprStr  exprX'', ExprStr  exprY'') -> return $ GroundedAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
+            _                                    -> lift $ throw $ TypeError exprX' exprY'
+
+    toPropBuildInPredIneq' :: (forall a. GroundedAST.Ineq a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.TypedBuildInPred a)
+                           -> AST.Expr
+                           -> AST.Expr
+                           -> GState GroundedAST.BuildInPredicate
+    toPropBuildInPredIneq' bipConstructor exprX exprY = do
+        exprX' <- toPropExpr exprX pfDefs
+        exprY' <- toPropExpr exprY pfDefs
+        case (exprX', exprY') of
+            (ExprReal exprX'', ExprReal exprY'') -> return $ GroundedAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
+            (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
             _                                    -> lift $ throw $ TypeError exprX' exprY'
 
 -- precondition: no vars left in 'expr'
@@ -405,6 +417,7 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
         case pfDef of
             AST.Flip _       -> return $ ExprBool $ GroundedAST.PFuncExpr pf
             AST.RealDist _ _ -> return $ ExprReal $ GroundedAST.PFuncExpr pf
+            AST.StrDist _    -> return $ ExprStr  $ GroundedAST.PFuncExpr pf
     AST.Sum exprX exprY ->toPropExprPairAdd GroundedAST.Sum exprX exprY
         where
         toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)

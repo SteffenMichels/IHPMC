@@ -24,6 +24,7 @@
 module HPT
     ( HPT(..)
     , HPTNode(..)
+    , Choice(..)
     , ProbabilityTriple(..)
     , initialNode
     , bounds
@@ -43,6 +44,10 @@ import Text.Printf (printf)
 import Numeric (fromRat)
 import qualified GroundedAST
 import Probability
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as Set
+import Util
+import Data.Text (replace, pack, unpack)
 
 -- Hybrid Probability Tree
 data HPT     = Unfinished HPTNode ProbabilityTriple Double
@@ -50,8 +55,11 @@ data HPT     = Unfinished HPTNode ProbabilityTriple Double
 
 data HPTNode = Leaf           Formula.NodeRef Formula.NodeRef -- query and evidence
              | WithinEvidence Formula.NodeRef                 -- only query
-             | ChoiceBool     GroundedAST.PFunc Probability HPT HPT
-             | ChoiceReal     GroundedAST.PFunc Probability Rational HPT HPT
+             | Choice         Choice GroundedAST.PFunc Probability HPT HPT
+
+data Choice = ChoiceBool
+            | ChoiceString (HashSet String)
+            | ChoiceReal   Rational
 
 initialNode :: Formula.NodeRef -> Formula.NodeRef -> HPTNode
 initialNode = Leaf
@@ -113,16 +121,18 @@ exportAsDot path hpt = do
             doIO (hPutStrLn file $ printf "%i[label=\"%s %s\"];" counter (show t) (show f))
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
-        Unfinished (ChoiceBool pf  prob left right) _ scr -> do
+        Unfinished (Choice choice pf prob left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ triple hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s=true" (show prob) (show pf)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%s: %s=false" (show (1 - prob)) (show pf)) right counter' file
-        Unfinished (ChoiceReal pf prob splitPoint left right) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ triple hpt') scr)
-            printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s<%f" (show prob) (show pf) (fromRat splitPoint::Float)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%s: %s>%f" (show (1 - prob)) (show pf) (fromRat splitPoint::Float)) right counter' file
+            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show prob) (show pf) (printChoiceRight choice)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show (1 - prob)) (show pf) (printChoiceLeft choice)) right counter' file
+            where
+            printChoiceRight  ChoiceBool                = "= true"
+            printChoiceRight (ChoiceString rightBranch) = printf "in {%s}" $ unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList rightBranch
+            printChoiceRight (ChoiceReal splitPoint)    = printf "< %f" (fromRat splitPoint::Float)
+            printChoiceLeft   ChoiceBool                = "= false"
+            printChoiceLeft  (ChoiceString rightBranch) = printf "not in {%s}" $ unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList rightBranch
+            printChoiceLeft  (ChoiceReal splitPoint)    = printf "> %f" (fromRat splitPoint::Float)
         Unfinished (Leaf qRef eRef) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n||%s\n(%f)\"];" counter (show qRef) (show eRef) scr)
             printEdge mbParent (show counter) mbEdgeLabel

@@ -90,11 +90,13 @@ instance Hashable PFuncLabel
 
 data PFuncDef = Flip     Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
+              | StrDist  [(Probability, String)]
 
 instance Show PFuncDef
     where
-    show (Flip p)       = printf "flip(%s)" $ show p
-    show (RealDist _ _) = printf "realDist"
+    show (Flip p)        = printf "flip(%s)" $ show p
+    show (RealDist _ _)  = printf "realDist"
+    show (StrDist pairs) = printf "{%s}" $ showLst pairs
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 
