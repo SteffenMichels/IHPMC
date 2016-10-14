@@ -54,7 +54,7 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                 Just nodeId -> return $ Formula.refComposed nodeId
                 _ -> do
                     (fBodies,_) <- foldM (ruleFormulas label) ([], 0::Integer) $ Map.lookupDefault Set.empty label rules
-                    Formula.entryRef <$> Formula.insert (Left flabel) True Formula.Or fBodies
+                    Formula.entryRef <$> Formula.insert (Formula.WithLabel flabel) True Formula.Or fBodies
             where
             flabel    = Formula.uncondComposedLabel $ GroundedAST.setExcluded excludedGoals' label
             excludedGoals' = Set.intersection excludedGoals children
@@ -79,7 +79,7 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                         _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el excludedGoals''
                                                                          return $ newChild : fChildren
                                                     ) [] elements
-                                Formula.entryRef <$> Formula.insert (Left $ Formula.uncondComposedLabel label') True Formula.And fChildren
+                                Formula.entryRef <$> Formula.insert (Formula.WithLabel $ Formula.uncondComposedLabel label') True Formula.And fChildren
                where
                excludedGoals''
                    | Set.member label children = Set.insert label excludedGoals'

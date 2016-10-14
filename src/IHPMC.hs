@@ -69,7 +69,12 @@ ihpmc query evidence finishPred reportingIO f = do
     t <- doIO getTime
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query $ Formula.entryRef evidenceConj) f'
     where
-    (evidenceConj, f') = runState (Formula.insert (Right (Formula.Conditions Map.empty Map.empty Map.empty)) True Formula.And evidence) f
+    (evidenceConj, f') = runState (Formula.insert
+            (Formula.WithoutLabel (Formula.Conditions Map.empty Map.empty Map.empty))
+            True
+            Formula.And
+            evidence
+        ) f
     ihpmc' :: Int
            -> Int
            -> Int

@@ -34,6 +34,7 @@ module Formula
     , Conditions(..)
     , FState
     , empty
+    , NewNode(..)
     , insert
     , augmentWithEntry
     , labelId
@@ -92,7 +93,9 @@ empty cacheComps = Formula { nodes              = Map.empty
                            , cacheComps         = cacheComps
                            }
 
-insert :: Either ComposedLabel Conditions
+data NewNode = WithLabel ComposedLabel | WithoutLabel Conditions
+
+insert :: NewNode
        -> Bool
        -> NodeType
        -> [NodeRef]
@@ -105,8 +108,8 @@ insert labelOrConds sign op children = do
     case simplifiedNode of
         Composed nType nChildren -> do
             let label = case labelOrConds of
-                    Left label' -> label'
-                    Right conds -> let label' = GroundedAST.numberNamePredicateLabel freshCounter []
+                    WithLabel label' -> label'
+                    WithoutLabel conds -> let label' = GroundedAST.numberNamePredicateLabel freshCounter []
                                    in  ComposedLabel label' conds $ Hashable.hash label' -- only use label as hash (ignore conds) as node is unique anyhow
             let pFuncs = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
             modify' (\f -> f{ nodes       = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren pFuncs cachedInfo) nodes
@@ -382,7 +385,7 @@ conditionComposed sign origNodeEntry origLabel pf labelFunc conditionFunc = do
                             condRef   <- Formula.augmentWithEntry child
                             conditionFunc condRef pf
                         )
-                    insert (Left newLabel) sign op $ map entryRef condChildren
+                    insert (WithLabel newLabel) sign op $ map entryRef condChildren
             where
             newLabel = labelFunc pf $ fromJust $ entryLabel origNodeEntry
 
