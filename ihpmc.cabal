@@ -100,6 +100,7 @@ test-suite integration
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
     hs-source-dirs: test src
     other-modules:
+        IntegrationExactProbabilities
         Main
         GroundedAST
         IntegrationGrounding

@@ -26,11 +26,7 @@ where
 import NeatInterpolation
 import IntegrationTest
 import Data.Text (unpack)
-import Exception
-import Main (Exception(..))
 import qualified AST
-import qualified Grounder
-import Probability
 
 tests :: (String, [IntegrationTest])
 tests = ("grounding", [ queries, typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars
@@ -399,52 +395,3 @@ network2 = IntegrationTest
         [ (queryInt "connected" [1, 4], preciseProb 0.0199)
         ]
     }
-
-query :: String -> AST.RuleBodyElement
-query label = AST.UserPredicate (AST.PredicateLabel label) []
-
-queryStr :: String -> [String] -> AST.RuleBodyElement
-queryStr label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.ConstantExpr . AST.StrConstant <$> exprs)
-
-queryInt :: String -> [Integer] -> AST.RuleBodyElement
-queryInt label exprs = AST.UserPredicate (AST.PredicateLabel label) (AST.ConstantExpr . AST.IntConstant <$> exprs)
-
-preciseProb :: Probability -> Exceptional Exception (Maybe ProbabilityBounds) -> Bool
-preciseProb p (Success (Just (ProbabilityBounds l u))) | l == u && l == p = True
-preciseProb _ _                                                           = False
-
-nonGround :: String -> Int -> Int -> Exceptional Exception a -> Bool
-nonGround expLabel expN expNPreds (Exception (Main.GrounderException (Grounder.NonGroundPreds prds (AST.PredicateLabel label) n)))
-    | label == expLabel && n == expN && length prds == expNPreds = True
-nonGround _ _ _ _                                                = False
-
-typeError :: Exceptional Exception a -> Bool
-typeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) = True
-typeError _                                                             = False
-
-nonGroundQuery :: Exceptional Exception a -> Bool
-nonGroundQuery (Exception (Main.GrounderException (Grounder.NonGroundQuery _))) = True
-nonGroundQuery _                                                                = False
-
-unsolvableConstrs :: Exceptional Exception a -> Bool
-unsolvableConstrs (Exception (Main.GrounderException (Grounder.UnsolvableConstraints _))) = True
-unsolvableConstrs _                                                                       = False
-
-undefinedRf :: String -> Int -> Exceptional Exception a -> Bool
-undefinedRf expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRf pf n)))
-    | AST.PFuncLabel expRf == pf && expN == n = True
-undefinedRf _ _ _                             = False
-
-undefinedPred :: String -> Int -> Exceptional Exception a -> Bool
-undefinedPred expPred expN  (Exception (Main.GrounderException (Grounder.UndefinedPred prd n)))
-    | AST.PredicateLabel expPred == prd && expN == n = True
-undefinedPred _ _ _                                  = False
-
-undefinedRfVal :: String -> Int -> Exceptional Exception a -> Bool
-undefinedRfVal expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRfValue pf args)))
-    | AST.PFuncLabel expRf == pf && expN == length args = True
-undefinedRfVal _ _ _                                    = False
-
-pfAsArg :: Exceptional Exception a -> Bool
-pfAsArg (Exception (Main.GrounderException Grounder.ProbabilisticFuncUsedAsArg)) = True
-pfAsArg _                                                                        = False

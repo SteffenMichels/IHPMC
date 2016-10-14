@@ -28,8 +28,9 @@ import Exception
 import Text.Printf (printf)
 import qualified IHPMC
 import Control.Monad.Exception.Synchronous
-import IntegrationTest
+import IntegrationTest (IntegrationTest (..))
 import qualified IntegrationGrounding
+import qualified IntegrationExactProbabilities
 import Control.Monad (forM)
 import Data.Foldable (foldl')
 import Main (Exception(..))
@@ -38,7 +39,7 @@ import Control.Monad.Trans.Class (lift)
 import Probability
 
 allTests :: [(String, [IntegrationTest])]
-allTests = [IntegrationGrounding.tests]
+allTests = [IntegrationGrounding.tests, IntegrationExactProbabilities.tests]
 
 tests :: IO [Test]
 tests = return $ map toTestGroup allTests
