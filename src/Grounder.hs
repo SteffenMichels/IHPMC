@@ -34,7 +34,6 @@ import qualified Data.HashSet as Set
 import Control.Monad.State.Strict
 import Text.Printf (printf)
 import Data.Foldable (foldl', foldlM)
-import Data.Traversable (forM)
 import Data.Sequence (Seq, ViewL((:<)), (><))
 import qualified Data.Sequence as Seq
 import Data.Maybe (isJust)

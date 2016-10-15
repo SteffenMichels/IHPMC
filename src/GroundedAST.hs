@@ -265,6 +265,9 @@ instance Ord (ConstantExpr a)
     RealConstant x <= RealConstant y = x <= y
     StrConstant  x <= StrConstant  y = x <= y
     IntConstant  x <= IntConstant  y = x <= y
+#if __GLASGOW_HASKELL__ < 800
+    _              <= _              = undefined
+#endif
 
 data RealN -- phantom for real numbered expression etc.
 

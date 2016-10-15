@@ -31,7 +31,6 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Control.Monad.State.Strict
 import Data.Maybe (isJust, fromMaybe, isNothing)
-import Control.Monad (unless)
 import Control.Arrow (second, (***))
 import Data.Foldable (foldrM, foldl')
 import Util
