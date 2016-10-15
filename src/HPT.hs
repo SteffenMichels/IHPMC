@@ -55,7 +55,7 @@ data HPT     = Unfinished HPTNode ProbabilityTriple Double
 
 data HPTNode = Leaf           Formula.NodeRef Formula.NodeRef -- query and evidence
              | WithinEvidence Formula.NodeRef                 -- only query
-             | Choice         Choice GroundedAST.PFunc Probability HPT HPT
+             | Choice         Choice GroundedAST.PFuncLabel Probability HPT HPT
 
 data Choice = ChoiceBool
             | ChoiceString (HashSet String)

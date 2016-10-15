@@ -48,11 +48,11 @@ import Data.Foldable (foldl')
 import Probability
 
 -- total score, split points + scores
-data CachedSplitPoints = CachedSplitPoints Double (HashMap (GroundedAST.PFunc, SplitPoint) Double)
+data CachedSplitPoints = CachedSplitPoints Double (HashMap SplitPoint Double)
 type FState = Formula.FState CachedSplitPoints
-data SplitPoint = BoolSplit
-                | StringSplit     (HashSet String) -- left branch: all string in this set, right branch: all remaining strings
-                | ContinuousSplit Rational
+data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
+                | StringSplit     (GroundedAST.PFunc String)            (HashSet String) -- left branch: all string in this set, right branch: all remaining strings
+                | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN) Rational
                 deriving (Eq, Generic)
 instance Hashable SplitPoint
 
@@ -157,40 +157,37 @@ iterationLeaf :: Formula.RefWithNode CachedSplitPoints
                  )
               -> FState (HPTNode, HPT.ProbabilityTriple, Double)
 iterationLeaf splitRfEntry makeHPT = do
-    let ((splitPF, splitPoint), _) = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
-    let pfDef = GroundedAST.probabilisticFuncDef splitPF
+    let (splitPoint, _) = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
     case splitPoint of
-        BoolSplit -> case pfDef of
-            GroundedAST.Flip p -> do
-                left  <- makeHPT p       (\fEntry -> Formula.conditionBool fEntry splitPF True)
-                right <- makeHPT (1 - p) (\fEntry -> Formula.conditionBool fEntry splitPF False)
-                return (HPT.Choice HPT.ChoiceBool splitPF p left right, combineProbsChoice p left right, combineScoresChoice left right)
-            _ -> error "IHPMC: wrong PF def"
-        StringSplit splitSet -> case pfDef of
-            GroundedAST.StrDist elements -> do
-                left  <- makeHPT pRight       (\fEntry -> Formula.conditionString fEntry splitPF splitSet)
-                right <- makeHPT (1 - pRight) (\fEntry -> Formula.conditionString fEntry splitPF $ Set.difference curSet splitSet)
-                return (HPT.Choice (HPT.ChoiceString splitSet) splitPF pRight left right, combineProbsChoice pRight left right, combineScoresChoice left right)
-                    where
-                    pRight                        = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
-                    z                             = List.sum $ fst <$> curElements
-                    curElements                   = List.filter ((`Set.member` curSet) . snd) elements
-                    curSet                        = Map.lookupDefault (Set.fromList $ snd <$> elements) splitPF sConds
-                    Formula.Conditions _ sConds _ = Formula.entryChoices splitRfEntry
-            _  -> error "IHPMC: wrong PF def"
-        ContinuousSplit splitPoint' -> case pfDef of
-            GroundedAST.RealDist cdf _ -> do
-                left  <- makeHPT p         (\fEntry -> Formula.conditionReal fEntry splitPF $ Interval.Interval curLower (Open splitPoint'))
-                right <- makeHPT (1.0 - p) (\fEntry -> Formula.conditionReal fEntry splitPF $ Interval.Interval (Open splitPoint') curUpper)
-                return (HPT.Choice (HPT.ChoiceReal splitPoint') splitPF p left right, combineProbsChoice p left right, combineScoresChoice left right)
-                    where
-                    p = (pUntilSplit - pUntilLower) / (pUntilUpper - pUntilLower)
-                    pUntilLower = cdf' cdf True curLower
-                    pUntilUpper = cdf' cdf False curUpper
-                    pUntilSplit = cdf splitPoint'
-                    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) splitPF rConds
-                    rConds = Formula.realConds $ Formula.entryChoices splitRfEntry
-            _  -> error "IHPMC: wrong PF def"
+        BoolSplit splitPF -> do
+            left  <- makeHPT p       (\fEntry -> Formula.conditionBool fEntry splitPF True)
+            right <- makeHPT (1 - p) (\fEntry -> Formula.conditionBool fEntry splitPF False)
+            return (HPT.Choice HPT.ChoiceBool (GroundedAST.probabilisticFuncLabel splitPF) p left right, combineProbsChoice p left right, combineScoresChoice left right)
+            where
+            GroundedAST.Flip p = GroundedAST.probabilisticFuncDef splitPF
+        StringSplit splitPF splitSet -> do
+            left  <- makeHPT pRight       (\fEntry -> Formula.conditionString fEntry splitPF splitSet)
+            right <- makeHPT (1 - pRight) (\fEntry -> Formula.conditionString fEntry splitPF $ Set.difference curSet splitSet)
+            return (HPT.Choice (HPT.ChoiceString splitSet) (GroundedAST.probabilisticFuncLabel splitPF) pRight left right, combineProbsChoice pRight left right, combineScoresChoice left right)
+            where
+            pRight                        = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
+            z                             = List.sum $ fst <$> curElements
+            curElements                   = List.filter ((`Set.member` curSet) . snd) elements
+            curSet                        = Map.lookupDefault (Set.fromList $ snd <$> elements) splitPF sConds
+            Formula.Conditions _ sConds _ = Formula.entryChoices splitRfEntry
+            GroundedAST.StrDist elements = GroundedAST.probabilisticFuncDef splitPF
+        ContinuousSplit splitPF splitPoint' -> do
+            left  <- makeHPT p         (\fEntry -> Formula.conditionReal fEntry splitPF $ Interval.Interval curLower (Open splitPoint'))
+            right <- makeHPT (1.0 - p) (\fEntry -> Formula.conditionReal fEntry splitPF $ Interval.Interval (Open splitPoint') curUpper)
+            return (HPT.Choice (HPT.ChoiceReal splitPoint') (GroundedAST.probabilisticFuncLabel splitPF) p left right, combineProbsChoice p left right, combineScoresChoice left right)
+            where
+            p = (pUntilSplit - pUntilLower) / (pUntilUpper - pUntilLower)
+            pUntilLower = cdf' cdf True curLower
+            pUntilUpper = cdf' cdf False curUpper
+            pUntilSplit = cdf splitPoint'
+            Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) splitPF rConds
+            rConds = Formula.realConds $ Formula.entryChoices splitRfEntry
+            GroundedAST.RealDist cdf _ = GroundedAST.probabilisticFuncDef splitPF
     where
     candidateSplitPoints = Map.toList pts where CachedSplitPoints _ pts = Formula.entryCachedInfo splitRfEntry
 
@@ -220,9 +217,9 @@ heuristicDeterministic = const $ CachedSplitPoints 0 Map.empty
 
 heuristicBuildInPredBool :: GroundedAST.TypedBuildInPred Bool -> CachedSplitPoints
 heuristicBuildInPredBool prd = CachedSplitPoints (fromIntegral $ Set.size $ GroundedAST.predProbabilisticFunctions prd) $
-    foldl' (\pts pf -> Map.insert (pf, BoolSplit) 1.0 pts) Map.empty $ GroundedAST.predProbabilisticFunctions prd
+    foldl' (\pts pf -> Map.insert (BoolSplit pf) 1.0 pts) Map.empty $ GroundedAST.predProbabilisticFunctions prd
 
-heuristicBuildInPredString :: HashMap GroundedAST.PFunc (HashSet String)
+heuristicBuildInPredString :: HashMap (GroundedAST.PFunc String) (HashSet String)
                            -> GroundedAST.TypedBuildInPred String
                            -> CachedSplitPoints
 heuristicBuildInPredString _ prd = case prd of
@@ -232,11 +229,11 @@ heuristicBuildInPredString _ prd = case prd of
     GroundedAST.Equality _ (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)     -> splitPointsStringPfs pfX pfY
     _                                                                                      -> undefined
     where
-    splitPointsStringPfConst :: GroundedAST.PFunc -> GroundedAST.ConstantExpr String -> CachedSplitPoints
-    splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints 1 $ Map.singleton (pf, StringSplit $ Set.singleton cnst) 1.0
+    splitPointsStringPfConst :: GroundedAST.PFunc String -> GroundedAST.ConstantExpr String -> CachedSplitPoints
+    splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints 1 $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
     splitPointsStringPfs _ _ = error "equality between two string-value PFs not implemented"
 
-heuristicBuildInPredReal :: HashMap GroundedAST.PFunc Interval
+heuristicBuildInPredReal :: HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval
                          -> GroundedAST.TypedBuildInPred GroundedAST.RealN
                          -> CachedSplitPoints
 heuristicBuildInPredReal prevChoicesReal prd = case prd of
@@ -255,13 +252,12 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 (splitPoints <$> List.subsequences (Set.toList predRfs))
         equalSplits = Map.fromList [(pf,equalSplit pf) | pf <- Set.toList predRfs]
             where
-                equalSplit pf = case  GroundedAST.probabilisticFuncDef pf of
-                    GroundedAST.RealDist cdf icdf -> icdf ((pUntilLower + pUntilUpper) / 2.0)
-                        where
-                        pUntilLower = cdf' cdf True  curLower
-                        pUntilUpper = cdf' cdf False curUpper
-                        Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) pf prevChoicesReal
-                    _ -> error "IHPMC.equalSplit failed"
+                equalSplit pf = icdf ((pUntilLower + pUntilUpper) / 2.0)
+                    where
+                    pUntilLower = cdf' cdf True  curLower
+                    pUntilUpper = cdf' cdf False curUpper
+                    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) pf prevChoicesReal
+                    GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
         splitPoints pfs
             | null pfs || null result = (pfs, Map.empty,                             result)
             | otherwise               = (pfs, Map.fromList [(pf, nPfs') | pf <- pfs], result)
@@ -269,14 +265,14 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
             result = Map.filterWithKey notOnBoundary $ foldl'
                 (Map.unionWith (+))
                 Map.empty
-                [ Map.fromList [ ((pf, ContinuousSplit $ splitPoint pf corner), probToDouble $ reduction pfs corner prevChoicesReal)
+                [ Map.fromList [ (ContinuousSplit pf $ splitPoint pf corner, probToDouble $ reduction pfs corner prevChoicesReal)
                                | pf <- pfs
                                ]
                 | corner <- remRfsCorners
                 ]
 
-            notOnBoundary (pf, ContinuousSplit p) _ =    (Interval.rat2IntervLimPoint p ~> Interval.toPoint Lower lower) == Just True
-                                                      && (Interval.rat2IntervLimPoint p ~< Interval.toPoint Upper upper) == Just True
+            notOnBoundary (ContinuousSplit pf p) _ =    (Interval.rat2IntervLimPoint p ~> Interval.toPoint Lower lower) == Just True
+                                                     && (Interval.rat2IntervLimPoint p ~< Interval.toPoint Upper upper) == Just True
                 where
                 Interval.Interval lower upper = Map.lookupDefault (Interval.Interval Inf Inf) pf prevChoicesReal
             notOnBoundary _ _ = error "IHPMC.heuristicBuildInPred.notOnBoundary"
@@ -303,7 +299,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 pfOnLeft = Set.member pf $ GroundedAST.exprProbabilisticFunctions exprX
                 equalSplit pf' = Map.lookupDefault (error "IHPMC.splitPoint") pf' equalSplits
 
-                sumExpr :: GroundedAST.Expr GroundedAST.RealN -> Map.HashMap GroundedAST.PFunc Rational-> Rational
+                sumExpr :: GroundedAST.Expr GroundedAST.RealN -> Map.HashMap (GroundedAST.PFunc GroundedAST.RealN) Rational-> Rational
                 sumExpr (GroundedAST.ConstantExpr (GroundedAST.RealConstant c)) _ = c
                 sumExpr (GroundedAST.PFuncExpr pf') vals
                     | pf' == pf = 0
@@ -345,9 +341,9 @@ heuristicComposed points = CachedSplitPoints total ((/ total) <$> splitPts)
                         (CachedSplitPoints 0.0 Map.empty)
                         points
 
-    combineSplitPoints :: HashMap (GroundedAST.PFunc, SplitPoint) Double
-                       -> HashMap (GroundedAST.PFunc, SplitPoint) Double
-                       -> HashMap (GroundedAST.PFunc, SplitPoint) Double
+    combineSplitPoints :: HashMap SplitPoint Double
+                       -> HashMap SplitPoint Double
+                       -> HashMap SplitPoint Double
     combineSplitPoints = Map.unionWith (+)
 
 cdf' :: (Rational -> Probability) -> Bool -> IntervalLimit -> Probability

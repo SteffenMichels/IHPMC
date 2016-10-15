@@ -26,8 +26,11 @@ module GroundedAST ( GroundedAST(..)
                    , TypedBuildInPred(..)
                    , PFuncLabel(..)
                    , PFunc
+                   , probabilisticFuncLabel
                    , probabilisticFuncDef
-                   , makePFunc
+                   , makePFuncBool
+                   , makePFuncReal
+                   , makePFuncString
                    , Expr(..)
                    , PredicateLabel
                    , stringNamePredicateLabel
@@ -35,7 +38,7 @@ module GroundedAST ( GroundedAST(..)
                    , setBodyNr
                    , setExcluded
                    , ConstantExpr(..)
-                   , AST.PFuncDef(..)
+                   , PFuncDef(..)
                    , Addition
                    , Ineq
                    , RealN
@@ -65,6 +68,7 @@ import Text.Printf (printf)
 import Data.Char (toLower)
 import Numeric (fromRat)
 import Util
+import Probability
 
 -- use sets here to avoid duplicate elements
 data GroundedAST = GroundedAST
@@ -122,24 +126,38 @@ setExcluded excluded (PredicateLabel name args mbNr _ _) = PredicateLabel name a
 predicateLabelHash :: PredicateName -> [AST.ConstantExpr] -> Maybe Integer -> HashSet PredicateLabel -> Int
 predicateLabelHash name args mbNr = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hash name) args) mbNr)
 
-data PFunc = PFunc PFuncLabel AST.PFuncDef Int -- store hash for efficiency reasons
-instance Eq PFunc
+data PFunc a = PFunc PFuncLabel (PFuncDef a) Int -- store hash for efficiency reasons
+instance Eq (PFunc a)
     where
     PFunc x _ hx == PFunc y _ hy = hx == hy && x == y
-instance Show PFunc
+instance Show (PFunc a)
     where
     show (PFunc l _ _) = show l
-instance Hashable PFunc
+instance Hashable (PFunc a)
     where
     hash = Hashable.hashWithSalt 0
     -- there should never be more than one PF with the same name, so hash only name and ignore definition
     hashWithSalt salt (PFunc _ _ hash) = Hashable.hashWithSalt salt hash
 
-probabilisticFuncDef :: PFunc -> AST.PFuncDef
+data PFuncDef a where
+    Flip     :: Probability                                            -> PFuncDef Bool
+    RealDist :: (Rational -> Probability) -> (Probability -> Rational) -> PFuncDef GroundedAST.RealN
+    StrDist  :: [(Probability, String)]                                -> PFuncDef String
+
+probabilisticFuncLabel :: PFunc a -> PFuncLabel
+probabilisticFuncLabel (PFunc label _ _) = label
+
+probabilisticFuncDef :: PFunc a -> PFuncDef a
 probabilisticFuncDef (PFunc _ def _) = def
 
-makePFunc :: PFuncLabel -> AST.PFuncDef -> PFunc
-makePFunc label def = PFunc label def $ Hashable.hash label
+makePFuncBool :: PFuncLabel -> Probability-> PFunc Bool
+makePFuncBool label p = PFunc label (Flip p) $ Hashable.hash label
+
+makePFuncReal :: PFuncLabel ->  (Rational -> Probability) -> (Probability -> Rational) -> PFunc GroundedAST.RealN
+makePFuncReal label cdf cdf' = PFunc label (RealDist cdf cdf') $ Hashable.hash label
+
+makePFuncString :: PFuncLabel -> [(Probability, String)] -> PFunc String
+makePFuncString label dist = PFunc label (StrDist dist) $ Hashable.hash label
 
 data PFuncLabel = PFuncLabel AST.PFuncLabel [AST.ConstantExpr] deriving (Eq, Generic)
 instance Show PFuncLabel
@@ -201,7 +219,7 @@ instance Hashable (TypedBuildInPred a)
 data Expr a
     where
     ConstantExpr ::               ConstantExpr a   -> Expr a
-    PFuncExpr    ::               PFunc            -> Expr a
+    PFuncExpr    ::               PFunc a          -> Expr a
     Sum          :: Addition a => Expr a -> Expr a -> Expr a
 
 deriving instance Eq (Expr a)
@@ -255,12 +273,12 @@ class Ineq a
 instance Ineq Integer
 instance Ineq RealN
 
-predProbabilisticFunctions :: TypedBuildInPred a -> HashSet PFunc
+predProbabilisticFunctions :: TypedBuildInPred a -> HashSet (PFunc a)
 predProbabilisticFunctions (Equality _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
 predProbabilisticFunctions (Ineq     _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
 predProbabilisticFunctions (Constant _)            = Set.empty
 
-exprProbabilisticFunctions :: Expr a -> HashSet PFunc
+exprProbabilisticFunctions :: Expr a -> HashSet (PFunc a)
 exprProbabilisticFunctions (PFuncExpr pf)   = Set.singleton pf
 exprProbabilisticFunctions (ConstantExpr _) = Set.empty
 exprProbabilisticFunctions (Sum x y)        = Set.union (exprProbabilisticFunctions x) (exprProbabilisticFunctions y)
@@ -289,16 +307,16 @@ deterministicValueTyped (Ineq     op (ConstantExpr left) (ConstantExpr right))  
 deterministicValueTyped (Constant val) = Just val
 deterministicValueTyped _              = Nothing
 
-possibleValues :: Expr String -> HashMap PFunc (HashSet String) -> HashSet String
+possibleValues :: Expr String -> HashMap (PFunc String) (HashSet String) -> HashSet String
 possibleValues (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
-possibleValues (PFuncExpr pf@(PFunc _ (AST.StrDist elements) _)) sConds =
+possibleValues (PFuncExpr pf@(PFunc _ (StrDist elements) _)) sConds =
     Map.lookupDefault (Set.fromList $ snd <$> elements) pf sConds
 possibleValues _ _ = undefined
 
 checkRealIneqPred :: AST.IneqOp
                   -> Expr RealN
                   -> Expr RealN
-                  -> Map.HashMap PFunc Interval.IntervalLimitPoint
+                  -> Map.HashMap (PFunc GroundedAST.RealN) Interval.IntervalLimitPoint
                   -> Maybe Bool -- result may be undetermined -> Nothing
 checkRealIneqPred op left right point = case op of
     AST.Lt   -> evalLeft ~<  evalRight
@@ -309,7 +327,7 @@ checkRealIneqPred op left right point = case op of
     evalLeft  = eval left  point
     evalRight = eval right point
 
-eval :: Expr RealN -> HashMap PFunc Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
+eval :: Expr RealN -> HashMap (PFunc GroundedAST.RealN) Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
 eval (PFuncExpr pf) point              = Map.lookupDefault (error $ printf "AST.checkRealIneqPred: no point for %s" $ show pf) pf point
 eval (ConstantExpr (RealConstant r)) _ = Interval.rat2IntervLimPoint r
 eval (Sum x y) point                   = eval x point + eval y point

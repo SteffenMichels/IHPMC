@@ -100,7 +100,7 @@ instance Hashable Constraint
 
 data GroundingState = GroundingState
     { groundedRules     :: HashMap GroundedAST.PredicateLabel [GroundedAST.RuleBody]
-    , groundedRfDefs    :: HashMap GroundedAST.PFuncLabel GroundedAST.PFuncDef
+    , groundedRfDefs    :: HashMap GroundedAST.PFuncLabel AST.PFuncDef
     , varCounter        :: Integer
     -- keep non-ground rule body elements and to ground elements as soon as all vars have a value
     -- this pruning partial proofs if predicate is false
@@ -413,11 +413,10 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                     Map.insert propPFuncLabel def $ groundedRfDefs st
                 })
                 return def
-        let pf = GroundedAST.makePFunc propPFuncLabel pfDef
         case pfDef of
-            AST.Flip _       -> return $ ExprBool $ GroundedAST.PFuncExpr pf
-            AST.RealDist _ _ -> return $ ExprReal $ GroundedAST.PFuncExpr pf
-            AST.StrDist _    -> return $ ExprStr  $ GroundedAST.PFuncExpr pf
+            AST.Flip p            -> return $ ExprBool $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncBool propPFuncLabel p
+            AST.RealDist cdf cdf' -> return $ ExprReal $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncReal propPFuncLabel cdf cdf'
+            AST.StrDist dist      -> return $ ExprStr  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncString propPFuncLabel dist
     AST.Sum exprX exprY ->toPropExprPairAdd GroundedAST.Sum exprX exprY
         where
         toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)
