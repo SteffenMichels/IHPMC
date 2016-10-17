@@ -10,22 +10,22 @@ The input language is similar to [Probabilistic Constraint Logic Programming (PC
 
 
 ##Installation
-###Linux
-The inference tool based on IHPMC is written in Haskell and there is a Cabal package file. You can build the package with:
+
+The inference tool based on IHPMC is written in Haskell and there is a Cabal package file. You can install the package with:
 
     cabal install
 
-There are also binary Linux executables in a [downloadable package](http://www.steffen-michels.de/ihpmc/ihpmc.tar.gz) (which may be outdated).
+There are also binary x64 Linux executables in a [downloadable package](http://www.steffen-michels.de/ihpmc/ihpmc_linux_x64.tar.gz) (which may be outdated).
 
 ##Usage
 
 The algorithm comes with two version "ihpmc_float" and "ihpmc_exact". The former uses floating point arithmetic and the latter exact rational number arithmetic to compute probabilities. Floating point arithmetic is usually the better choice. It is more efficient, but can result in rounding errors. However, those rounding errors usually only become problematic, when conditioning on events with very small probability. Note, that even when using "ihpmc_exact" rounding error occur when computing CDF values for continuous distributions.
 
-The models used for the experiments of the paper "Approximate Probabilistic Inference with Bounded Error for Hybrid Probabilistic Logic Programming" are included in "examples". You can run one of the models for instance with (after building with Cabal):
+The models used for the experiments of the paper "Approximate Probabilistic Inference with Bounded Error for Hybrid Probabilistic Logic Programming" are included in "examples". You can run one of the models for instance with (after installing with Cabal):
 
-    dist/build/ihpmc_float/ihpmc_float examples/diagnostic_10_01_30.pclp -i 10000
+    ihpmc_float examples/diagnostic_10_01_30.pclp -i 10000
 
-or, in case you want to use the pre-compiled executable:
+or, in case you use the binary package:
 
     bin/ihpmc_float examples/diagnostic_10_01_30.pclp -i 10000
 
