@@ -99,11 +99,11 @@ ihpmc query evidence finishPred reportingIO f = do
 
 ihpmcIterate :: HPTNode -> Double -> FState HPT
 ihpmcIterate hptNode partChoiceProb = do
-    (hptNode', triple@(HPT.ProbabilityTriple t f u), score) <- iterateNode hptNode partChoiceProb
-    return $ if u == 0.0 then HPT.Finished t f
-                         else HPT.Unfinished hptNode' triple score
+    (hptNode', triple@(HPT.ProbabilityQuadruple t f e u), score) <- iterateNode hptNode partChoiceProb
+    return $ if u == 0.0 && e == 0.0 then HPT.Finished t f
+                                     else HPT.Unfinished hptNode' triple score
     where
-    iterateNode :: HPTNode -> Double -> FState (HPTNode, HPT.ProbabilityTriple, Double)
+    iterateNode :: HPTNode -> Double -> FState (HPTNode, HPT.ProbabilityQuadruple, Double)
     iterateNode (HPT.Choice choice pFunc p left right) partChoiceProb' = do
         (left', right') <- case (left, right) of
             (HPT.Unfinished hptNode' _ _, _) | HPT.score left > HPT.score right ->
@@ -114,7 +114,7 @@ ihpmcIterate hptNode partChoiceProb = do
         return (HPT.Choice choice pFunc p left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
     iterateNode (HPT.Leaf qRef eRef) _ = case Formula.deterministicNodeRef eRef of
         Just True  -> iterateNode (HPT.WithinEvidence qRef) partChoiceProb
-        Just False -> return (undefined, HPT.outsideEvidenceTriple, 0.0)
+        Just False -> return (undefined, HPT.outsideEvidenceQuadruple, 0.0)
         Nothing -> do
             qEntry <- Formula.augmentWithEntry qRef
             eEntry <- Formula.augmentWithEntry eRef
@@ -126,16 +126,16 @@ ihpmcIterate hptNode partChoiceProb = do
                     return $ case Formula.entryNode eEntry' of
                         Formula.Deterministic val ->
                             if val
-                            then HPT.Unfinished (HPT.WithinEvidence $ Formula.entryRef qEntry') HPT.unknownTriple (probToDouble p * partChoiceProb)
+                            then HPT.Unfinished (HPT.WithinEvidence $ Formula.entryRef qEntry') HPT.withinEvidenceQuadruple (probToDouble p * partChoiceProb)
                             else HPT.outsideEvidence
                         _ -> HPT.Unfinished
                             (HPT.Leaf (Formula.entryRef qEntry') $ Formula.entryRef eEntry')
-                            HPT.unknownTriple
+                            HPT.unknownQuadruple
                             (probToDouble p * partChoiceProb)
                 )
 
     iterateNode (HPT.WithinEvidence qRef) _ = case Formula.deterministicNodeRef qRef of
-        Just val -> return (undefined, if val then HPT.trueTriple else HPT.falseTriple, 0.0)
+        Just val -> return (undefined, if val then HPT.trueQuadruple else HPT.falseQuadruple, 0.0)
         Nothing -> do
             qEntry <- Formula.augmentWithEntry qRef
             iterationLeaf
@@ -149,7 +149,7 @@ ihpmcIterate hptNode partChoiceProb = do
                             else HPT.Finished 0.0 1.0
                         _ -> HPT.Unfinished
                             (HPT.WithinEvidence $ Formula.entryRef qEntry')
-                            HPT.unknownTriple
+                            HPT.withinEvidenceQuadruple
                             (probToDouble p * partChoiceProb)
                 )
 
@@ -158,7 +158,7 @@ iterationLeaf :: Formula.RefWithNode CachedSplitPoints
                    -> (Formula.RefWithNode CachedSplitPoints -> Formula.FState CachedSplitPoints (Formula.RefWithNode CachedSplitPoints))
                    -> FState HPT
                  )
-              -> FState (HPTNode, HPT.ProbabilityTriple, Double)
+              -> FState (HPTNode, HPT.ProbabilityQuadruple, Double)
 iterationLeaf splitRfEntry makeHPT = do
     let (splitPoint, _) = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints--(trace (show candidateSplitPoints) candidateSplitPoints)
     case splitPoint of
@@ -194,14 +194,15 @@ iterationLeaf splitRfEntry makeHPT = do
     where
     candidateSplitPoints = Map.toList pts where CachedSplitPoints _ pts = Formula.entryCachedInfo splitRfEntry
 
-combineProbsChoice :: Probability -> HPT -> HPT -> HPT.ProbabilityTriple
-combineProbsChoice p left right = HPT.ProbabilityTriple
+combineProbsChoice :: Probability -> HPT -> HPT -> HPT.ProbabilityQuadruple
+combineProbsChoice p left right = HPT.ProbabilityQuadruple
     ((leftTrue    - rightTrue)    * p + rightTrue)
     ((leftFalse   - rightFalse)   * p + rightFalse)
+    ((leftWithinE - rightWithinE) * p + rightWithinE)
     ((leftUnknown - rightUnknown) * p + rightUnknown)
     where
-    HPT.ProbabilityTriple leftTrue  leftFalse  leftUnknown  = HPT.triple left
-    HPT.ProbabilityTriple rightTrue rightFalse rightUnknown = HPT.triple right
+    HPT.ProbabilityQuadruple leftTrue  leftFalse  leftWithinE  leftUnknown  = HPT.quadruple left
+    HPT.ProbabilityQuadruple rightTrue rightFalse rightWithinE rightUnknown = HPT.quadruple right
 
 combineScoresChoice :: HPT -> HPT -> Double
 combineScoresChoice left right = max (HPT.score left) (HPT.score right)

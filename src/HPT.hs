@@ -28,15 +28,16 @@ module HPT
     ( HPT(..)
     , HPTNode(..)
     , Choice(..)
-    , ProbabilityTriple(..)
+    , ProbabilityQuadruple(..)
     , initialNode
     , bounds
-    , triple
+    , quadruple
     , score
-    , trueTriple
-    , falseTriple
-    , unknownTriple
-    , outsideEvidenceTriple
+    , trueQuadruple
+    , falseQuadruple
+    , unknownQuadruple
+    , withinEvidenceQuadruple
+    , outsideEvidenceQuadruple
     , outsideEvidence
     , exportAsDot
     ) where
@@ -53,7 +54,7 @@ import Util
 import Data.Text (replace, pack, unpack)
 
 -- Hybrid Probability Tree
-data HPT     = Unfinished HPTNode ProbabilityTriple Double
+data HPT     = Unfinished HPTNode ProbabilityQuadruple Double
              | Finished Probability Probability -- true prob, false prob (within evidence)
 
 data HPTNode = Leaf           Formula.NodeRef Formula.NodeRef -- query and evidence
@@ -69,11 +70,13 @@ initialNode = Leaf
 
 -- Nothing if evidence is inconsistent
 bounds :: HPT -> Maybe ProbabilityBounds
-bounds (Unfinished _ (ProbabilityTriple t f u) _)
-    | z > 0.0   = Just $ ProbabilityBounds (t / (z + u)) $ min 1.0 ((t + u) / z)
-    | otherwise = Just $ ProbabilityBounds 0.0 1.0
+bounds (Unfinished _ (ProbabilityQuadruple t f e u) _) =
+    Just $ ProbabilityBounds lo up
     where
-    z = t + f
+    lo = t / (t + f + e + u)
+    up | zu > 0.0 = (t + e + u) / zu
+       | otherwise  = 1.0
+    zu= t + f + e
 bounds (Finished t f)
     | z > 0.0   = Just $ ProbabilityBounds p p
     | otherwise = Nothing
@@ -81,9 +84,9 @@ bounds (Finished t f)
     z = t + f
     p = t / (t + f)
 
-triple :: HPT -> ProbabilityTriple
-triple (Unfinished _ t _) = t
-triple (Finished t f)     = ProbabilityTriple t f 0.0
+quadruple :: HPT -> ProbabilityQuadruple
+quadruple (Unfinished _ t _) = t
+quadruple (Finished t f)     = ProbabilityQuadruple t f 0.0 0.0
 
 score :: HPT -> Double
 score (Unfinished _ _ s) = s
@@ -92,23 +95,26 @@ score _                  = 0.0
 outsideEvidence :: HPT
 outsideEvidence = HPT.Finished 0.0 0.0
 
-data ProbabilityTriple = ProbabilityTriple Probability Probability Probability -- true prob, false prob (within evidence), unknown prob
-instance Show ProbabilityTriple
+data ProbabilityQuadruple = ProbabilityQuadruple Probability Probability Probability Probability-- true prob, false prob (within evidence), within evidence, unknown prob
+instance Show ProbabilityQuadruple
     where
-    show (ProbabilityTriple t f u) = printf "(%s, %s, %s)" (show t) (show f) (show u)
+    show (ProbabilityQuadruple t f e u) = printf "(%s, %s, %s, %s)" (show t) (show f) (show e) (show u)
 
 
-trueTriple :: ProbabilityTriple
-trueTriple = HPT.ProbabilityTriple 1.0 0.0 0.0
+trueQuadruple:: ProbabilityQuadruple
+trueQuadruple = HPT.ProbabilityQuadruple 1.0 0.0 0.0 0.0
 
-falseTriple :: ProbabilityTriple
-falseTriple = HPT.ProbabilityTriple 0.0 1.0 0.0
+falseQuadruple :: ProbabilityQuadruple
+falseQuadruple = HPT.ProbabilityQuadruple 0.0 1.0 0.0 0.0
 
-unknownTriple :: ProbabilityTriple
-unknownTriple = HPT.ProbabilityTriple 0.0 0.0 1.0
+withinEvidenceQuadruple :: ProbabilityQuadruple
+withinEvidenceQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 1.0 0.0
 
-outsideEvidenceTriple :: ProbabilityTriple
-outsideEvidenceTriple = HPT.ProbabilityTriple 0.0 0.0 0.0
+unknownQuadruple :: ProbabilityQuadruple
+unknownQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 0.0 1.0
+
+outsideEvidenceQuadruple :: ProbabilityQuadruple
+outsideEvidenceQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 0.0 0.0
 
 exportAsDot :: FilePath -> HPT -> ExceptionalT IOException IO ()
 exportAsDot path hpt = do
@@ -125,7 +131,7 @@ exportAsDot path hpt = do
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
         Unfinished (Choice choice pf prob left right) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ triple hpt') scr)
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ quadruple hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
             counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show prob) (show pf) (printChoiceRight choice)) left (counter+1) file
             printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show (1 - prob)) (show pf) (printChoiceLeft choice)) right counter' file
