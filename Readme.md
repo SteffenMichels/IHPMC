@@ -15,7 +15,9 @@ The inference tool based on IHPMC is written in Haskell and there is a Cabal pac
 
     cabal install
 
-There are also binary x64 Linux executables in a [downloadable package](http://www.steffen-michels.de/ihpmc/ihpmc_linux_x64.tar.gz) (which may be outdated).
+There are also binary packages available:
+ * [IHPMC Linux x64](http://www.steffen-michels.de/ihpmc/ihpmc_linux_x64.tar.gz)
+ * [IHPMC Windows x64](http://www.steffen-michels.de/ihpmc/ihpmc_windows_x64.zip)
 
 ##Usage
 
