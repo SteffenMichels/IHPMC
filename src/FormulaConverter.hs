@@ -52,25 +52,24 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
             case mbNodeId of
                 Just nodeId -> return $ Formula.refComposed nodeId
                 _ -> do
-                    (fBodies,_) <- foldM (ruleFormulas label) ([], 0::Integer) $ Map.lookupDefault Set.empty label rules
+                    (fBodies,_) <- foldM ruleFormulas ([], 0::Integer) $ Map.lookupDefault Set.empty label rules
                     Formula.entryRef <$> Formula.insert flabel True Formula.Or fBodies
             where
-            flabel    = Formula.uncondComposedLabel $ GroundedAST.setExcluded excludedGoals' label
+            flabel    = Formula.uncondComposedLabelExcluded label excludedGoals'
             excludedGoals' = Set.intersection excludedGoals children
             children = Map.lookupDefault (error "not in predChildren") label predChildren
 
-            ruleFormulas :: GroundedAST.PredicateLabel
-                         -> ([Formula.NodeRef], Integer)
+            ruleFormulas :: ([Formula.NodeRef], Integer)
                          -> GroundedAST.RuleBody
                          -> Formula.FState cachedInfo ([Formula.NodeRef], Integer)
-            ruleFormulas label' (fBodies, counter) body = do
-                newChild <- bodyFormula (GroundedAST.setBodyNr counter label') body
+            ruleFormulas (fBodies, counter) body = do
+                newChild <- bodyFormula counter body
                 return (newChild : fBodies, succ counter)
 
-            bodyFormula :: GroundedAST.PredicateLabel
+            bodyFormula :: Integer
                         -> GroundedAST.RuleBody
                         -> Formula.FState cachedInfo Formula.NodeRef
-            bodyFormula label' (GroundedAST.RuleBody elements)
+            bodyFormula counter (GroundedAST.RuleBody elements)
                 | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] = return $ Formula.refDeterministic False
                 | otherwise = case length elements of
                         0 -> return $ Formula.refDeterministic True
@@ -78,7 +77,7 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                         _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el excludedGoals''
                                                                          return $ newChild : fChildren
                                                     ) [] elements
-                                Formula.entryRef <$> Formula.insert (Formula.uncondComposedLabel label') True Formula.And fChildren
+                                Formula.entryRef <$> Formula.insert (Formula.uncondComposedLabelNr label counter) True Formula.And fChildren
                where
                excludedGoals''
                    | Set.member label children = Set.insert label excludedGoals'

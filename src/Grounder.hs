@@ -294,7 +294,7 @@ addGroundings = do
 
 -- turn constructs from ordinary ones (with arguments) to propositional ones (after grounding)
 toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> GroundedAST.PredicateLabel
-toPropPredLabel (AST.PredicateLabel label) = GroundedAST.stringNamePredicateLabel label
+toPropPredLabel (AST.PredicateLabel label) = GroundedAST.predicateLabel label
 
 toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GroundedAST.PFuncLabel
 toPropPFuncLabel = GroundedAST.PFuncLabel

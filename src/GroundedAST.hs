@@ -36,10 +36,7 @@ module GroundedAST ( GroundedAST(..)
                    , makePFuncString
                    , Expr(..)
                    , PredicateLabel
-                   , stringNamePredicateLabel
-                   , numberNamePredicateLabel
-                   , setBodyNr
-                   , setExcluded
+                   , predicateLabel
                    , ConstantExpr(..)
                    , PFuncDef(..)
                    , Addition
@@ -97,43 +94,17 @@ groundedAstToText ast ids2str = rulesStr ++ queryStr ++ evStr
     evStr        = concat [printf "evidence %s.\n" $ ruleBodyElementToText ev    ids2str | ev    <- Set.toList $ evidence ast]
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
-data PredicateLabel = PredicateLabel PredicateName [AST.ConstantExpr] (Maybe Integer) (HashSet PredicateLabel) Int deriving Eq
+data PredicateLabel = PredicateLabel AST.PredicateLabel [AST.ConstantExpr] Int deriving Eq
 predicateLabelToText :: PredicateLabel -> HashMap Int String -> String
-predicateLabelToText (PredicateLabel name args mbNr excluded _) ids2str = printf
-    "%s%s%s%s"
-    (predicateNameToText name ids2str)
+predicateLabelToText (PredicateLabel label args _) ids2str = printf
+    "%s%s"
+    (AST.predicateLabelToText label ids2str)
     (if null args then "" else printf "(%s)" (showLst args))
-    (case mbNr of Just n -> printf "#%i" n; Nothing -> "")
-    (if null excluded then "" else printf "-%s" $ toTextLst (Set.toList excluded) (`predicateLabelToText` ids2str))
 instance Hashable PredicateLabel where
-    hashWithSalt salt (PredicateLabel _ _ _ _ hash) = Hashable.hashWithSalt salt hash
+    hashWithSalt salt (PredicateLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
-data PredicateName = StringName Int
-                   | NumberName Integer
-                    deriving (Eq, Generic)
-predicateNameToText :: PredicateName -> HashMap Int String -> String
-predicateNameToText (StringName idNr) ids2str = Map.lookupDefault undefined idNr ids2str
-predicateNameToText (NumberName n)    _       = show n
-instance Hashable PredicateName
-
-stringNamePredicateLabel :: Int -> [AST.ConstantExpr] -> PredicateLabel
-stringNamePredicateLabel name args = PredicateLabel strName args Nothing Set.empty $ predicateLabelHash strName args Nothing Set.empty
-    where
-    strName = StringName name
-
-numberNamePredicateLabel :: Integer -> [AST.ConstantExpr] -> PredicateLabel
-numberNamePredicateLabel name args = PredicateLabel nrName args Nothing Set.empty $ predicateLabelHash nrName args Nothing Set.empty
-    where
-    nrName = NumberName name
-
-setBodyNr :: Integer -> PredicateLabel -> PredicateLabel
-setBodyNr n (PredicateLabel name args _ excluded _) = PredicateLabel name args (Just n) excluded $ predicateLabelHash name args (Just n) excluded
-
-setExcluded :: HashSet PredicateLabel -> PredicateLabel -> PredicateLabel
-setExcluded excluded (PredicateLabel name args mbNr _ _) = PredicateLabel name args mbNr excluded $ predicateLabelHash name args mbNr excluded
-
-predicateLabelHash :: PredicateName -> [AST.ConstantExpr] -> Maybe Integer -> HashSet PredicateLabel -> Int
-predicateLabelHash name args mbNr = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hash name) args) mbNr)
+predicateLabel :: Int -> [AST.ConstantExpr] -> PredicateLabel
+predicateLabel name args = PredicateLabel (AST.PredicateLabel name) args $ Hashable.hashWithSalt (Hashable.hash name) args
 
 data PFunc a = PFunc PFuncLabel (PFuncDef a) Int -- store hash for efficiency reasons
 instance Eq (PFunc a)
