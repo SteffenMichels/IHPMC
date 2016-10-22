@@ -138,7 +138,6 @@ instance Show (PFunc a)
     show (PFunc l _ _) = show l
 instance Hashable (PFunc a)
     where
-    hash = Hashable.hashWithSalt 0
     -- there should never be more than one PF with the same name, so hash only name and ignore definition
     hashWithSalt salt (PFunc _ _ hash) = Hashable.hashWithSalt salt hash
 
@@ -214,7 +213,6 @@ instance Show (TypedBuildInPred a)
     show (Constant cnst)           = show cnst
 instance Hashable (TypedBuildInPred a)
     where
-    hash = Hashable.hashWithSalt 0
     hashWithSalt salt (Equality eq exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt eq) exprX) exprY
     hashWithSalt salt (Ineq     op exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt op) exprX) exprY
     hashWithSalt salt (Constant b)              = Hashable.hashWithSalt salt b
@@ -233,7 +231,6 @@ instance Show (Expr a)
     show (Sum x y)            = printf "%s + %s" (show x) (show y)
 instance Hashable (Expr a)
     where
-    hash = Hashable.hashWithSalt 0
     hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
     hashWithSalt salt (PFuncExpr r)        = Hashable.hashWithSalt salt r
     hashWithSalt salt (Sum x y)            = Hashable.hashWithSalt (Hashable.hashWithSalt salt x) y
@@ -254,7 +251,6 @@ instance Show (ConstantExpr a)
     show (IntConstant  cnst) = show cnst
 instance Hashable (ConstantExpr a)
     where
-    hash = Hashable.hashWithSalt 0
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
     hashWithSalt salt (StrConstant  s) = Hashable.hashWithSalt salt s
