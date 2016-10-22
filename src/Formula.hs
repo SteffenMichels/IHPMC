@@ -227,7 +227,7 @@ entryChoices entry = case entryRef entry of
     RefBuildInPredicateString _ choices -> Conditions Map.empty choices Map.empty
     RefBuildInPredicateReal _ choices   -> Conditions Map.empty Map.empty choices
     _ -> case entryLabel entry of
-        Just (ComposedLabel _ _ _ conds _) -> conds
+        Just (ComposedLabel _ conds _) -> conds
         _ -> Conditions Map.empty Map.empty Map.empty
 
 conditionBool :: RefWithNode cachedInfo
@@ -433,26 +433,33 @@ newtype ComposedId = ComposedId Integer deriving (Eq, Generic)
 instance Hashable ComposedId
 
 data ComposedLabel = ComposedLabel
-    GroundedAST.PredicateLabel           -- the name
-    (Maybe Integer)                      -- body nr
-    (HashSet GroundedAST.PredicateLabel) -- excluding children (for cycle breaking)
-    Conditions                           -- conditions
-    Int                                  -- stored hash to avoid recomputation
-    deriving (Eq)
+    PredicateLabel -- label
+    Conditions     -- conditions
+    Int            -- stored hash to avoid recomputation
+    deriving Eq
+
+data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel PredicateLabelModifier deriving Eq
+data PredicateLabelModifier = No
+                            | BodyNr Integer
+                            | ExcludingChildren (HashSet GroundedAST.PredicateLabel)
+                            deriving Eq
 
 -- conditioned formulas
 data Conditions = Conditions { boolConds   :: HashMap (GroundedAST.PFunc Bool) Bool
                              , stringConds :: HashMap (GroundedAST.PFunc String) (HashSet String)
                              , realConds   :: HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval
                              }
-                             deriving (Eq)
+                             deriving Eq
 
 composedLabelToText :: ComposedLabel -> HashMap Int String -> String
-composedLabelToText (ComposedLabel label mbNr excluded (Conditions{boolConds, stringConds, realConds}) _) ids2str = printf
-    "%s%s%s|%s"
+composedLabelToText (ComposedLabel (PredicateLabel label modif) (Conditions{boolConds, stringConds, realConds}) _) ids2str = printf
+    "%s%s|%s"
     (GroundedAST.predicateLabelToText label ids2str)
-    (case mbNr of Just n -> printf "#%i" n; Nothing -> "")
-    (if null excluded then "" else printf "-%s" $ toTextLst (Set.toList excluded) (`GroundedAST.predicateLabelToText` ids2str))
+    (case modif of
+        No                         -> ""
+        BodyNr nr                  -> printf "#%i" nr
+        ExcludingChildren excluded -> printf "-%s" $ toTextLst (Set.toList excluded) (`GroundedAST.predicateLabelToText` ids2str)
+    )
     (showLst (
         (showCondBool               <$> Map.toList boolConds)   ++
         ((`showCondString` ids2str) <$> Map.toList stringConds) ++
@@ -463,27 +470,27 @@ composedLabelToText (ComposedLabel label mbNr excluded (Conditions{boolConds, st
 
 instance Hashable ComposedLabel
     where
-    hashWithSalt salt (ComposedLabel _ _ _ _ hash) = Hashable.hashWithSalt salt hash
+    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
 uncondComposedLabel :: GroundedAST.PredicateLabel -> ComposedLabel
-uncondComposedLabel label = ComposedLabel label Nothing Set.empty (Conditions Map.empty Map.empty Map.empty) $ Hashable.hash label
+uncondComposedLabel label = ComposedLabel (PredicateLabel label No) (Conditions Map.empty Map.empty Map.empty) $ Hashable.hash label
 
 uncondComposedLabelExcluded :: GroundedAST.PredicateLabel -> HashSet GroundedAST.PredicateLabel -> ComposedLabel
 uncondComposedLabelExcluded label excluded =
-    ComposedLabel label Nothing excluded (Conditions Map.empty Map.empty Map.empty) $ Hashable.hashWithSalt (Hashable.hash label) excluded
+    ComposedLabel (PredicateLabel label $ ExcludingChildren excluded) (Conditions Map.empty Map.empty Map.empty) $ Hashable.hashWithSalt (Hashable.hash label) excluded
 
 uncondComposedLabelNr :: GroundedAST.PredicateLabel -> Integer -> ComposedLabel
 uncondComposedLabelNr label nr =
-    ComposedLabel label (Just nr) Set.empty (Conditions Map.empty Map.empty Map.empty) $ Hashable.hashWithSalt (Hashable.hash label) nr
+    ComposedLabel (PredicateLabel label $ BodyNr nr) (Conditions Map.empty Map.empty Map.empty) $ Hashable.hashWithSalt (Hashable.hash label) nr
 
 condComposedLabelBool :: GroundedAST.PFunc Bool -> Bool -> ComposedLabel -> ComposedLabel
-condComposedLabelBool pf val (ComposedLabel name mbNr excluded conds hash) = ComposedLabel name mbNr excluded conds{boolConds = bConds} hash'
+condComposedLabelBool pf val (ComposedLabel label conds hash) = ComposedLabel label conds{boolConds = bConds} hash'
     where
     bConds = Map.insert pf val $ boolConds conds
     hash'  = hash + Hashable.hashWithSalt (Hashable.hash pf) val
 
 condComposedLabelString :: GroundedAST.PFunc String -> HashSet String -> ComposedLabel -> ComposedLabel
-condComposedLabelString pf condSet (ComposedLabel name mbNr excluded conds hash) = ComposedLabel name mbNr excluded conds{stringConds = sConds} hash''
+condComposedLabelString pf condSet (ComposedLabel label conds hash) = ComposedLabel label conds{stringConds = sConds} hash''
     where
     sConds  = Map.insert pf condSet $ stringConds conds
     hashPf  = Hashable.hash pf
@@ -493,7 +500,7 @@ condComposedLabelString pf condSet (ComposedLabel name mbNr excluded conds hash)
         Nothing       -> hash'
 
 condComposedLabelReal :: GroundedAST.PFunc GroundedAST.RealN -> Interval -> ComposedLabel -> ComposedLabel
-condComposedLabelReal pf interv (ComposedLabel name mbNr excluded conds hash) = ComposedLabel name mbNr excluded conds{realConds = rConds} hash''
+condComposedLabelReal pf interv (ComposedLabel label conds hash) = ComposedLabel label conds{realConds = rConds} hash''
     where
     rConds  = Map.insert pf interv $ realConds conds
     hashPf  = Hashable.hash pf
