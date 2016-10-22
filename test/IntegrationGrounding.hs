@@ -27,6 +27,7 @@ import NeatInterpolation
 import IntegrationTest
 import Data.Text (unpack)
 import qualified AST
+import qualified Data.HashMap.Strict as Map
 
 tests :: (String, [IntegrationTest])
 tests = ("grounding", [ queries, typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars
@@ -43,13 +44,13 @@ queries = IntegrationTest
               |]
     , expectedResults =
         [ (queryInt "p" [1], preciseProb 1.0)
-        , (AST.UserPredicate (AST.PredicateLabel "p") [AST.Variable (AST.VarName "X")], nonGroundQuery)
-        , ( AST.BuildInPredicate
-            (AST.Equality False (AST.PFunc (AST.PFuncLabel "x") []) (AST.ConstantExpr (AST.BoolConstant False)))
+        , (\strs2id -> AST.UserPredicate (AST.PredicateLabel $ Map.lookupDefault undefined "p" strs2id) [AST.Variable (AST.VarName "X")], nonGroundQuery)
+        , ( \strs2id -> AST.BuildInPredicate
+            (AST.Equality False (AST.PFunc (AST.PFuncLabel $ Map.lookupDefault undefined "x" strs2id) []) (AST.ConstantExpr (AST.BoolConstant False)))
           , preciseProb 0.1
           )
-        , ( AST.BuildInPredicate
-            (AST.Equality False (AST.PFunc (AST.PFuncLabel "x") []) (AST.Variable (AST.VarName "X")))
+        , ( \strs2id -> AST.BuildInPredicate
+            (AST.Equality False (AST.PFunc (AST.PFuncLabel $ Map.lookupDefault undefined "x" strs2id) []) (AST.Variable (AST.VarName "X")))
           , nonGroundQuery
           )
         ]

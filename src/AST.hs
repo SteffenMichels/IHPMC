@@ -44,11 +44,13 @@ module AST
     , mapExprsInRuleBodyElementM
     , mapAccExpr
     , mapAccExprsInRuleBodyElement
+    , predicateLabelToText
+    , pFuncLabelToText
+    , ruleBodyElementToText
+    , exprToText
     ) where
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
---import Data.HashSet (HashSet)
---import qualified Data.HashSet as Set
 import Text.Printf (printf)
 import Data.Char (toLower)
 import Data.Hashable (Hashable)
@@ -66,29 +68,14 @@ data AST = AST
     , evidence  :: [RuleBodyElement]
     }
 
-instance Show AST
-    where
-    show ast = pfuncDefsStr ++ rulesStr ++ queryStr ++ evStr
-        where
-        pfuncDefsStr = concat $ concat [
-                            [printf "~%s ~ %s.\n" (show label) $ show def | def <- defs]
-                       | (label, defs) <- Map.toList $ pFuncDefs ast]
-        rulesStr     = concat $ concat [
-                            [printf "%s%s <- %s.\n" (show label) (show args) $ show body | (args, body) <- bodies]
-                       | (label,bodies) <- Map.toList $ rules ast]
-        queryStr     = concat [printf "query %s.\n"    $ show query | query <- queries  ast]
-        evStr        = concat [printf "evidence %s.\n" $ show ev    | ev    <- evidence ast]
-
-newtype PredicateLabel = PredicateLabel String deriving (Eq, Generic)
+newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic)
+predicateLabelToText :: PredicateLabel -> HashMap Int String -> String
+predicateLabelToText (PredicateLabel idNr) = Map.lookupDefault undefined idNr
 instance Hashable PredicateLabel
-instance Show PredicateLabel
-    where
-    show (PredicateLabel l) = l
 
-newtype PFuncLabel = PFuncLabel String deriving (Eq, Generic)
-instance Show PFuncLabel
-    where
-    show (PFuncLabel label) = label
+newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic)
+pFuncLabelToText :: PFuncLabel -> HashMap Int String -> String
+pFuncLabelToText (PFuncLabel idNr) = Map.lookupDefault undefined idNr
 instance Hashable PFuncLabel
 
 data PFuncDef = Flip     Probability
@@ -102,19 +89,16 @@ instance Show PFuncDef
     show (StrDist pairs) = printf "{%s}" $ showLst pairs
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
-
-instance Show RuleBody
-    where
-    show (RuleBody elements) = showLst elements
 instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic)
+ruleBodyElementToText :: RuleBodyElement -> HashMap Int String -> String
+ruleBodyElementToText (UserPredicate label args) ids2str =
+    printf "%s(%s)" (predicateLabelToText label ids2str) (toTextLst args (`exprToText` ids2str))
+ruleBodyElementToText (BuildInPredicate prd) ids2str = buildInPredicateToText prd ids2str
 
-instance Show RuleBodyElement where
-    show (UserPredicate label args) = printf "%s(%s)" (show label) (showLst args)
-    show (BuildInPredicate prd)     = show prd
 instance Hashable RuleBodyElement
 
 -- the arguments in head definitions are restricted to variables and constants
@@ -136,11 +120,11 @@ instance Hashable VarName
 data BuildInPredicate = Equality Bool Expr Expr
                       | Ineq     IneqOp Expr Expr
                       deriving (Eq, Generic)
-
-instance Show BuildInPredicate
-    where
-    show (Equality eq exprX exprY) = printf "%s %s %s" (show exprX) (if eq then "=" else "/=") (show exprY)
-    show (Ineq     op exprX exprY) = printf "%s %s %s" (show exprX) (show op) (show exprY)
+buildInPredicateToText :: BuildInPredicate -> HashMap Int String -> String
+buildInPredicateToText (Equality eq exprX exprY) ids2str =
+    printf "%s %s %s" (exprToText exprX ids2str) (if eq then "=" else "/=") (exprToText exprY ids2str)
+buildInPredicateToText (Ineq     op exprX exprY) ids2str =
+    printf "%s %s %s" (exprToText exprX ids2str) (show op) (exprToText exprY ids2str)
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
@@ -158,12 +142,12 @@ data Expr = ConstantExpr ConstantExpr
           | Sum          Expr Expr
           deriving (Eq, Generic)
 
-instance Show Expr
-    where
-    show (ConstantExpr cnst)             = show cnst
-    show (PFunc (PFuncLabel label) args) = printf "~%s(%s)" label $ showLst args
-    show (Variable var)                  = show var
-    show (Sum x y)                       = printf "%s + %s" (show x) (show y)
+exprToText :: Expr -> HashMap Int String -> String
+exprToText (ConstantExpr cnst) _ = show cnst
+exprToText (PFunc pf args) ids2str =
+    printf "~%s(%s)" (pFuncLabelToText pf ids2str) $ toTextLst args (`exprToText` ids2str)
+exprToText (Variable var) _ = show var
+exprToText (Sum x y) ids2str = printf "%s + %s" (exprToText x ids2str) (exprToText y ids2str)
 instance Hashable Expr
 
 data ConstantExpr = BoolConstant Bool

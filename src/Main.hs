@@ -24,11 +24,12 @@
 {-# LANGUAGE Strict #-}
 #endif
 
-module Main (main, Exception(..)) where
+module Main (main, Exception(..), exceptionToText) where
 import System.Environment (getArgs)
 import qualified Parser
 import qualified Grounder
 import qualified FormulaConverter
+import qualified GroundedAST
 import Exception
 import Text.Printf (printf, PrintfArg)
 import qualified IHPMC
@@ -41,6 +42,9 @@ import Data.Maybe (isJust)
 import qualified Formula
 import Probability
 import qualified HPT
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Map
+import qualified IdNrMap
 
 data Exception = GrounderException        Grounder.Exception
                | ParameterException       String
@@ -49,61 +53,61 @@ data Exception = GrounderException        Grounder.Exception
                | IOException              IOException
                | TestException            String
 
-instance Show Exception
-    where
-    show (GrounderException e)        = printf "Invalid model: %s" $ show e
-    show (ParameterException e)       = printf "Invalid parameter: %s" e
-    show (CommandLineArgsException e) = e
-    show (ParserException e)          = printf "Invalid model syntax: %s" $ show e
-    show (IOException e)              = show e
-    show (TestException e)            = printf "Invalid test: %s" e
+exceptionToText :: Exception -> HashMap Int String -> String
+exceptionToText (GrounderException e)        ids2str = printf "Invalid model: %s" $ Grounder.exceptionToText e ids2str
+exceptionToText (ParameterException e)       _       = printf "Invalid parameter: %s" e
+exceptionToText (CommandLineArgsException e) _       = e
+exceptionToText (ParserException e)          _       = printf "Invalid model syntax: %s" $ show e
+exceptionToText (IOException e)              _       = show e
+exceptionToText (TestException e)            _       = printf "Invalid test: %s" e
 
 main :: IO ()
 main = do
     result <- runExceptionalT main'
     case result of
-        Exception e -> print e >> exitFailure
-        Success _   -> return ()
+        Exception (e, ids2str) -> putStrLn (exceptionToText e ids2str) >> exitFailure
+        Success _              -> return ()
 
-main' :: ExceptionalT Exception IO ()
+main' :: ExceptionalT (Exception, HashMap Int String) IO ()
 main' = do
     args <- doIOException getArgs
     Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath, hptExpPath} <-
-        mapExceptionT CommandLineArgsException $ Options.parseConsoleArgs args
+        mapExceptionT ((,Map.empty) . CommandLineArgsException) $ Options.parseConsoleArgs args
     assertT
-        (ParameterException "Error bound has to be between 0.0 and 0.5.")
+        (ParameterException "Error bound has to be between 0.0 and 0.5.", Map.empty)
         (case errBound of
             Nothing -> True
             Just b  -> b >= 0.0 && b <= 0.5
         )
     assertT
-        (ParameterException "You have to specify at least one stop condition.")
+        (ParameterException "You have to specify at least one stop condition.", Map.empty)
         (isJust nIterations || isJust errBound || isJust timeout)
     printIfSet "Stopping after %i iterations." nIterations
     printIfSet "Stopping if error bound is at most %s." $ show <$> errBound
     printIfSet "Stopping after %ims." timeout
     src <- doIOException $ readFile modelFile
-    ast <- returnExceptional $ mapException ParserException $ Parser.parsePclp src
-    groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast
+    (ast, idNrMap) <- returnExceptional $ mapException ((,Map.empty) . ParserException) $ Parser.parsePclp src
+    let ids2str = IdNrMap.fromIdNrMap idNrMap
+    groundedAst <- returnExceptional $ mapException ((,ids2str) . GrounderException) $ Grounder.ground ast
     let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-    whenJust formExpPath $ \path -> mapExceptionT IOException $ Formula.exportAsDot path f
+    whenJust formExpPath $ \path -> mapExceptionT ((,ids2str) . IOException) $ Formula.exportAsDot path f ids2str
     let stopPred n (ProbabilityBounds l u) t =  maybe False (<= n)       nIterations
                                              || maybe False (>= (u-l)/2) errBound
                                              || maybe False (<= t)       timeout
     let reportingIO = case repInterval of
             Just rInterv -> \qLabel n bounds t lastRep -> if   t - lastRep >= rInterv
-                                                          then Just $ printResult qLabel n t $ Just bounds
+                                                          then Just $ printResult qLabel n t (Just bounds) ids2str
                                                           else Nothing
             _            -> \_      _ _      _ _       -> Nothing
     forM_ queries $ \(qLabel, qRef) -> do
-        (n, t, mbBounds, hpt) <- mapExceptionT IOException $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f
-        mapExceptionT IOException $ printResult qLabel n t mbBounds
+        (n, t, mbBounds, hpt) <- mapExceptionT ((,ids2str) . IOException) $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f
+        mapExceptionT ((,ids2str) . IOException) $ printResult qLabel n t mbBounds ids2str
         when (isJust repInterval) $ doIOException $ putStrLn ""
-        whenJust hptExpPath $ \path -> mapExceptionT IOException $ HPT.exportAsDot path hpt
+        whenJust hptExpPath $ \path -> mapExceptionT ((,ids2str) . IOException) $ HPT.exportAsDot path hpt ids2str
         where
-        printResult qLabel n t mbBounds = doIO $ putStrLn $ printf
+        printResult qLabel n t mbBounds ids2str = doIO $ putStrLn $ printf
             "%s (iteration %i, after %ims): %s"
-            (show qLabel)
+            (GroundedAST.ruleBodyElementToText qLabel ids2str)
             n
             t
             (case mbBounds of
@@ -114,10 +118,10 @@ main' = do
                 Nothing -> "inconsistent evidence"
             )
 
-doIOException :: IO a -> ExceptionalT Exception IO a
-doIOException io = mapExceptionT IOException $ doIO io
+doIOException :: IO a -> ExceptionalT (Exception, HashMap Int String) IO a
+doIOException io = mapExceptionT ((,Map.empty) . IOException) $ doIO io
 
-printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT Exception IO ()
+printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT (Exception, HashMap Int String) IO ()
 printIfSet fstr = maybe (return ()) $ doIOException . putStrLn . printf fstr
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()

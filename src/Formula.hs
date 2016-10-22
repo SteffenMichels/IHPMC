@@ -44,6 +44,7 @@ module Formula
     , conditionReal
     , Formula.negate
     , entryChoices
+    , nodeRefToText
     ) where
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
@@ -71,7 +72,6 @@ data Node = Composed NodeType [NodeRef]
           | BuildInPredicateString (GroundedAST.TypedBuildInPred String)            (HashMap (GroundedAST.PFunc String) (HashSet String))
           | BuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN) (HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval)
           | Deterministic Bool
-          deriving (Show, Eq)
 
 data RefWithNode cachedInfo = RefWithNode
     { entryRef        :: NodeRef
@@ -146,7 +146,7 @@ insert label sign op children = do
     nodeChildren _                       = []
 
 augmentWithEntry :: NodeRef -> FState cachedInfo (RefWithNode cachedInfo)
-augmentWithEntry ref = fromMaybe (error $ printf "Formula: non-existing Formula node '%s'" $ show ref)
+augmentWithEntry ref = fromMaybe (error "Formula: non-existing Formula node")
                        <$>
                        tryAugmentWithEntry ref
 
@@ -389,8 +389,8 @@ negate (RefBuildInPredicateString prd sConds) = RefBuildInPredicateString (Groun
 negate (RefBuildInPredicateReal   prd rConds) = RefBuildInPredicateReal   (GroundedAST.negatePred prd) rConds
 negate (RefDeterministic val)                 = RefDeterministic $ not val
 
-exportAsDot :: FilePath -> Formula cachedInfo -> ExceptionalT IOException IO ()
-exportAsDot path Formula{nodes} = do
+exportAsDot :: FilePath -> Formula cachedInfo -> HashMap Int String -> ExceptionalT IOException IO ()
+exportAsDot path Formula{nodes} ids2str = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
     forM_ (Map.toList nodes) (printNode file)
@@ -399,7 +399,7 @@ exportAsDot path Formula{nodes} = do
     where
         printNode :: Handle -> (ComposedId, (ComposedLabel, FormulaEntry cachedInfo)) -> ExceptionalT IOException IO ()
         printNode file (ComposedId i, (label, FormulaEntry op children _ _)) = do
-            doIO (hPutStrLn file (printf "%i[label=\"%i: %s\\n%s\"];" i i (unpack $ replace (pack "\"") (pack "\\\"") $ pack $ show label) descr))
+            doIO (hPutStrLn file (printf "%i[label=\"%i: %s\\n%s\"];" i i (unpack $ replace (pack "\"") (pack "\\\"") $ pack $ composedLabelToText label ids2str) descr))
             void $ forM_ children writeEdge
             where
                 descr = case op of And -> "AND"; Or -> "OR"
@@ -413,7 +413,7 @@ exportAsDot path Formula{nodes} = do
                 childStr (RefDeterministic _)                    = error "Formula export: should this happen?"
 
                 printPrd :: GroundedAST.TypedBuildInPred a -> String
-                printPrd prd = printf "%i;\n%i[label=\"%s\"]" h h $ unpack $ replace (pack "\"") (pack "\\\"") $ pack $ show prd
+                printPrd prd = printf "%i;\n%i[label=\"%s\"]" h h $ unpack $ replace (pack "\"") (pack "\\\"") $ pack $ GroundedAST.typedBuildInPredToText prd ids2str
                     where
                     h = Hashable.hashWithSalt (Hashable.hash i) prd
 
@@ -443,14 +443,17 @@ data Conditions = Conditions { boolConds   :: HashMap (GroundedAST.PFunc Bool) B
                              }
                              deriving (Eq)
 
-instance Show ComposedLabel
+composedLabelToText :: ComposedLabel -> HashMap Int String -> String
+composedLabelToText (ComposedLabel label (Conditions{boolConds, stringConds, realConds}) _) ids2str = printf
+    "%s|%s"
+    (GroundedAST.predicateLabelToText label ids2str)
+    (showLst (
+        (showCondBool               <$> Map.toList boolConds)   ++
+        ((`showCondString` ids2str) <$> Map.toList stringConds) ++
+        ((`showCondReal`   ids2str) <$> Map.toList realConds)
+    ))
     where
-    show (ComposedLabel label (Conditions{boolConds, stringConds, realConds}) _) = printf
-        "%s|%s"
-        (show label)
-        (showLst ((showCondBool <$> Map.toList boolConds) ++ (showCondString <$> Map.toList stringConds) ++ (showCondReal <$> Map.toList realConds)))
-        where
-            showCondBool (pf, val) = printf "%s=%s" (show pf) (show val)
+        showCondBool (pf, val) = printf "%s=%s" (GroundedAST.pFuncToText pf ids2str) (show val)
 
 instance Hashable ComposedLabel
     where
@@ -503,28 +506,27 @@ data NodeRef = RefComposed Bool ComposedId
              | RefDeterministic Bool
              deriving Eq
 
-instance Show NodeRef
-    where
-    show (RefComposed sign (ComposedId cid)) = printf
+nodeRefToText :: NodeRef -> HashMap Int String -> String
+nodeRefToText (RefComposed sign (ComposedId cid)) _ = printf
         "%s%s"
         (if sign then "" else "-")
         (show cid)
-    show (RefBuildInPredicateBool prd) = printf "%s" $ show prd
-    show (RefBuildInPredicateString prd sConds) = printf
+nodeRefToText (RefBuildInPredicateBool prd) ids2str = printf "%s" $ GroundedAST.typedBuildInPredToText prd ids2str
+nodeRefToText (RefBuildInPredicateString prd sConds) ids2str = printf
        "%s|\n  %s"
-       (show prd)
-       (List.intercalate ",\n" (showCondString <$> Map.toList sConds))
-    show (RefBuildInPredicateReal prd rConds) = printf
+       (GroundedAST.typedBuildInPredToText prd ids2str)
+       (List.intercalate ",\n" ((`showCondString` ids2str) <$> Map.toList sConds))
+nodeRefToText (RefBuildInPredicateReal prd rConds) ids2str = printf
        "%s|\n  %s"
-       (show prd)
-       (List.intercalate ",\n" (showCondReal <$> Map.toList rConds))
-    show (RefDeterministic val) = show val
+       (GroundedAST.typedBuildInPredToText prd ids2str)
+       (List.intercalate ",\n" ((`showCondReal` ids2str) <$> Map.toList rConds))
+nodeRefToText (RefDeterministic val) _ = show val
 
-showCondString :: (GroundedAST.PFunc String, HashSet String) -> String
-showCondString (pf, condSet) = printf "%s in {%s}" (show pf) (unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList condSet)
+showCondString :: (GroundedAST.PFunc String, HashSet String) -> HashMap Int String -> String
+showCondString (pf, condSet) ids2str = printf "%s in {%s}" (GroundedAST.pFuncToText pf ids2str) (unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList condSet)
 
-showCondReal :: (GroundedAST.PFunc GroundedAST.RealN, Interval) -> String
-showCondReal (pf, Interval.Interval l r) = printf "%s in (%s,%s)" (show pf) (show l) (show r)
+showCondReal :: (GroundedAST.PFunc GroundedAST.RealN, Interval) -> HashMap Int String -> String
+showCondReal (pf, Interval.Interval l r) ids2str = printf "%s in (%s,%s)" (GroundedAST.pFuncToText pf ids2str) (show l) (show r)
 
 refDeterministic :: Bool -> NodeRef
 refDeterministic = RefDeterministic

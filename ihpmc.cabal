@@ -26,6 +26,7 @@ executable ihpmc_float
     hs-source-dirs: src
     other-modules:
         GroundedAST
+        IdNrMap
         Options
         Parser
         HPT
@@ -61,6 +62,7 @@ executable ihpmc_exact
     hs-source-dirs: src
     other-modules:
         GroundedAST
+        IdNrMap
         Options
         Parser
         HPT
@@ -100,6 +102,7 @@ test-suite integration
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
     hs-source-dirs: test src
     other-modules:
+        IdNrMap
         IntegrationExactProbabilities
         Main
         GroundedAST

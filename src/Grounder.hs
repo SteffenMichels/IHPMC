@@ -22,6 +22,7 @@
 module Grounder
     ( ground
     , Exception(..)
+    , exceptionToText
     ) where
 import AST (AST)
 import qualified AST
@@ -56,45 +57,44 @@ data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel 
                | NonGroundQuery        AST.RuleBodyElement
                | NonGroundEvidence     AST.RuleBodyElement
 
-instance Show Exception
-    where
-    show (NonGroundPreds prds headLabel headNArgs) = printf
+exceptionToText :: Exception -> HashMap Int String -> String
+exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str = printf
         "Could not ground predicate%s %s in a body of '%s/%i'."
         (if length prds > 1 then "s" else "")
-        (showLstEnc "'" "'" prds)
-        (show headLabel)
+        (toTextLstEnc "'" "'" prds (`AST.ruleBodyElementToText` ids2str))
+        (AST.predicateLabelToText headLabel ids2str)
         headNArgs
-    show (TypeError exprX exprY) = printf
+exceptionToText (TypeError exprX exprY) ids2str = printf
         "Types of expressions %s and %s do not match."
-        (show exprX)
-        (show exprY)
-    show (UndefinedRf label n) = printf
+        (propExprWithTypeToText exprX ids2str)
+        (propExprWithTypeToText exprY ids2str)
+exceptionToText (UndefinedRf pf n) ids2str = printf
         "Probabilistic function '%s/%i' is undefined."
-        (show label)
+        (AST.pFuncLabelToText pf ids2str)
         n
-    show (UndefinedRfValue pf args) = printf
+exceptionToText (UndefinedRfValue pf args) ids2str = printf
         "'%s(%s)' is undefined."
-        (show pf)
+        (AST.pFuncLabelToText pf ids2str)
         (showLst args)
-    show (UndefinedPred label n) = printf
+exceptionToText (UndefinedPred label n) ids2str = printf
         "Predicate '%s/%i' is undefined."
-        (show label)
+        (AST.predicateLabelToText label ids2str)
         n
-    show ProbabilisticFuncUsedAsArg = "Probabilistic functions may not be used in arguments of predicates and functions."
-    show (UnsolvableConstraints constrs) = printf
+exceptionToText ProbabilisticFuncUsedAsArg _ = "Probabilistic functions may not be used in arguments of predicates and functions."
+exceptionToText (UnsolvableConstraints constrs) ids2str = printf
         "Could not solve constraint%s %s."
         (if length constrs > 1 then "s" else "")
-        (showLstEnc "'" "'" constrs)
-    show (NonGroundQuery q) = printf
+        (toTextLstEnc "'" "'" constrs (`constraintToText` ids2str))
+exceptionToText (NonGroundQuery q) ids2str = printf
         "All queries have to be ground. Query '%s' is not ground."
-        (show q)
-    show (NonGroundEvidence e) = printf
+        (AST.ruleBodyElementToText q ids2str)
+exceptionToText (NonGroundEvidence e) ids2str = printf
         "All evidence has to be ground. Evidence '%s' is not ground."
-        (show e)
+        (AST.ruleBodyElementToText e ids2str)
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic)
-instance Show Constraint where
-    show (EqConstraint exprX exprY) = printf "%s = %s" (show exprX) (show exprY)
+constraintToText :: Constraint -> HashMap Int String -> String
+constraintToText (EqConstraint exprX exprY) ids2str = printf "%s = %s" (AST.exprToText exprX ids2str) (AST.exprToText exprY ids2str)
 instance Hashable Constraint
 
 data GroundingState = GroundingState
@@ -344,15 +344,14 @@ data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
                       | ExprStr  (GroundedAST.Expr String)
                       | ExprInt  (GroundedAST.Expr Integer)
 
-instance Show PropExprWithType
-    where
-    show expr = printf "'%s' (of type %s)" exprStr typeStr
+propExprWithTypeToText :: PropExprWithType -> HashMap Int String -> String
+propExprWithTypeToText expr ids2str = printf "'%s' (of type %s)" exprStr typeStr
         where
         (exprStr, typeStr) = case expr of
-            ExprBool expr' -> (show expr', "Bool")
-            ExprReal expr' -> (show expr', "Real")
-            ExprStr  expr' -> (show expr', "String")
-            ExprInt  expr' -> (show expr', "Integer")
+            ExprBool expr' -> (GroundedAST.exprToText expr' ids2str, "Bool")
+            ExprReal expr' -> (GroundedAST.exprToText expr' ids2str, "Real")
+            ExprStr  expr' -> (GroundedAST.exprToText expr' ids2str, "String")
+            ExprInt  expr' -> (GroundedAST.exprToText expr' ids2str, "Integer")
 
 mapPropExprWithType :: (forall a. GroundedAST.Expr a -> GroundedAST.Expr a) -> PropExprWithType -> PropExprWithType
 mapPropExprWithType f (ExprBool expr) = ExprBool $ f expr

@@ -48,6 +48,7 @@ import Text.Printf (printf)
 import Numeric (fromRat)
 import qualified GroundedAST
 import Probability
+import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Util
@@ -116,8 +117,8 @@ unknownQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 0.0 1.0
 outsideEvidenceQuadruple :: ProbabilityQuadruple
 outsideEvidenceQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 0.0 0.0
 
-exportAsDot :: FilePath -> HPT -> ExceptionalT IOException IO ()
-exportAsDot path hpt = do
+exportAsDot :: FilePath -> HPT -> HashMap Int String -> ExceptionalT IOException IO ()
+exportAsDot path hpt ids2str = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
     _ <- printNode Nothing Nothing hpt 0 file
@@ -133,8 +134,8 @@ exportAsDot path hpt = do
         Unfinished (Choice choice pf prob left right) _ scr -> do
             doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ quadruple hpt') scr)
             printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show prob) (show pf) (printChoiceRight choice)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show (1 - prob)) (show pf) (printChoiceLeft choice)) right counter' file
+            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show prob) (GroundedAST.pFuncLabelToText pf ids2str) (printChoiceRight choice)) left (counter+1) file
+            printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show (1 - prob)) (GroundedAST.pFuncLabelToText pf ids2str) (printChoiceLeft choice)) right counter' file
             where
             printChoiceRight  ChoiceBool                = "= true"
             printChoiceRight (ChoiceString rightBranch) = printf "in {%s}" $ unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList rightBranch
@@ -143,11 +144,11 @@ exportAsDot path hpt = do
             printChoiceLeft  (ChoiceString rightBranch) = printf "not in {%s}" $ unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList rightBranch
             printChoiceLeft  (ChoiceReal splitPoint)    = printf "> %f" (fromRat splitPoint::Float)
         Unfinished (Leaf qRef eRef) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||%s\n(%f)\"];" counter (show qRef) (show eRef) scr)
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||%s\n(%f)\"];" counter (Formula.nodeRefToText qRef ids2str) (Formula.nodeRefToText eRef ids2str) scr)
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
         Unfinished (WithinEvidence qRef) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||T\n(%f)\"];" counter (show qRef) scr)
+            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||T\n(%f)\"];" counter (Formula.nodeRefToText qRef ids2str) scr)
             printEdge mbParent (show counter) mbEdgeLabel
             return (counter+1)
         where

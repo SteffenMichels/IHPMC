@@ -28,6 +28,9 @@ module Parser
 import AST (AST)
 import qualified AST
 import qualified Data.HashMap.Strict as Map
+import IdNrMap (IdNrMap)
+import qualified IdNrMap
+import Text.Parsec (Parsec)
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
@@ -42,6 +45,8 @@ import Probability
 newtype Exception = InvalidSyntax ParseError
 instance Show Exception where
     show (InvalidSyntax err) = show err
+
+type P a = Parsec String (IdNrMap String) a
 
 -- LEXER
 languageDef =
@@ -66,7 +71,7 @@ braces     = Token.braces     lexer
 colon      = Token.colon      lexer
 rational   = Token.lexeme     lexer parseRat
     where
-    parseRat :: Parser Rational
+    parseRat :: P Rational
     parseRat = do
         neg <- (string "-" >> return True) <|> return False
         rat <- try parseDecimal <|> parseFraction
@@ -86,15 +91,15 @@ rational   = Token.lexeme     lexer parseRat
             return $ num % den
 realIneqOp = Token.lexeme lexer parseRealIneqOp
     where
-    parseRealIneqOp :: Parser AST.IneqOp
+    parseRealIneqOp :: P AST.IneqOp
     parseRealIneqOp =     try (reservedOp "<"  >> return AST.Lt)
                       <|>     (reservedOp "<=" >> return AST.LtEq)
                       <|> try (reservedOp ">"  >> return AST.Gt)
                       <|>     (reservedOp ">=" >> return AST.GtEq)
 pFuncL = Token.lexeme     lexer parseUserPFuncLabel
     where
-    parseUserPFuncLabel :: Parser AST.PFuncLabel
-    parseUserPFuncLabel = string "~" >> AST.PFuncLabel <$> identifier
+    parseUserPFuncLabel :: P AST.PFuncLabel
+    parseUserPFuncLabel = string "~" >> AST.PFuncLabel <$> identifierNumber
 decimal    = Token.decimal       lexer
 integer    = Token.integer       lexer
 stringLit  = Token.stringLiteral lexer
@@ -108,9 +113,15 @@ variable   = Token.lexeme        lexer parseVar
         rest  <- many alphaNum
         return (first:rest)
 
+identifierNumber :: P Int
+identifierNumber = do
+    ident <- identifier
+    (idNr, idMap) <- IdNrMap.getIdNr ident <$> getState
+    setState idMap
+    return idNr
 
 -- PARSER
-parsePclp :: String -> Exceptional Exception AST
+parsePclp :: String -> Exceptional Exception (AST, IdNrMap String)
 parsePclp src =
     let initialState = AST.AST
             { AST.pFuncDefs = Map.empty
@@ -118,9 +129,9 @@ parsePclp src =
             , AST.queries   = []
             , AST.evidence  = []
             }
-    in mapException InvalidSyntax (fromEither (parse (theory initialState) "PCLP theory" src))
+    in mapException InvalidSyntax (fromEither (runParser (theory initialState) IdNrMap.empty "PCLP theory" src))
 
-theory :: AST -> Parser AST
+theory :: AST -> P (AST, IdNrMap String)
 theory ast = whiteSpace >>
     (     try ( do -- query
             q <- query
@@ -146,12 +157,12 @@ theory ast = whiteSpace >>
           )
       <|> ( do -- end of input
                 eof
-                return ast
+                (ast,) <$> getState
           )
     )
 
 -- rules
-rule :: Parser (AST.PredicateLabel, [AST.HeadArgument], AST.RuleBody)
+rule :: P (AST.PredicateLabel, [AST.HeadArgument], AST.RuleBody)
 rule = do
     (lbl, args) <- userPred headArgument
     body <- option
@@ -162,21 +173,21 @@ rule = do
     _ <- dot
     return (lbl, args, AST.RuleBody body)
 
-bodyElement :: Parser AST.RuleBodyElement
+bodyElement :: P AST.RuleBodyElement
 bodyElement =
         AST.BuildInPredicate      <$> try buildInPredicate
     <|> uncurry AST.UserPredicate <$> userPred expression
 
-userPred :: Parser arg -> Parser (AST.PredicateLabel, [arg])
+userPred :: P arg -> P (AST.PredicateLabel, [arg])
 userPred argument = do
     lbl  <- predicateLabel
     args <- option [] $ parens $ sepBy argument comma
     return (lbl, args)
 
-predicateLabel :: Parser AST.PredicateLabel
-predicateLabel = AST.PredicateLabel <$> identifier
+predicateLabel :: P AST.PredicateLabel
+predicateLabel = AST.PredicateLabel <$> identifierNumber
 
-buildInPredicate :: Parser AST.BuildInPredicate
+buildInPredicate :: P AST.BuildInPredicate
 buildInPredicate = do
     exprX <- expression
     constr <-     (reservedOp "="  >>         return (AST.Equality True))
@@ -186,27 +197,27 @@ buildInPredicate = do
     return $ constr exprX exprY
 
 -- pfunc defs
-pFuncDef :: Parser (AST.PFuncLabel, [AST.HeadArgument], AST.PFuncDef)
+pFuncDef :: P (AST.PFuncLabel, [AST.HeadArgument], AST.PFuncDef)
 pFuncDef = do
     (lbl, args) <- pFunc headArgument
     reservedOp "~"
     def <- flipDef <|> normDef <|> strDef
     return (lbl, args, def)
 
-pFunc :: Parser arg -> Parser (AST.PFuncLabel, [arg])
+pFunc :: P arg -> P (AST.PFuncLabel, [arg])
 pFunc argument = do
     lbl  <- pFuncL
     args <- option [] $ parens $ sepBy argument comma
     return (lbl, args)
 
-flipDef :: Parser AST.PFuncDef
+flipDef :: P AST.PFuncDef
 flipDef = do
     reserved "flip"
     prob <- parens $ fromRational <$> rational
     _ <- dot
     return $ AST.Flip prob
 
-normDef :: Parser AST.PFuncDef
+normDef :: P AST.PFuncDef
 normDef = do
     reserved "norm"
     (m, d) <- parens $ do
@@ -219,22 +230,22 @@ normDef = do
         (doubleToProb . Dist.cumulative (Norm.normalDistr (fromRat m) (fromRat d)) . fromRat)
         (toRational   . Dist.quantile   (Norm.normalDistr (fromRat m) (fromRat d)) . probToDouble)
 
-strDef :: Parser AST.PFuncDef
+strDef :: P AST.PFuncDef
 strDef = const <$> braces (AST.StrDist <$> sepBy choicesElement comma) <*> dot
     where
-        choicesElement :: Parser (Probability, String)
+        choicesElement :: P (Probability, String)
         choicesElement =     (\p _ s -> (p, s))
                          <$> fromRational <$> rational
                          <*> colon
                          <*> stringConstant
 
-headArgument :: Parser AST.HeadArgument
+headArgument :: P AST.HeadArgument
 headArgument =     AST.ArgConstant               <$> constantExpression
                <|> AST.ArgVariable . AST.VarName <$> variable
                <|> const AST.ArgDontCareVariable <$> string "_"
 
 -- expressions
-expression :: Parser AST.Expr
+expression :: P AST.Expr
 expression = buildExpressionParser operators term
 
 operators = [ [Infix  (reservedOp "+" >> return AST.Sum) AssocLeft] ]
@@ -243,7 +254,7 @@ term =     AST.ConstantExpr           <$> constantExpression
        <|> uncurry AST.PFunc          <$> pFunc expression
        <|> AST.Variable . AST.VarName <$> variable
 
-constantExpression :: Parser AST.ConstantExpr
+constantExpression :: P AST.ConstantExpr
 constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
                      <|> const (AST.BoolConstant False) <$> reserved "false"
                      <|> AST.StrConstant                <$> stringConstant
@@ -253,7 +264,7 @@ constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
 stringConstant = identifier <|> stringLit
 
 -- queries
-query :: Parser AST.RuleBodyElement
+query :: P AST.RuleBodyElement
 query = do
     reserved "query"
     q <- bodyElement
@@ -261,7 +272,7 @@ query = do
     return q
 
 -- evidence
-evidence :: Parser AST.RuleBodyElement
+evidence :: P AST.RuleBodyElement
 evidence = do
     reserved "evidence"
     e <- bodyElement

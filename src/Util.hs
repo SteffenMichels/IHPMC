@@ -22,7 +22,8 @@
 module Util
     ( getFirst
     , showLst
-    , showLstEnc
+    , toTextLst
+    , toTextLstEnc
     , doState
     , doMaybe
     , Bool3(..)
@@ -43,8 +44,11 @@ getFirst set = head $ Set.toList set
 showLst :: Show a => [a] -> String
 showLst l = intercalate ", " $ show <$> l
 
-showLstEnc :: Show a => String -> String -> [a] -> String
-showLstEnc open close l = intercalate ", " $ (\el -> open ++ show el ++ close) <$> l
+toTextLst :: [a] -> (a -> String) -> String
+toTextLst l toStr = intercalate ", " $ toStr <$> l
+
+toTextLstEnc :: String -> String -> [a] -> (a -> String) -> String
+toTextLstEnc open close l toStr = intercalate ", " $ (\el -> open ++ toStr el ++ close) <$> l
 
 doState :: Monad m => State s a -> StateT s m a
 doState = mapStateT (\(Identity x) -> return x)
