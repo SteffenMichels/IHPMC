@@ -100,7 +100,7 @@ instance Hashable Constraint
 data GroundingState = GroundingState
     { groundedRules     :: HashMap GroundedAST.PredicateLabel [GroundedAST.RuleBody]
     , groundedRfDefs    :: HashMap GroundedAST.PFuncLabel AST.PFuncDef
-    , varCounter        :: Integer
+    , varCounter        :: Int
     -- keep non-ground rule body elements and to ground elements as soon as all vars have a value
     -- this pruning partial proofs if predicate is false
     , rulesInProof      :: HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
@@ -109,7 +109,7 @@ data GroundingState = GroundingState
     , nextId            :: GoalId
     }
 
-newtype GoalId = GoalId Integer deriving (Eq, Generic, Show)
+newtype GoalId = GoalId Int deriving (Eq, Generic, Show)
 instance Hashable GoalId
 
 ground :: AST -> Exceptional Exception GroundedAST
@@ -644,7 +644,7 @@ replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
                                       in  (elements', st{varCounter = varCounter'})
                               )
     where
-    replaceEVars' :: (Integer, HashMap String Integer) -> AST.Expr -> ((Integer, HashMap String Integer), AST.Expr)
+    replaceEVars' :: (Int, HashMap String Int) -> AST.Expr -> ((Int, HashMap String Int), AST.Expr)
     replaceEVars' (counter, vars2ids) expr = case expr of
         AST.Variable (AST.VarName var) -> case Map.lookup var vars2ids of
             Just i  -> ((counter, vars2ids), AST.Variable $ AST.TempVar i)

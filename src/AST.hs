@@ -109,7 +109,7 @@ data HeadArgument = ArgVariable VarName
 instance Hashable HeadArgument
 
 data VarName = VarName String
-             | TempVar Integer
+             | TempVar Int
              deriving (Eq, Generic)
 instance Show VarName
     where

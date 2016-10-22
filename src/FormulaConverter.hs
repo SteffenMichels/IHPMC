@@ -52,21 +52,21 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
             case mbNodeId of
                 Just nodeId -> return $ Formula.refComposed nodeId
                 _ -> do
-                    (fBodies,_) <- foldM ruleFormulas ([], 0::Integer) $ Map.lookupDefault Set.empty label rules
+                    (fBodies,_) <- foldM ruleFormulas ([], 0::Int) $ Map.lookupDefault Set.empty label rules
                     Formula.entryRef <$> Formula.insert flabel True Formula.Or fBodies
             where
             flabel    = Formula.uncondComposedLabelExcluded label excludedGoals'
             excludedGoals' = Set.intersection excludedGoals children
             children = Map.lookupDefault (error "not in predChildren") label predChildren
 
-            ruleFormulas :: ([Formula.NodeRef], Integer)
+            ruleFormulas :: ([Formula.NodeRef], Int)
                          -> GroundedAST.RuleBody
-                         -> Formula.FState cachedInfo ([Formula.NodeRef], Integer)
+                         -> Formula.FState cachedInfo ([Formula.NodeRef], Int)
             ruleFormulas (fBodies, counter) body = do
                 newChild <- bodyFormula counter body
                 return (newChild : fBodies, succ counter)
 
-            bodyFormula :: Integer
+            bodyFormula :: Int
                         -> GroundedAST.RuleBody
                         -> Formula.FState cachedInfo Formula.NodeRef
             bodyFormula counter (GroundedAST.RuleBody elements)

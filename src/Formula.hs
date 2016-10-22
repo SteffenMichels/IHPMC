@@ -422,14 +422,14 @@ exportAsDot path Formula{nodes} ids2str = do
 -- FORMULA STORAGE
 data Formula cachedInfo = Formula
     { nodes              :: HashMap ComposedId (ComposedLabel, FormulaEntry cachedInfo)           -- graph representing formulas
-    , freshCounter       :: Integer                                                               -- counter for fresh nodes
+    , freshCounter       :: Int                                                                   -- counter for fresh nodes
     , labels2ids         :: HashMap ComposedLabel ComposedId                                      -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
     , buildinCacheString :: HashMap (GroundedAST.TypedBuildInPred String,            HashMap (GroundedAST.PFunc String)            (HashSet String)) cachedInfo -- cache for buildin predicates
     , buildinCacheReal   :: HashMap (GroundedAST.TypedBuildInPred GroundedAST.RealN, HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval)         cachedInfo -- cache for buildin predicates
     , cacheComps         :: CacheComputations cachedInfo                                          -- how cached information attached to formulas is computed
     }
 
-newtype ComposedId = ComposedId Integer deriving (Eq, Generic)
+newtype ComposedId = ComposedId Int deriving (Eq, Generic)
 instance Hashable ComposedId
 
 data ComposedLabel = ComposedLabel
@@ -440,7 +440,7 @@ data ComposedLabel = ComposedLabel
 
 data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel PredicateLabelModifier deriving Eq
 data PredicateLabelModifier = No
-                            | BodyNr Integer
+                            | BodyNr Int
                             | ExcludingChildren (HashSet GroundedAST.PredicateLabel)
                             deriving Eq
 
@@ -479,7 +479,7 @@ uncondComposedLabelExcluded :: GroundedAST.PredicateLabel -> HashSet GroundedAST
 uncondComposedLabelExcluded label excluded =
     ComposedLabel (PredicateLabel label $ ExcludingChildren excluded) (Conditions Map.empty Map.empty Map.empty) $ Hashable.hashWithSalt (Hashable.hash label) excluded
 
-uncondComposedLabelNr :: GroundedAST.PredicateLabel -> Integer -> ComposedLabel
+uncondComposedLabelNr :: GroundedAST.PredicateLabel -> Int -> ComposedLabel
 uncondComposedLabelNr label nr =
     ComposedLabel (PredicateLabel label $ BodyNr nr) (Conditions Map.empty Map.empty Map.empty) $ Hashable.hashWithSalt (Hashable.hash label) nr
 
