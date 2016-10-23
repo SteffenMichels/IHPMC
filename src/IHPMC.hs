@@ -104,14 +104,22 @@ ihpmcIterate hptNode partChoiceProb = do
                                      else HPT.Unfinished hptNode' triple score
     where
     iterateNode :: HPTNode -> Double -> FState (HPTNode, HPT.ProbabilityQuadruple, Double)
-    iterateNode (HPT.Choice choice pFunc p left right) partChoiceProb' = do
-        (left', right') <- case (left, right) of
-            (HPT.Unfinished hptNode' _ _, _) | HPT.score left > HPT.score right ->
-                (,right) <$> ihpmcIterate hptNode' (probToDouble p * partChoiceProb')
-            (_, HPT.Unfinished hptNode' _ _) ->
-                (left,)  <$> ihpmcIterate hptNode' (probToDouble (1.0 - p) * partChoiceProb')
-            _ -> error "finished node should not be selected for iteration"
-        return (HPT.Choice choice pFunc p left' right', combineProbsChoice p left' right', combineScoresChoice left' right')
+    iterateNode (HPT.Choice choice pFunc p left right) partChoiceProb' = case left of
+        HPT.Unfinished hptNodeL _ _ -> case right of
+            HPT.Finished _ _ -> iterativeLeft hptNodeL
+            HPT.Unfinished hptNodeR _ _ -> if HPT.score left > HPT.score right
+                then iterativeLeft hptNodeL
+                else iterativeRight hptNodeR
+        HPT.Finished _ _ -> case right of
+            HPT.Unfinished hptNodeR _ _ -> iterativeRight hptNodeR
+            HPT.Finished _ _ -> error "finished node should not be selected for iteration"
+        where
+            iterativeLeft hptNodeL  = do
+                left' <- ihpmcIterate hptNodeL (probToDouble p * partChoiceProb')
+                return (HPT.Choice choice pFunc p left' right, combineProbsChoice p left' right, combineScoresChoice left' right)
+            iterativeRight hptNodeR = do
+                right' <- ihpmcIterate hptNodeR (probToDouble (1.0 - p) * partChoiceProb')
+                return (HPT.Choice choice pFunc p left right', combineProbsChoice p left right', combineScoresChoice left right')
     iterateNode (HPT.Leaf qRef eRef) _ = case Formula.deterministicNodeRef eRef of
         Just True  -> iterateNode (HPT.WithinEvidence qRef) partChoiceProb
         Just False -> return (undefined, HPT.outsideEvidenceQuadruple, 0.0)
