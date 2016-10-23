@@ -73,7 +73,7 @@ ihpmc query evidence finishPred reportingIO f = do
     evalStateT (ihpmc' 1 t t $ HPT.initialNode query $ Formula.entryRef evidenceConj) f'
     where
     (evidenceConj, f') = runState (Formula.insert
-            (Formula.uncondComposedLabel $ GroundedAST.predicateLabel (-1) [])
+            (Formula.uncondComposedLabel $ GroundedAST.PredicateLabel (-1)) -- '-1 is unused predicate label, reserved for evidence
             True
             Formula.And
             evidence

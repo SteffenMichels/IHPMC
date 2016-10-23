@@ -67,32 +67,31 @@ checkResults :: String
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
     return $ Finished $ case result of
-        Exception (e, ids2Str) -> Error $ exceptionToText e ids2Str
-        Success res            -> res
+        Exception (e, ids2Str, ids2label) -> Error $ exceptionToText e ids2Str ids2label
+        Success res                       -> res
     where
-    checkResults' :: ExceptionalT (Exception, HashMap Int String) IO Result
+    checkResults' :: ExceptionalT (Exception, HashMap Int String, HashMap Int (Int, [AST.ConstantExpr])) IO Result
     checkResults' = do
-        (ast, idNrMap) <- returnExceptional $ mapException ((,Map.empty) . ParserException) $ Parser.parsePclp src
-        let ids2str = IdNrMap.fromIdNrMap idNrMap
-        let strs2id = IdNrMap.toIdNrMap   idNrMap
-        assertT (((,ids2str) . TestException) "No queries in source expected.") $ null $ AST.queries ast
-        assertT (((,ids2str) . TestException) "No evidence expected.")          $ null $ AST.evidence ast
+        (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
+        let ids2str = IdNrMap.fromIdNrMap identIds
+        let strs2id = IdNrMap.toIdNrMap   identIds
+        assertT (((,ids2str, Map.empty) . TestException) "No queries in source expected.") $ null $ AST.queries ast
+        assertT (((,ids2str, Map.empty) . TestException) "No evidence expected.")          $ null $ AST.evidence ast
         results <- forM expRes $ \(query, isExp) -> do
             let query' = query strs2id
-            --assertT (TestException $ AST.ruleBodyElementToText query' ids2str, Map.empty) False
             res <- lift $ runExceptionalT $ do
                 let ast' = ast{AST.queries = [query']}
-                groundedAst <- returnExceptional $ mapException GrounderException $ Grounder.ground ast'
+                (groundedAst, _) <- returnExceptional $ mapException ((,Map.empty) . GrounderException) $ Grounder.ground ast'
                 let (([(_, qRef)], _), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-                (_, _, bounds, _) <- mapExceptionT IOException $ IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing) f
+                (_, _, bounds, _) <- mapExceptionT ((,Map.empty) . IOException) $ IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing) f
                 return bounds
-            return (query', isExp res strs2id, res)
+            return (query', isExp (mapException fst res) strs2id, res)
         return $ maybe Pass Fail $ foldl' (\mbErr res -> combineResults mbErr res ids2str) Nothing results
 
     stopPred _ (ProbabilityBounds l u) _ = l == u
 
 combineResults :: Maybe String
-               -> (AST.RuleBodyElement, Bool, Exceptional Exception (Maybe ProbabilityBounds))
+               -> (AST.RuleBodyElement, Bool, Exceptional (Exception, HashMap Int (Int, [AST.ConstantExpr])) (Maybe ProbabilityBounds))
                -> HashMap Int String
                -> Maybe String
 combineResults mbErr (query, isExp, res) ids2str
@@ -100,5 +99,5 @@ combineResults mbErr (query, isExp, res) ids2str
     | otherwise = Just $ printf
         "%sunexpected result '%s' for query '%s'"
         (maybe "" (printf "%s; ") mbErr)
-        (show $ mapException (`exceptionToText` ids2str) res)
+        (show $ mapException (\(e, ids2label) -> exceptionToText e ids2str ids2label) res)
         (AST.ruleBodyElementToText query ids2str)

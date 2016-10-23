@@ -35,8 +35,7 @@ module GroundedAST ( GroundedAST(..)
                    , makePFuncReal
                    , makePFuncString
                    , Expr(..)
-                   , PredicateLabel
-                   , predicateLabel
+                   , PredicateLabel(..)
                    , ConstantExpr(..)
                    , PFuncDef(..)
                    , Addition
@@ -84,40 +83,35 @@ data GroundedAST = GroundedAST
     , evidence  :: HashSet RuleBodyElement
     }
 
-groundedAstToText :: GroundedAST -> HashMap Int String -> String
-groundedAstToText ast ids2str = rulesStr ++ queryStr ++ evStr
+groundedAstToText :: GroundedAST -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+groundedAstToText ast ids2str ids2label = rulesStr ++ queryStr ++ evStr
     where
     rulesStr     = concat $ concat [
-                        [printf "%s <- %s.\n" (predicateLabelToText label ids2str) $ ruleBodyToText body ids2str | body <- Set.toList bodies]
+                        let lStr = predicateLabelToText label ids2str ids2label
+                        in  [printf "%s <- %s.\n" lStr $ ruleBodyToText body ids2str ids2label | body <- Set.toList bodies]
                    | (label, bodies) <- Map.toList $ rules ast]
-    queryStr     = concat [printf "query %s.\n"    $ ruleBodyElementToText query ids2str | query <- Set.toList $ queries  ast]
-    evStr        = concat [printf "evidence %s.\n" $ ruleBodyElementToText ev    ids2str | ev    <- Set.toList $ evidence ast]
+    queryStr     = concat [printf "query %s.\n"    $ ruleBodyElementToText query ids2str ids2label | query <- Set.toList $ queries  ast]
+    evStr        = concat [printf "evidence %s.\n" $ ruleBodyElementToText ev    ids2str ids2label | ev    <- Set.toList $ evidence ast]
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
-data PredicateLabel = PredicateLabel AST.PredicateLabel [AST.ConstantExpr] Int deriving Eq
-predicateLabelToText :: PredicateLabel -> HashMap Int String -> String
-predicateLabelToText (PredicateLabel label args _) ids2str = printf
+newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic)
+predicateLabelToText :: PredicateLabel -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+predicateLabelToText (PredicateLabel idNr) ids2str ids2label = printf
     "%s%s"
-    (AST.predicateLabelToText label ids2str)
+    (AST.predicateLabelToText (AST.PredicateLabel label) ids2str)
     (if null args then "" else printf "(%s)" (showLst args))
-instance Hashable PredicateLabel where
-    hashWithSalt salt (PredicateLabel _ _ hash) = Hashable.hashWithSalt salt hash
+    where (label, args) = Map.lookupDefault undefined idNr ids2label
+instance Hashable PredicateLabel
 
-predicateLabel :: Int -> [AST.ConstantExpr] -> PredicateLabel
-predicateLabel name args = PredicateLabel (AST.PredicateLabel name) args $ Hashable.hashWithSalt (Hashable.hash name) args
+data PFunc a = PFunc PFuncLabel (PFuncDef a)
+-- there should never be more than one PF with the same label, so compare/hash only label and ignore definition
+instance Eq (PFunc a) where
+    PFunc x _ == PFunc y _ = x == y
+instance Hashable (PFunc a) where
+    hashWithSalt salt (PFunc label _) = Hashable.hashWithSalt salt label
 
-data PFunc a = PFunc PFuncLabel (PFuncDef a) Int -- store hash for efficiency reasons
-instance Eq (PFunc a)
-    where
-    PFunc x _ hx == PFunc y _ hy = hx == hy && x == y
-
-pFuncToText :: PFunc a -> HashMap Int String -> String
-pFuncToText (PFunc l _ _) = pFuncLabelToText l
-
-instance Hashable (PFunc a)
-    where
-    -- there should never be more than one PF with the same name, so hash only name and ignore definition
-    hashWithSalt salt (PFunc _ _ hash) = Hashable.hashWithSalt salt hash
+pFuncToText :: PFunc a -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+pFuncToText (PFunc l _) = pFuncLabelToText l
 
 data PFuncDef a where
     Flip     :: Probability                                            -> PFuncDef Bool
@@ -125,41 +119,44 @@ data PFuncDef a where
     StrDist  :: [(Probability, String)]                                -> PFuncDef String
 
 probabilisticFuncLabel :: PFunc a -> PFuncLabel
-probabilisticFuncLabel (PFunc label _ _) = label
+probabilisticFuncLabel (PFunc label _) = label
 
 probabilisticFuncDef :: PFunc a -> PFuncDef a
-probabilisticFuncDef (PFunc _ def _) = def
+probabilisticFuncDef (PFunc _ def) = def
 
 makePFuncBool :: PFuncLabel -> Probability-> PFunc Bool
-makePFuncBool label p = PFunc label (Flip p) $ Hashable.hash label
+makePFuncBool label p = PFunc label $ Flip p
 
 makePFuncReal :: PFuncLabel ->  (Rational -> Probability) -> (Probability -> Rational) -> PFunc GroundedAST.RealN
-makePFuncReal label cdf cdf' = PFunc label (RealDist cdf cdf') $ Hashable.hash label
+makePFuncReal label cdf cdf' = PFunc label $ RealDist cdf cdf'
 
 makePFuncString :: PFuncLabel -> [(Probability, String)] -> PFunc String
-makePFuncString label dist = PFunc label (StrDist dist) $ Hashable.hash label
+makePFuncString label dist = PFunc label $ StrDist dist
 
-data PFuncLabel = PFuncLabel AST.PFuncLabel [AST.ConstantExpr] deriving (Eq, Generic)
-pFuncLabelToText :: PFuncLabel -> HashMap Int String -> String
-pFuncLabelToText (PFuncLabel (AST.PFuncLabel idNr) args) ids2str = printf
-        "~%s%s"
-        (Map.lookupDefault undefined idNr ids2str)
-        (if null args then "" else printf "(%s)" (showLst args))
+newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic)
+pFuncLabelToText :: PFuncLabel -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+pFuncLabelToText (PFuncLabel idNr) ids2str ids2label = printf
+    "~%s%s"
+    (Map.lookupDefault undefined label ids2str)
+    (if null args then "" else printf "(%s)" (showLst args))
+    where
+    (label, args) = Map.lookupDefault undefined idNr ids2label
 instance Hashable PFuncLabel
 
 newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)
 
-ruleBodyToText :: RuleBody -> HashMap Int String -> String
-ruleBodyToText (RuleBody elements) ids2str = toTextLst (Set.toList elements) (`ruleBodyElementToText` ids2str)
+ruleBodyToText :: RuleBody -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+ruleBodyToText (RuleBody elements) ids2str ids2label =
+    toTextLst (Set.toList elements) (\x -> ruleBodyElementToText x ids2str ids2label)
 instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic)
 
-ruleBodyElementToText :: RuleBodyElement -> HashMap Int String -> String
-ruleBodyElementToText (UserPredicate label)  ids2str = predicateLabelToText label ids2str
-ruleBodyElementToText (BuildInPredicate prd) ids2str = buildInPredToText prd ids2str
+ruleBodyElementToText :: RuleBodyElement -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+ruleBodyElementToText (UserPredicate label)  ids2str ids2label = predicateLabelToText label ids2str ids2label
+ruleBodyElementToText (BuildInPredicate prd) ids2str ids2label = buildInPredToText    prd   ids2str ids2label
 instance Hashable RuleBodyElement
 
 data BuildInPredicate = BuildInPredicateBool (TypedBuildInPred Bool)
@@ -167,7 +164,7 @@ data BuildInPredicate = BuildInPredicateBool (TypedBuildInPred Bool)
                       | BuildInPredicateStr  (TypedBuildInPred String)
                       | BuildInPredicateInt  (TypedBuildInPred Integer)
                       deriving (Eq, Generic)
-buildInPredToText :: BuildInPredicate -> HashMap Int String -> String
+buildInPredToText :: BuildInPredicate -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
 buildInPredToText (BuildInPredicateBool b) = typedBuildInPredToText b
 buildInPredToText (BuildInPredicateReal r) = typedBuildInPredToText r
 buildInPredToText (BuildInPredicateStr  s) = typedBuildInPredToText s
@@ -181,10 +178,12 @@ data TypedBuildInPred a
     Constant ::           Bool                           -> TypedBuildInPred a
 
 deriving instance Eq (TypedBuildInPred a)
-typedBuildInPredToText :: TypedBuildInPred a -> HashMap Int String -> String
-typedBuildInPredToText (Equality eq exprX exprY) ids2str = printf "%s %s %s" (exprToText exprX ids2str) (if eq then "=" else "/=") (exprToText exprY ids2str)
-typedBuildInPredToText (Ineq     op exprX exprY) ids2str = printf "%s %s %s" (exprToText exprX ids2str) (show op) (exprToText exprY ids2str)
-typedBuildInPredToText (Constant cnst)           _       = show cnst
+typedBuildInPredToText :: TypedBuildInPred a -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+typedBuildInPredToText (Equality eq exprX exprY) ids2str ids2label =
+    printf "%s %s %s" (exprToText exprX ids2str ids2label) (if eq then "=" else "/=") (exprToText exprY ids2str ids2label)
+typedBuildInPredToText (Ineq     op exprX exprY) ids2str ids2label =
+    printf "%s %s %s" (exprToText exprX ids2str ids2label) (show op) (exprToText exprY ids2str ids2label)
+typedBuildInPredToText (Constant cnst)           _       _ = show cnst
 instance Hashable (TypedBuildInPred a)
     where
     hashWithSalt salt (Equality eq exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt eq) exprX) exprY
@@ -198,10 +197,11 @@ data Expr a
     Sum          :: Addition a => Expr a -> Expr a -> Expr a
 
 deriving instance Eq (Expr a)
-exprToText :: Expr a -> HashMap Int String -> String
-exprToText (ConstantExpr cExpr) _       = show cExpr
-exprToText (PFuncExpr pf)       ids2str = pFuncToText pf ids2str
-exprToText (Sum x y)            ids2str = printf "%s + %s" (exprToText x ids2str) (exprToText y ids2str)
+exprToText :: Expr a -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+exprToText (ConstantExpr cExpr) _       _        = show cExpr
+exprToText (PFuncExpr pf)       ids2str ids2label = pFuncToText pf ids2str ids2label
+exprToText (Sum x y)            ids2str ids2label =
+    printf "%s + %s" (exprToText x ids2str ids2label) (exprToText y ids2str ids2label)
 instance Hashable (Expr a)
     where
     hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
@@ -284,7 +284,7 @@ deterministicValueTyped _              = Nothing
 
 possibleValues :: Expr String -> HashMap (PFunc String) (HashSet String) -> HashSet String
 possibleValues (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
-possibleValues (PFuncExpr pf@(PFunc _ (StrDist elements) _)) sConds =
+possibleValues (PFuncExpr pf@(PFunc _ (StrDist elements))) sConds =
     Map.lookupDefault (Set.fromList $ snd <$> elements) pf sConds
 possibleValues _ _ = undefined
 

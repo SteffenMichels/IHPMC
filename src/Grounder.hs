@@ -44,6 +44,8 @@ import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Exception
 import Util
 import Data.Boolean (Boolean(..))
+import IdNrMap (IdNrMap)
+import qualified IdNrMap
 
 type GState = StateT GroundingState (Exceptional Exception)
 
@@ -57,38 +59,39 @@ data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel 
                | NonGroundQuery        AST.RuleBodyElement
                | NonGroundEvidence     AST.RuleBodyElement
 
-exceptionToText :: Exception -> HashMap Int String -> String
-exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str = printf
+exceptionToText :: Exception -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str _ = printf
         "Could not ground predicate%s %s in a body of '%s/%i'."
         (if length prds > 1 then "s" else "")
         (toTextLstEnc "'" "'" prds (`AST.ruleBodyElementToText` ids2str))
         (AST.predicateLabelToText headLabel ids2str)
         headNArgs
-exceptionToText (TypeError exprX exprY) ids2str = printf
+exceptionToText (TypeError exprX exprY) ids2str ids2label = printf
         "Types of expressions %s and %s do not match."
-        (propExprWithTypeToText exprX ids2str)
-        (propExprWithTypeToText exprY ids2str)
-exceptionToText (UndefinedRf pf n) ids2str = printf
+        (propExprWithTypeToText exprX ids2str ids2label)
+        (propExprWithTypeToText exprY ids2str ids2label)
+exceptionToText (UndefinedRf pf n) ids2str _ = printf
         "Probabilistic function '%s/%i' is undefined."
         (AST.pFuncLabelToText pf ids2str)
         n
-exceptionToText (UndefinedRfValue pf args) ids2str = printf
+exceptionToText (UndefinedRfValue pf args) ids2str _ = printf
         "'%s(%s)' is undefined."
         (AST.pFuncLabelToText pf ids2str)
         (showLst args)
-exceptionToText (UndefinedPred label n) ids2str = printf
+exceptionToText (UndefinedPred label n) ids2str _ = printf
         "Predicate '%s/%i' is undefined."
         (AST.predicateLabelToText label ids2str)
         n
-exceptionToText ProbabilisticFuncUsedAsArg _ = "Probabilistic functions may not be used in arguments of predicates and functions."
-exceptionToText (UnsolvableConstraints constrs) ids2str = printf
+exceptionToText ProbabilisticFuncUsedAsArg _ _ =
+    "Probabilistic functions may not be used in arguments of predicates and functions."
+exceptionToText (UnsolvableConstraints constrs) ids2str _ = printf
         "Could not solve constraint%s %s."
         (if length constrs > 1 then "s" else "")
         (toTextLstEnc "'" "'" constrs (`constraintToText` ids2str))
-exceptionToText (NonGroundQuery q) ids2str = printf
+exceptionToText (NonGroundQuery q) ids2str _ = printf
         "All queries have to be ground. Query '%s' is not ground."
         (AST.ruleBodyElementToText q ids2str)
-exceptionToText (NonGroundEvidence e) ids2str = printf
+exceptionToText (NonGroundEvidence e) ids2str _ = printf
         "All evidence has to be ground. Evidence '%s' is not ground."
         (AST.ruleBodyElementToText e ids2str)
 
@@ -107,20 +110,24 @@ data GroundingState = GroundingState
     , rulesMaybeInProof :: [(GoalId, AST.PredicateLabel, [AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
     , proofConstraints  :: HashSet Constraint
     , nextId            :: GoalId
+    , labelIdentifiers  :: IdNrMap (Int, [AST.ConstantExpr])
     }
 
 newtype GoalId = GoalId Int deriving (Eq, Generic, Show)
 instance Hashable GoalId
 
-ground :: AST -> Exceptional Exception GroundedAST
+ground :: AST -> Exceptional Exception (GroundedAST, IdNrMap (Int, [AST.ConstantExpr]))
 ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.pFuncDefs=pfDefs} = evalStateT
     (do
         (queries', evidence') <- computeResultState
         gRules <- gets groundedRules
-        return GroundedAST { rules = Map.map Set.fromList gRules
-                           , queries  = queries'
-                           , evidence = evidence'
-                           }
+        pIds   <- gets labelIdentifiers
+        return ( GroundedAST { rules = Map.map Set.fromList gRules
+                             , queries  = queries'
+                             , evidence = evidence'
+                             }
+               , pIds
+               )
     )
     GroundingState{ groundedRules     = Map.empty
                   , groundedRfDefs    = Map.empty
@@ -129,6 +136,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                   , rulesMaybeInProof = []
                   , proofConstraints  = Set.empty
                   , nextId            = GoalId 0
+                  , labelIdentifiers  = IdNrMap.empty
                   }
     where
     computeResultState :: GState (HashSet GroundedAST.RuleBodyElement, HashSet GroundedAST.RuleBodyElement)
@@ -206,7 +214,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                     -- continue with rest
                     computeGroundings $ remaining''' >< new
                     -- recover previous state for next head rule, but keep groundings found
-                    modify' (\newSt -> oldSt {groundedRules = groundedRules newSt})
+                    modify' (\newSt -> oldSt {groundedRules = groundedRules newSt, labelIdentifiers = labelIdentifiers newSt})
 
                 addRuleToProof :: [AST.RuleBodyElement] -> State GroundingState ()
                 addRuleToProof elements' = modify' (\st -> st{rulesInProof = Map.insertWith
@@ -284,20 +292,29 @@ addGroundings = do
         addGroundingBody :: ([AST.Expr], GroundedAST.RuleBody)
                          -> GState ()
         addGroundingBody (args, groundedBody) = do
-            args' <- lift $ toPropArgs args
+            args'  <- lift $ toPropArgs args
+            pLabel <- toPropPredLabel label args'
             modify' (\st -> st{groundedRules = Map.insertWith
                 (\[x] -> (x :))
-                (toPropPredLabel label args')
+                pLabel
                 [groundedBody]
                 (groundedRules st)
             })
 
 -- turn constructs from ordinary ones (with arguments) to propositional ones (after grounding)
-toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> GroundedAST.PredicateLabel
-toPropPredLabel (AST.PredicateLabel label) = GroundedAST.predicateLabel label
+toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> GState GroundedAST.PredicateLabel
+toPropPredLabel (AST.PredicateLabel label) args =
+        GroundedAST.PredicateLabel
+    <$> state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
+                       in  (idNr, st{labelIdentifiers = lIdents})
+              )
 
-toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GroundedAST.PFuncLabel
-toPropPFuncLabel = GroundedAST.PFuncLabel
+toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GState GroundedAST.PFuncLabel
+toPropPFuncLabel (AST.PFuncLabel label) args =
+        GroundedAST.PFuncLabel
+    <$> state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
+                       in  (idNr, st{labelIdentifiers = lIdents})
+              )
 
 -- precondition: no vars in expr
 -- throws exception if there are PFs in expressions
@@ -335,8 +352,9 @@ toPropRuleElement :: AST.RuleBodyElement
                   -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                   -> GState GroundedAST.RuleBodyElement
 toPropRuleElement (AST.UserPredicate label args) _ = do
-    args' <- lift $ toPropArgs args
-    return $ GroundedAST.UserPredicate $ toPropPredLabel label args'
+    args'  <- lift $ toPropArgs args
+    pLabel <- toPropPredLabel label args'
+    return $ GroundedAST.UserPredicate pLabel
 toPropRuleElement (AST.BuildInPredicate bip) pfDefs = GroundedAST.BuildInPredicate <$> toPropBuildInPred bip pfDefs
 
 data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
@@ -344,14 +362,14 @@ data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
                       | ExprStr  (GroundedAST.Expr String)
                       | ExprInt  (GroundedAST.Expr Integer)
 
-propExprWithTypeToText :: PropExprWithType -> HashMap Int String -> String
-propExprWithTypeToText expr ids2str = printf "'%s' (of type %s)" exprStr typeStr
-        where
-        (exprStr, typeStr) = case expr of
-            ExprBool expr' -> (GroundedAST.exprToText expr' ids2str, "Bool")
-            ExprReal expr' -> (GroundedAST.exprToText expr' ids2str, "Real")
-            ExprStr  expr' -> (GroundedAST.exprToText expr' ids2str, "String")
-            ExprInt  expr' -> (GroundedAST.exprToText expr' ids2str, "Integer")
+propExprWithTypeToText :: PropExprWithType -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
+propExprWithTypeToText expr ids2str ids2label = printf "'%s' (of type %s)" exprStr typeStr
+    where
+    (exprStr, typeStr) = case expr of
+        ExprBool expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Bool")
+        ExprReal expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Real")
+        ExprStr  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "String")
+        ExprInt  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Integer")
 
 mapPropExprWithType :: (forall a. GroundedAST.Expr a -> GroundedAST.Expr a) -> PropExprWithType -> PropExprWithType
 mapPropExprWithType f (ExprBool expr) = ExprBool $ f expr
@@ -402,7 +420,7 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
     AST.PFunc label args -> do
         gPfDefs <- gets groundedRfDefs
         propArgs <- lift $ toPropArgs args
-        let propPFuncLabel = toPropPFuncLabel label propArgs
+        propPFuncLabel <- toPropPFuncLabel label propArgs
         pfDef <- case Map.lookup propPFuncLabel gPfDefs of
             Just def -> return def
             Nothing  -> do
@@ -458,8 +476,9 @@ haveToProof (AST.UserPredicate label givenArgs) = do
 
     let allArgsGround = not $ any AST.varsInExpr givenArgs
     alreadyProven <- if allArgsGround then do
-        args' <- lift $ toPropArgs givenArgs
-        return $ if isJust $ Map.lookup (toPropPredLabel label  args') gRules
+        args'  <- lift $ toPropArgs givenArgs
+        pLabel <- toPropPredLabel label  args'
+        return $ if isJust $ Map.lookup pLabel gRules
             then True3
             else False3
      else
