@@ -41,7 +41,6 @@ import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
 import Probability
-import qualified HPT
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import qualified IdNrMap
@@ -72,7 +71,7 @@ main = do
 main' :: ExceptionalT (Exception, HashMap Int String, HashMap Int (Int, [AST.ConstantExpr])) IO ()
 main' = do
     args <- doIOException getArgs
-    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath, hptExpPath} <-
+    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
         mapExceptionT ((,Map.empty, Map.empty) . CommandLineArgsException) $ Options.parseConsoleArgs args
     assertT
         (ParameterException "Error bound has to be between 0.0 and 0.5.", Map.empty, Map.empty)
@@ -102,10 +101,9 @@ main' = do
                                                           else Nothing
             _            -> \_      _ _      _ _       -> Nothing
     forM_ queries $ \(qLabel, qRef) -> do
-        (n, t, mbBounds, hpt) <- mapExceptionT ((,ids2str, ids2label) . IOException) $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f
+        (n, t, mbBounds) <- mapExceptionT ((,ids2str, ids2label) . IOException) $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f
         mapExceptionT ((,ids2str, ids2label) . IOException) $ printResult qLabel n t mbBounds ids2str ids2label
         when (isJust repInterval) $ doIOException $ putStrLn ""
-        whenJust hptExpPath $ \path -> mapExceptionT ((,ids2str, ids2label) . IOException) $ HPT.exportAsDot path hpt ids2str ids2label
         where
         printResult qLabel n t mbBounds ids2str ids2label = doIO $ putStrLn $ printf
             "%s (iteration %i, after %ims): %s"

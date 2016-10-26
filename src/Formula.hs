@@ -21,16 +21,16 @@
 
 module Formula
     ( Formula
-    , Node(..)
+    , Node
     , NodeType(..)
     , NodeRef
     , refDeterministic
     , refBuildInPredicate
     , refComposed
     , deterministicNodeRef
-    , RefWithNode(entryRef, entryNode, entryCachedInfo)
+    , RefWithNode(entryRef, entryCachedInfo)
     , CacheComputations(..)
-    , ComposedId(..)
+    , ComposedId
     , Conditions(..)
     , FState
     , empty
@@ -516,7 +516,7 @@ labelId label = gets labels2ids >>= \l2ids -> return $ Map.lookup label l2ids
 -- the FormulaEntry contains composed node, plus additional, redundant, cached information to avoid recomputations
 data FormulaEntry cachedInfo = FormulaEntry NodeType [NodeRef] (HashSet GroundedAST.PFuncLabel) cachedInfo
 
-data NodeType = And | Or deriving (Eq, Show, Generic)
+data NodeType = And | Or deriving (Eq, Generic)
 instance Hashable NodeType
 
 -- node refs are used for optimisation, to avoid looking up leaves (build in preds and deterministic nodes) in the graph

@@ -26,152 +26,64 @@
 
 module HPT
     ( HPT(..)
-    , HPTNode(..)
-    , Choice(..)
-    , ProbabilityQuadruple(..)
-    , initialNode
+    , HPTLeaf(..)
+    , initialHPT
     , bounds
-    , quadruple
-    , score
-    , trueQuadruple
-    , falseQuadruple
-    , unknownQuadruple
-    , withinEvidenceQuadruple
-    , outsideEvidenceQuadruple
-    , outsideEvidence
-    , exportAsDot
+    , nextLeaf
+    , addLeaf
+    , addLeafWithinEvidence
     ) where
 import qualified Formula
-import Exception
-import System.IO
 import Text.Printf (printf)
-import Numeric (fromRat)
-import qualified GroundedAST
 import Probability
-import Data.HashMap.Strict (HashMap)
-import Data.HashSet (HashSet)
-import qualified Data.HashSet as Set
-import Util
-import Data.Text (replace, pack, unpack)
-import qualified AST
+import Data.PQueue.Max (MaxQueue)
+import qualified Data.PQueue.Max as PQ
+import Data.Maybe (isJust)
 
 -- Hybrid Probability Tree
-data HPT     = Unfinished HPTNode ProbabilityQuadruple Double
-             | Finished Probability Probability -- true prob, false prob (within evidence)
+data HPT = HPT (MaxQueue HPTLeaf) ProbabilityQuadruple
+data HPTLeaf = HPTLeaf Formula.NodeRef (Maybe Formula.NodeRef) Probability
 
-data HPTNode = Leaf           Formula.NodeRef Formula.NodeRef -- query and evidence
-             | WithinEvidence Formula.NodeRef                 -- only query
-             | Choice         Choice GroundedAST.PFuncLabel Probability HPT HPT
+instance Eq HPTLeaf where
+    HPTLeaf _ _ px == HPTLeaf _ _ py = px == py
+instance Ord HPTLeaf where
+    HPTLeaf _ _ px <= HPTLeaf _ _ py = px <= py
 
-data Choice = ChoiceBool
-            | ChoiceString (HashSet String)
-            | ChoiceReal   Rational
+initialHPT :: Formula.NodeRef -> Formula.NodeRef -> HPT
+initialHPT q e = addLeaf q e 1.0 $ HPT PQ.empty $ ProbabilityQuadruple 0.0 0.0 0.0 0.0
 
-initialNode :: Formula.NodeRef -> Formula.NodeRef -> HPTNode
-initialNode = Leaf
+nextLeaf :: HPT -> Maybe (HPTLeaf, HPT)
+nextLeaf (HPT leaves (ProbabilityQuadruple t f e u)) = case PQ.maxView leaves of
+    Nothing                                -> Nothing
+    Just (leaf@(HPTLeaf _ mbE p), leaves') -> Just (leaf, HPT leaves' quad)
+        where
+        quad | isJust mbE = ProbabilityQuadruple t f e (u - p)
+             | otherwise  = ProbabilityQuadruple t f (e - p) u
+
+addLeaf :: Formula.NodeRef -> Formula.NodeRef -> Probability -> HPT -> HPT
+addLeaf q ev p hpt@(HPT leaves (ProbabilityQuadruple t f e u)) = case Formula.deterministicNodeRef ev of
+    Just True  -> addLeafWithinEvidence q p hpt
+    Just False -> hpt
+    Nothing    -> HPT (PQ.insert (HPTLeaf q (Just ev) p) leaves) (ProbabilityQuadruple t f e (u + p))
+
+addLeafWithinEvidence :: Formula.NodeRef -> Probability -> HPT -> HPT
+addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u)) = case Formula.deterministicNodeRef q of
+    Just True  -> HPT leaves (ProbabilityQuadruple (t + p) f e u)
+    Just False -> HPT leaves (ProbabilityQuadruple t (f + p) e u)
+    Nothing    -> HPT (PQ.insert (HPTLeaf q Nothing p) leaves) (ProbabilityQuadruple t f (e + p) u)
 
 -- Nothing if evidence is inconsistent
 bounds :: HPT -> Maybe ProbabilityBounds
-bounds (Unfinished _ (ProbabilityQuadruple t f e u) _) =
+bounds (HPT _ (ProbabilityQuadruple 0.0 0.0 0.0 0.0)) = Nothing
+bounds (HPT _ (ProbabilityQuadruple t f e u)) =
     Just $ ProbabilityBounds lo up
     where
     lo = t / (t + f + e + u)
     up | zu > 0.0 = (t + e + u) / zu
        | otherwise  = 1.0
     zu= t + f + e
-bounds (Finished t f)
-    | z > 0.0   = Just $ ProbabilityBounds p p
-    | otherwise = Nothing
-    where
-    z = t + f
-    p = t / (t + f)
-
-quadruple :: HPT -> ProbabilityQuadruple
-quadruple (Unfinished _ t _) = t
-quadruple (Finished t f)     = ProbabilityQuadruple t f 0.0 0.0
-
-score :: HPT -> Double
-score (Unfinished _ _ s) = s
-score _                  = 0.0
-
-outsideEvidence :: HPT
-outsideEvidence = HPT.Finished 0.0 0.0
 
 data ProbabilityQuadruple = ProbabilityQuadruple Probability Probability Probability Probability-- true prob, false prob (within evidence), within evidence, unknown prob
 instance Show ProbabilityQuadruple
     where
     show (ProbabilityQuadruple t f e u) = printf "(%s, %s, %s, %s)" (show t) (show f) (show e) (show u)
-
-
-trueQuadruple:: ProbabilityQuadruple
-trueQuadruple = HPT.ProbabilityQuadruple 1.0 0.0 0.0 0.0
-
-falseQuadruple :: ProbabilityQuadruple
-falseQuadruple = HPT.ProbabilityQuadruple 0.0 1.0 0.0 0.0
-
-withinEvidenceQuadruple :: ProbabilityQuadruple
-withinEvidenceQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 1.0 0.0
-
-unknownQuadruple :: ProbabilityQuadruple
-unknownQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 0.0 1.0
-
-outsideEvidenceQuadruple :: ProbabilityQuadruple
-outsideEvidenceQuadruple = HPT.ProbabilityQuadruple 0.0 0.0 0.0 0.0
-
-exportAsDot :: FilePath -> HPT -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> ExceptionalT IOException IO ()
-exportAsDot path hpt ids2str ids2label = do
-    file <- doIO (openFile path WriteMode)
-    doIO (hPutStrLn file "digraph Formula {")
-    _ <- printNode Nothing Nothing hpt 0 file
-    doIO (hPutStrLn file "}")
-    doIO (hClose file)
-    where
-    printNode :: Maybe String -> Maybe String-> HPT -> Int -> Handle -> ExceptionalT IOException IO Int
-    printNode mbParent mbEdgeLabel hpt' counter file = case hpt' of
-        Finished t f -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s %s\"];" counter (show t) (show f))
-            printEdge mbParent (show counter) mbEdgeLabel
-            return (counter+1)
-        Unfinished (Choice choice pf prob left right) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n%s\n(%f)\"];" counter (printBounds hpt') (show $ quadruple hpt') scr)
-            printEdge mbParent (show counter) mbEdgeLabel
-            counter' <- printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show prob) (GroundedAST.pFuncLabelToText pf ids2str ids2label) (printChoiceRight choice)) left (counter+1) file
-            printNode (Just $ show counter) (Just $ printf "%s: %s %s" (show (1 - prob)) (GroundedAST.pFuncLabelToText pf ids2str ids2label) (printChoiceLeft choice)) right counter' file
-            where
-            printChoiceRight  ChoiceBool                = "= true"
-            printChoiceRight (ChoiceString rightBranch) = printf "in {%s}" $ unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList rightBranch
-            printChoiceRight (ChoiceReal splitPoint)    = printf "< %f" (fromRat splitPoint::Float)
-            printChoiceLeft   ChoiceBool                = "= false"
-            printChoiceLeft  (ChoiceString rightBranch) = printf "not in {%s}" $ unpack $ replace (pack "\"") (pack "") $ pack $ showLst $ Set.toList rightBranch
-            printChoiceLeft  (ChoiceReal splitPoint)    = printf "> %f" (fromRat splitPoint::Float)
-        Unfinished (Leaf qRef eRef) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||%s\n(%f)\"];" counter (Formula.nodeRefToText qRef ids2str ids2label) (Formula.nodeRefToText eRef ids2str ids2label) scr)
-            printEdge mbParent (show counter) mbEdgeLabel
-            return (counter+1)
-        Unfinished (WithinEvidence qRef) _ scr -> do
-            doIO (hPutStrLn file $ printf "%i[label=\"%s\n||T\n(%f)\"];" counter (Formula.nodeRefToText qRef ids2str ids2label) scr)
-            printEdge mbParent (show counter) mbEdgeLabel
-            return (counter+1)
-        where
-        printEdge mbParent' current mbEdgeLabel' = case mbParent' of
-            Nothing -> return ()
-            Just parent -> doIO (hPutStrLn file (printf "%s->%s%s;" parent current (case mbEdgeLabel' of
-                    Nothing -> ""
-                    Just el -> printf "[label=\"%s\"]" el
-                )))
-
-        printBounds :: HPT -> String
-        printBounds pst = case HPT.bounds pst of
-            Just (ProbabilityBounds l u) -> printf "[%s-%s]" (show l) (show u)
-            Nothing                      -> "inconsistent evidence"
-
-        {-nodeLabelToReadableString :: Formula.NodeRef -> String
-        nodeLabelToReadableString (Formula.RefComposed sign (Formula.ComposedLabel label bConds rConds _)) = printf
-                "%s%s\n  |%s"
-                label
-                (List.intercalate "\n  ," (fmap showCondBool (Map.toList bConds) ++ showCondReal <$> (Map.toList rConds)))
-                (if sign then "" else "-")
-                where
-                    showCondBool (pf, val)   = printf "%s=%s"    pf $ show val
-                    showCondReal (pf, (l,u)) = printf "%s in (%s,%s)" pf (show l) (show u)
-        nodeLabelToReadableString ref = show ref-}

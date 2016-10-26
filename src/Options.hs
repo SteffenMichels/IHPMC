@@ -41,7 +41,6 @@ data Options = Options
     , timeout     :: Maybe Int
     , repInterval :: Maybe Int
     , formExpPath :: Maybe String
-    , hptExpPath  :: Maybe String
     }
 
 parseConsoleArgs :: Args -> ExceptionalT String IO Options
@@ -58,7 +57,6 @@ parseConsoleArgs args = do
         `andBy`    maybeFlag "timeout"             `Descr` "maximal inference runtime (ms)"
         `andBy`    maybeFlag "reporting_interval"  `Descr` "interval in which intermediate results are reported (ms)"
         `andBy`    maybeFlag "formula_export_path" `Descr` "path to file to which the initial formula is exported (as dot file)"
-        `andBy`    maybeFlag "pt_export_path"      `Descr` "path to file to which the final hybrid probability tree is exported (as dot file)"
 
 maybeFlag :: ReadArg a => Key -> StdArgParam (Maybe a)
 maybeFlag key = StdArgParam (Optional Nothing) Flag key (SingleArgParser $ readArg' key)
