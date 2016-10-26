@@ -36,7 +36,7 @@ import qualified IHPMC
 import Options (Options(..))
 import qualified Options
 import Control.Monad.Exception.Synchronous
-import Control.Monad (forM_, when)
+import Control.Monad (foldM_, when)
 import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
@@ -100,10 +100,15 @@ main' = do
                                                           then Just $ printResult qLabel n t (Just bounds) ids2str ids2label
                                                           else Nothing
             _            -> \_      _ _      _ _       -> Nothing
-    forM_ queries $ \(qLabel, qRef) -> do
-        (n, t, mbBounds) <- mapExceptionT ((,ids2str, ids2label) . IOException) $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f
-        mapExceptionT ((,ids2str, ids2label) . IOException) $ printResult qLabel n t mbBounds ids2str ids2label
-        when (isJust repInterval) $ doIOException $ putStrLn ""
+    foldM_
+        (\f' (qLabel, qRef) -> do
+            (n, t, mbBounds, f'') <- mapExceptionT ((,ids2str, ids2label) . IOException) $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f'
+            mapExceptionT ((,ids2str, ids2label) . IOException) $ printResult qLabel n t mbBounds ids2str ids2label
+            when (isJust repInterval) $ doIOException $ putStrLn ""
+            return f''
+        )
+        f
+        queries
         where
         printResult qLabel n t mbBounds ids2str ids2label = doIO $ putStrLn $ printf
             "%s (iteration %i, after %ims): %s"

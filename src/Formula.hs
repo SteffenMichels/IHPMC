@@ -109,9 +109,9 @@ insert label sign op children = do
         Composed nType nChildren -> do
             let pFuncs = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
             modify' (\f -> f{ nodes       = Map.insert (ComposedId freshCounter) (label, FormulaEntry nType nChildren pFuncs cachedInfo) nodes
-                           , freshCounter = succ freshCounter
-                           , labels2ids   = Map.insert label (ComposedId freshCounter) labels2ids
-                           }
+                            , freshCounter = succ freshCounter
+                            , labels2ids   = Map.insert label (ComposedId freshCounter) labels2ids
+                            }
                    )
             return RefWithNode { entryRef        = RefComposed (sign == simplifiedSign) $ ComposedId freshCounter
                                , entryNode       = simplifiedNode
@@ -439,6 +439,10 @@ data ComposedLabel = ComposedLabel
     Int            -- stored hash to avoid recomputation
     deriving Eq
 
+instance Hashable ComposedLabel
+    where
+    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
+
 data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel PredicateLabelModifier deriving Eq
 data PredicateLabelModifier = No
                             | BodyNr Int
@@ -462,16 +466,12 @@ composedLabelToText (ComposedLabel (PredicateLabel label modif) (Conditions{bool
         ExcludingChildren excluded -> printf "-%s" $ toTextLst (Set.toList excluded) (\x -> GroundedAST.predicateLabelToText x ids2str ids2label)
     )
     (showLst (
-        (showCondBool                              <$> Map.toList boolConds)   ++
+        (showCondBool                               <$> Map.toList boolConds)   ++
         ((\x -> showCondString x ids2str ids2label) <$> Map.toList stringConds) ++
         ((\x -> showCondReal   x ids2str ids2label) <$> Map.toList realConds)
     ))
     where
         showCondBool (pf, val) = printf "%s=%s" (GroundedAST.pFuncToText pf ids2str ids2label) (show val)
-
-instance Hashable ComposedLabel
-    where
-    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
 uncondComposedLabel :: GroundedAST.PredicateLabel -> ComposedLabel
 uncondComposedLabel label = ComposedLabel (PredicateLabel label No) (Conditions Map.empty Map.empty Map.empty) $ Hashable.hash label

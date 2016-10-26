@@ -63,10 +63,11 @@ ihpmc :: Formula.NodeRef
       -> (Int -> ProbabilityBounds -> Int -> Bool)
       -> (Int -> ProbabilityBounds -> Int -> Int -> Maybe (ExceptionalT IOException IO ()))
       -> Formula CachedSplitPoints
-      -> ExceptionalT IOException IO (Int, Int, Maybe ProbabilityBounds)
+      -> ExceptionalT IOException IO (Int, Int, Maybe ProbabilityBounds, Formula CachedSplitPoints)
 ihpmc query evidence finishPred reportingIO f = do
     t <- doIO getTime
-    evalStateT (ihpmc' 1 t t $ HPT.initialHPT query $ Formula.entryRef evidenceConj) f'
+    ((n, et, mbBounds), f'') <- runStateT (ihpmc' 1 t t $ HPT.initialHPT query $ Formula.entryRef evidenceConj) f'
+    return (n, et, mbBounds, f'')
     where
     (evidenceConj, f') = runState (Formula.insert
             (Formula.uncondComposedLabel $ GroundedAST.PredicateLabel (-1)) -- '-1 is unused predicate label, reserved for evidence
