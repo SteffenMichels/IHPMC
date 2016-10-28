@@ -30,8 +30,7 @@ import qualified Data.HashSet as Set
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Control.Monad.State.Strict
-import Data.Maybe (isJust, fromMaybe, isNothing)
-import Control.Arrow (second, (***))
+import Data.Maybe (isJust)
 import Data.Foldable (foldrM, foldl')
 import Util
 
@@ -84,39 +83,63 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                    | otherwise                 = excludedGoals'
     headFormula (GroundedAST.BuildInPredicate bip) _ = return $ Formula.refBuildInPredicate bip
 
-    predChildren = fst $ execState
+    predChildren = execState
         (do forM_ [q | GroundedAST.UserPredicate q <- Set.toList queries]  (\q -> (\ref -> (q, ref)) <$> determinePredChildren q)
             forM_ [e | GroundedAST.UserPredicate e <- Set.toList evidence] determinePredChildren
-        ) (Map.empty, Map.empty)
+        ) Map.empty
 
+    -- determins pred children for each query/evidence
     determinePredChildren :: GroundedAST.PredicateLabel
-                 -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel), HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) ()
+                          -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) ()
     determinePredChildren goal = do
-        alreadyKnown <- gets $ isJust . Map.lookup goal . fst
-        unless alreadyKnown $ do
-            children <- fst <$> determineChildren goal Set.empty
-            modify' (Map.insert goal children *** Map.delete goal)
-            forM_ children determinePredChildren
+        alreadyKnown <- get
+        let childrAndDeps = childrAndDependencies goal alreadyKnown
+        fillInDependencies goal childrAndDeps
+
+    childrAndDependencies :: GroundedAST.PredicateLabel
+                          -> HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)
+                          -> HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel, HashSet GroundedAST.PredicateLabel)
+    childrAndDependencies goal pChildren = execState (determineChildrAndDeps goal Set.empty) Map.empty
         where
-        determineChildren :: GroundedAST.PredicateLabel
-                          -> HashSet GroundedAST.PredicateLabel
-                          -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel), HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) (HashSet GroundedAST.PredicateLabel, Bool)
-        determineChildren goal' activeGoals
-            | Set.member goal' activeGoals = return (Set.empty, True)
-            | otherwise = do
-                mbChildren <- gets $ Map.lookup goal' . fst
-                case mbChildren of
-                    Just children -> return (children, False)
+        determineChildrAndDeps :: GroundedAST.PredicateLabel
+                               -> HashSet GroundedAST.PredicateLabel
+                               -> State
+                                      (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel, HashSet GroundedAST.PredicateLabel))
+                                      (HashSet GroundedAST.PredicateLabel)
+        determineChildrAndDeps goal' activeGoals = case Map.lookup goal' pChildren of
+            Just children -> return children
+            Nothing -> do
+                childrAndDeps <- get
+                case Map.lookup goal' childrAndDeps of
+                    Just (children, _) -> return children
                     Nothing -> do
-                        mbCachedDirChildren <- gets $ Map.lookup goal' . snd
-                        let directChildren = fromMaybe
-                                (Set.unions [ Set.fromList [child | GroundedAST.UserPredicate child <- Set.toList elements]
-                                                           | GroundedAST.RuleBody elements <- Set.toList $ Map.lookupDefault Set.empty goal' rules ]
-                                )
-                                mbCachedDirChildren
-                        let activeGoals' = Set.insert goal' activeGoals
-                        childrensChildren <- forM (Set.toList directChildren) (`determineChildren` activeGoals')
-                        let res@(allChildren, cycl) = foldl' (\(chldrnX, cycleX) (chldrnY, cycleY) -> (Set.union chldrnX chldrnY, cycleX || cycleY)) (directChildren, False) childrensChildren
-                        unless cycl $ modify' (Map.insert goal' allChildren *** Map.delete goal')
-                        when   (cycl && isNothing mbCachedDirChildren) $ modify' $ second $ Map.insert goal' directChildren -- cannot determine all children, cache at least direct ones
-                        return res
+                        curChildrAndDeps <- foldM
+                            ( \(children, deps) child -> do
+                                let children' = Set.insert child children
+                                if   Set.member child activeGoals
+                                then return (children', Set.insert child deps)
+                                else do
+                                    childChildren <- determineChildrAndDeps child $ Set.insert goal' activeGoals
+                                    return (Set.union childChildren children', deps)
+                            )
+                            (Set.empty, Set.empty)
+                            (directChildren goal')
+                        modify' $ Map.insert goal' curChildrAndDeps
+                        return $ fst curChildrAndDeps
+
+    fillInDependencies :: GroundedAST.PredicateLabel
+                       -> HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel, HashSet GroundedAST.PredicateLabel)
+                       -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) ()
+    fillInDependencies goal childrAndDeps = do
+        pChildren <- get
+        unless (isJust $ Map.lookup goal pChildren) $ do
+            let (childr, deps) = Map.lookupDefault undefined goal childrAndDeps
+            let childr'        = foldl' (\c dep -> Set.union c $ Map.lookupDefault undefined dep pChildren) childr deps
+            put $ Map.insert goal childr' pChildren
+            forM_ (directChildren goal) (`fillInDependencies` childrAndDeps)
+            return ()
+        return ()
+
+    directChildren :: GroundedAST.PredicateLabel -> HashSet GroundedAST.PredicateLabel
+    directChildren goal = Set.unions [ Set.fromList [child | GroundedAST.UserPredicate child <- Set.toList elements]
+                                     | GroundedAST.RuleBody elements <- Set.toList $ Map.lookupDefault Set.empty goal rules ]
