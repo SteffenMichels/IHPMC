@@ -41,12 +41,16 @@ import Data.Ratio ((%))
 import qualified Statistics.Distribution as Dist
 import qualified Statistics.Distribution.Normal as Norm
 import Probability
+import TextShow
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Lazy.Builder as TB
 
 newtype Exception = InvalidSyntax ParseError
-instance Show Exception where
-    show (InvalidSyntax err) = show err
+instance TextShow Exception where
+    showb (InvalidSyntax err) = TB.fromString $ show err
 
-type P a = Parsec String (IdNrMap String) a
+type P a = Parsec String (IdNrMap Text) a
 
 -- LEXER
 languageDef =
@@ -116,12 +120,12 @@ variable   = Token.lexeme        lexer parseVar
 identifierNumber :: P Int
 identifierNumber = do
     ident <- identifier
-    (idNr, idMap) <- IdNrMap.getIdNr ident <$> getState
+    (idNr, idMap) <- IdNrMap.getIdNr (T.pack ident) <$> getState
     setState idMap
     return idNr
 
 -- PARSER
-parsePclp :: String -> Exceptional Exception (AST, IdNrMap String)
+parsePclp :: String -> Exceptional Exception (AST, IdNrMap Text)
 parsePclp src =
     let initialState = AST.AST
             { AST.pFuncDefs = Map.empty
@@ -131,7 +135,7 @@ parsePclp src =
             }
     in mapException InvalidSyntax (fromEither (runParser (theory initialState) IdNrMap.empty "PCLP theory" src))
 
-theory :: AST -> P (AST, IdNrMap String)
+theory :: AST -> P (AST, IdNrMap Text)
 theory ast = whiteSpace >>
     (     try ( do -- query
             q <- query
@@ -233,15 +237,14 @@ normDef = do
 strDef :: P AST.PFuncDef
 strDef = const <$> braces (AST.StrDist <$> sepBy choicesElement comma) <*> dot
     where
-        choicesElement :: P (Probability, String)
-        choicesElement =     (\p _ s -> (p, s))
-                         <$> fromRational <$> rational
+        choicesElement :: P (Probability, Text)
+        choicesElement =     ((\p _ s -> (p, T.pack s)) . fromRational <$> rational)
                          <*> colon
                          <*> stringConstant
 
 headArgument :: P AST.HeadArgument
 headArgument =     AST.ArgConstant               <$> constantExpression
-               <|> AST.ArgVariable . AST.VarName <$> variable
+               <|> (AST.ArgVariable . AST.VarName . T.pack) <$> variable
                <|> const AST.ArgDontCareVariable <$> string "_"
 
 -- expressions
@@ -250,14 +253,14 @@ expression = buildExpressionParser operators term
 
 operators = [ [Infix  (reservedOp "+" >> return AST.Sum) AssocLeft] ]
 
-term =     AST.ConstantExpr           <$> constantExpression
-       <|> uncurry AST.PFunc          <$> pFunc expression
-       <|> AST.Variable . AST.VarName <$> variable
+term =     AST.ConstantExpr                    <$> constantExpression
+       <|> uncurry AST.PFunc                   <$> pFunc expression
+       <|> AST.Variable . AST.VarName . T.pack <$> variable
 
 constantExpression :: P AST.ConstantExpr
 constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
                      <|> const (AST.BoolConstant False) <$> reserved "false"
-                     <|> AST.StrConstant                <$> stringConstant
+                     <|> AST.StrConstant . T.pack       <$> stringConstant
                      <|> AST.RealConstant               <$> try rational
                      <|> AST.IntConstant                <$> integer
 

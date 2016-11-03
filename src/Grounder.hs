@@ -33,7 +33,6 @@ import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Control.Monad.State.Strict
-import Text.Printf (printf)
 import Data.Foldable (foldl', foldlM)
 import Data.Sequence (Seq, ViewL((:<)), (><))
 import qualified Data.Sequence as Seq
@@ -46,6 +45,10 @@ import Util
 import Data.Boolean (Boolean(..))
 import IdNrMap (IdNrMap)
 import qualified IdNrMap
+import Data.Text (Text)
+import Data.Text.Lazy.Builder (Builder)
+import Data.Monoid ((<>))
+import TextShow
 
 type GState = StateT GroundingState (Exceptional Exception)
 
@@ -59,45 +62,57 @@ data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel 
                | NonGroundQuery        AST.RuleBodyElement
                | NonGroundEvidence     AST.RuleBodyElement
 
-exceptionToText :: Exception -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
-exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str _ = printf
-        "Could not ground predicate%s %s in a body of '%s/%i'."
-        (if length prds > 1 then "s" else "")
-        (toTextLstEnc "'" "'" prds (`AST.ruleBodyElementToText` ids2str))
-        (AST.predicateLabelToText headLabel ids2str)
-        headNArgs
-exceptionToText (TypeError exprX exprY) ids2str ids2label = printf
-        "Types of expressions %s and %s do not match."
-        (propExprWithTypeToText exprX ids2str ids2label)
-        (propExprWithTypeToText exprY ids2str ids2label)
-exceptionToText (UndefinedRf pf n) ids2str _ = printf
-        "Probabilistic function '%s/%i' is undefined."
-        (AST.pFuncLabelToText pf ids2str)
-        n
-exceptionToText (UndefinedRfValue pf args) ids2str _ = printf
-        "'%s(%s)' is undefined."
-        (AST.pFuncLabelToText pf ids2str)
-        (showLst args)
-exceptionToText (UndefinedPred label n) ids2str _ = printf
-        "Predicate '%s/%i' is undefined."
-        (AST.predicateLabelToText label ids2str)
-        n
+exceptionToText :: Exception -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str _ =
+        "Could not ground predicate" <>
+        if length prds > 1 then "s " else " " <>
+        toTextLstEnc "'" "'" prds (`AST.ruleBodyElementToText` ids2str) <>
+        " in a body of '" <>
+        AST.predicateLabelToText headLabel ids2str <>
+        "/" <>
+        showb headNArgs <>
+        "'."
+exceptionToText (TypeError exprX exprY) ids2str ids2label =
+        "Types of expressions " <>
+        propExprWithTypeToText exprX ids2str ids2label <>
+        " and " <>
+        propExprWithTypeToText exprY ids2str ids2label <>
+        " do not match."
+exceptionToText (UndefinedRf pf n) ids2str _ =
+        "Probabilistic function '" <>
+        AST.pFuncLabelToText pf ids2str <>
+        "/" <>
+        showb n <>
+        "' is undefined."
+exceptionToText (UndefinedRfValue pf args) ids2str _ =
+        "'" <>
+        AST.pFuncLabelToText pf ids2str <>
+        "(" <>  showbLst args <> ")" <>
+        "' is undefined."
+exceptionToText (UndefinedPred label n) ids2str _ =
+        "Predicate '" <>
+        AST.predicateLabelToText label ids2str <>
+        "/" <>
+        showb n <>
+        "' is undefined."
 exceptionToText ProbabilisticFuncUsedAsArg _ _ =
     "Probabilistic functions may not be used in arguments of predicates and functions."
-exceptionToText (UnsolvableConstraints constrs) ids2str _ = printf
-        "Could not solve constraint%s %s."
-        (if length constrs > 1 then "s" else "")
-        (toTextLstEnc "'" "'" constrs (`constraintToText` ids2str))
-exceptionToText (NonGroundQuery q) ids2str _ = printf
-        "All queries have to be ground. Query '%s' is not ground."
-        (AST.ruleBodyElementToText q ids2str)
-exceptionToText (NonGroundEvidence e) ids2str _ = printf
-        "All evidence has to be ground. Evidence '%s' is not ground."
-        (AST.ruleBodyElementToText e ids2str)
+exceptionToText (UnsolvableConstraints constrs) ids2str _ =
+        "Could not solve constraint" <> if length constrs > 1 then "s" else "" <>
+        toTextLstEnc "'" "'" constrs (`constraintToText` ids2str) <>
+        "."
+exceptionToText (NonGroundQuery q) ids2str _ =
+        "All queries have to be ground. Query '" <>
+        AST.ruleBodyElementToText q ids2str <>
+        "' is not ground."
+exceptionToText (NonGroundEvidence e) ids2str _ =
+        "All evidence has to be ground. Evidence '" <>
+        AST.ruleBodyElementToText e ids2str <>
+        "' is not ground."
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic)
-constraintToText :: Constraint -> HashMap Int String -> String
-constraintToText (EqConstraint exprX exprY) ids2str = printf "%s = %s" (AST.exprToText exprX ids2str) (AST.exprToText exprY ids2str)
+constraintToText :: Constraint -> HashMap Int Text -> Builder
+constraintToText (EqConstraint exprX exprY) ids2str = AST.exprToText exprX ids2str <> " = " <> AST.exprToText exprY ids2str
 instance Hashable Constraint
 
 data GroundingState = GroundingState
@@ -359,11 +374,11 @@ toPropRuleElement (AST.BuildInPredicate bip) pfDefs = GroundedAST.BuildInPredica
 
 data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
                       | ExprReal (GroundedAST.Expr GroundedAST.RealN)
-                      | ExprStr  (GroundedAST.Expr String)
+                      | ExprStr  (GroundedAST.Expr Text)
                       | ExprInt  (GroundedAST.Expr Integer)
 
-propExprWithTypeToText :: PropExprWithType -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
-propExprWithTypeToText expr ids2str ids2label = printf "'%s' (of type %s)" exprStr typeStr
+propExprWithTypeToText :: PropExprWithType -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " <> typeStr <> ")"
     where
     (exprStr, typeStr) = case expr of
         ExprBool expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Bool")
@@ -663,7 +678,7 @@ replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
                                       in  (elements', st{varCounter = varCounter'})
                               )
     where
-    replaceEVars' :: (Int, HashMap String Int) -> AST.Expr -> ((Int, HashMap String Int), AST.Expr)
+    replaceEVars' :: (Int, HashMap Text Int) -> AST.Expr -> ((Int, HashMap Text Int), AST.Expr)
     replaceEVars' (counter, vars2ids) expr = case expr of
         AST.Variable (AST.VarName var) -> case Map.lookup var vars2ids of
             Just i  -> ((counter, vars2ids), AST.Variable $ AST.TempVar i)

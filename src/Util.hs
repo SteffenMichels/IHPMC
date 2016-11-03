@@ -21,7 +21,8 @@
 
 module Util
     ( getFirst
-    , showLst
+    , showbLst
+    , showbLstEnc
     , toTextLst
     , toTextLstEnc
     , doState
@@ -31,24 +32,32 @@ module Util
     ) where
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.List (intercalate)
 import Control.Monad.State.Strict
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe (MaybeT)
 import Data.Boolean
 import Data.Maybe (listToMaybe)
+import TextShow
+import Data.Monoid ((<>))
 
 getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
 
-showLst :: Show a => [a] -> String
-showLst l = intercalate ", " $ show <$> l
+showbLst :: TextShow a => [a] -> Builder
+showbLst []     = ""
+showbLst [a]    = showb a
+showbLst (a:as) = showb a <> ", " <> showbLst as
 
-toTextLst :: [a] -> (a -> String) -> String
-toTextLst l toStr = intercalate ", " $ toStr <$> l
+showbLstEnc :: TextShow a => Builder -> Builder -> [a] -> Builder
+showbLstEnc _ _ []            = ""
+showbLstEnc open close [a]    = open <> showb a <> close
+showbLstEnc open close (a:as) = open <> showb a <> close <> ", " <> showbLstEnc open close as
 
-toTextLstEnc :: String -> String -> [a] -> (a -> String) -> String
-toTextLstEnc open close l toStr = intercalate ", " $ (\el -> open ++ toStr el ++ close) <$> l
+toTextLst :: [a] -> (a -> Builder) -> Builder
+toTextLst l toStr = showbLst $ toStr <$> l
+
+toTextLstEnc :: Builder -> Builder -> [a] -> (a -> Builder) -> Builder
+toTextLstEnc open close l toStr = showbLstEnc open close $ toStr <$> l
 
 doState :: Monad m => State s a -> StateT s m a
 doState = mapStateT (\(Identity x) -> return x)

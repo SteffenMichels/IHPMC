@@ -34,15 +34,16 @@ module Exception
     ) where
 import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous
+import Data.Text.Lazy.Builder (Builder)
+import TextShow
 
-newtype IOException = IOException String
+newtype IOException = IOException Builder
 
-instance Show IOException
-    where
-    show (IOException e) = e
+instance TextShow IOException where
+    showb (IOException e) = e
 
 doIO :: IO a -> ExceptionalT IOException IO a
-doIO action = mapExceptionT (IOException . show) (fromEitherT (IOError.tryIOError action))
+doIO action = mapExceptionT (IOException . showb) (fromEitherT (IOError.tryIOError action))
 
 returnExceptional :: Monad m => Exceptional e a -> ExceptionalT e m a
 returnExceptional exc = ExceptionalT $ return exc

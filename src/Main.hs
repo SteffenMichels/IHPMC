@@ -31,7 +31,6 @@ import qualified Grounder
 import qualified FormulaConverter
 import qualified GroundedAST
 import Exception
-import Text.Printf (printf, PrintfArg)
 import qualified IHPMC
 import Options (Options(..))
 import qualified Options
@@ -45,30 +44,36 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import qualified IdNrMap
 import qualified AST
+import Data.Text.Lazy.Builder (Builder)
+import qualified Data.Text.Lazy.Builder as TB
+import TextShow
+import qualified Data.Text.Lazy.IO as LTIO
+import Data.Monoid ((<>))
+import Data.Text (Text)
 
 data Exception = GrounderException        Grounder.Exception
-               | ParameterException       String
-               | CommandLineArgsException String
+               | ParameterException       Builder
+               | CommandLineArgsException Builder
                | ParserException          Parser.Exception
                | IOException              IOException
-               | TestException            String
+               | TestException            Builder
 
-exceptionToText :: Exception -> HashMap Int String -> HashMap Int (Int, [AST.ConstantExpr]) -> String
-exceptionToText (GrounderException e)        ids2str ids2label = printf "Invalid model: %s" $ Grounder.exceptionToText e ids2str ids2label
-exceptionToText (ParameterException e)       _       _         = printf "Invalid parameter: %s" e
+exceptionToText :: Exception -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+exceptionToText (GrounderException e)        ids2str ids2label = "Invalid model: " <> Grounder.exceptionToText e ids2str ids2label
+exceptionToText (ParameterException e)       _       _         = "Invalid parameter: " <> e
 exceptionToText (CommandLineArgsException e) _       _         = e
-exceptionToText (ParserException e)          _       _         = printf "Invalid model syntax: %s" $ show e
-exceptionToText (IOException e)              _       _         = show e
-exceptionToText (TestException e)            _       _         = printf "Invalid test: %s" e
+exceptionToText (ParserException e)          _       _         = "Invalid model syntax: " <> showb e
+exceptionToText (IOException e)              _       _         = showb e
+exceptionToText (TestException e)            _       _         = "Invalid test: " <> e
 
 main :: IO ()
 main = do
     result <- runExceptionalT main'
     case result of
-        Exception (e, ids2str, ids2label) -> putStrLn (exceptionToText e ids2str ids2label) >> exitFailure
+        Exception (e, ids2str, ids2label) -> LTIO.putStrLn (TB.toLazyText $ exceptionToText e ids2str ids2label) >> exitFailure
         Success _                         -> return ()
 
-main' :: ExceptionalT (Exception, HashMap Int String, HashMap Int (Int, [AST.ConstantExpr])) IO ()
+main' :: ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO ()
 main' = do
     args <- doIOException getArgs
     Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
@@ -82,9 +87,9 @@ main' = do
     assertT
         (ParameterException "You have to specify at least one stop condition.", Map.empty, Map.empty)
         (isJust nIterations || isJust errBound || isJust timeout)
-    printIfSet "Stopping after %i iterations." nIterations
-    printIfSet "Stopping if error bound is at most %s." $ show <$> errBound
-    printIfSet "Stopping after %ims." timeout
+    printIfSet (\n -> "Stopping after " <> showb n <> " iterations.") nIterations
+    printIfSet (\e -> "Stopping if error bound is at most " <> showb e <> ".") $ showb <$> errBound
+    printIfSet (\t -> "Stopping after " <> showb t <> "ms.") timeout
     src <- doIOException $ readFile modelFile
     (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
     let ids2str = IdNrMap.fromIdNrMap identIds
@@ -110,24 +115,21 @@ main' = do
         f
         queries
         where
-        printResult qLabel n t mbBounds ids2str ids2label = doIO $ putStrLn $ printf
-            "%s (iteration %i, after %ims): %s"
-            (GroundedAST.ruleBodyElementToText qLabel ids2str ids2label)
-            n
-            t
-            (case mbBounds of
-                Just (ProbabilityBounds l u) -> printf
-                    "%s (error bound: %s)"
-                    (show $ (u + l) / 2.0)
-                    (show $ (u - l) / 2.0)
+        printResult qLabel n t mbBounds ids2str ids2label = doIO $ LTIO.putStrLn $ TB.toLazyText $
+            GroundedAST.ruleBodyElementToText qLabel ids2str ids2label <>
+            " (iteration " <> showb n <>
+            ", after " <> showb t <> "ms): " <>
+            case mbBounds of
+                Just (ProbabilityBounds l u) ->
+                    showb ((u + l) / 2.0) <>
+                    " (error bound: " <> showb ((u - l) / 2.0) <> ")"
                 Nothing -> "inconsistent evidence"
-            )
 
-doIOException :: IO a -> ExceptionalT (Exception, HashMap Int String, HashMap Int (Int, [AST.ConstantExpr])) IO a
+doIOException :: IO a -> ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO a
 doIOException io = mapExceptionT ((,Map.empty, Map.empty) . IOException) $ doIO io
 
-printIfSet :: PrintfArg a => String -> Maybe a -> ExceptionalT (Exception, HashMap Int String, HashMap Int (Int, [AST.ConstantExpr])) IO ()
-printIfSet fstr = maybe (return ()) $ doIOException . putStrLn . printf fstr
+printIfSet :: (a -> Builder) -> Maybe a -> ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO ()
+printIfSet fstr = maybe (return ()) $ doIOException . LTIO.putStrLn . TB.toLazyText . fstr
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust Nothing _   = return ()

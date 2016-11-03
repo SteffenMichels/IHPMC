@@ -28,19 +28,17 @@ module Probability
     , probToDouble
     ) where
 import Control.Arrow (first)
-#ifdef FLOAT_PROBS
-import Text.Printf (printf)
-#else
+import TextShow
+#ifndef FLOAT_PROBS
 import Numeric (fromRat)
 import Data.Ratio (numerator, denominator)
-import Text.Printf (printf)
+import Data.Monoid ((<>))
 #endif
 
 #ifdef FLOAT_PROBS
-newtype Probability = Probability Double deriving Eq
-instance Show Probability
-    where
-    show (Probability p) = printf "%f" p
+newtype Probability = Probability Double deriving (Eq, Show)
+instance TextShow Probability where
+    showb (Probability p) = showb p
 
 ratToProb :: Rational -> Probability
 ratToProb = Probability. fromRational
@@ -51,10 +49,9 @@ doubleToProb = Probability
 probToDouble :: Probability -> Double
 probToDouble (Probability p) = p
 #else
-newtype Probability = Probability Rational deriving Eq
-instance Show Probability
-    where
-    show (Probability p) = printf "%i/%i" (numerator p) (denominator p)
+newtype Probability = Probability Rational deriving (Eq, Show)
+instance TextShow Probability where
+    showb (Probability p) = showb (numerator p) <> "/" <> showb (denominator p)
 
 ratToProb :: Rational -> Probability
 ratToProb = Probability

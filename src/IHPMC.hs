@@ -48,12 +48,13 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Exception
 import Data.Foldable (foldl')
 import Probability
+import Data.Text (Text)
 
 -- total score, split points + scores
 data CachedSplitPoints = CachedSplitPoints Double (HashMap SplitPoint Double)
 type FState = Formula.FState CachedSplitPoints
 data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
-                | StringSplit     (GroundedAST.PFunc String)            (HashSet String) -- left branch: all string in this set, right branch: all remaining strings
+                | StringSplit     (GroundedAST.PFunc Text)              (HashSet Text) -- left branch: all string in this set, right branch: all remaining strings
                 | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN) Rational
                 deriving (Eq, Generic)
 instance Hashable SplitPoint
@@ -166,8 +167,8 @@ heuristicBuildInPredBool :: GroundedAST.TypedBuildInPred Bool -> CachedSplitPoin
 heuristicBuildInPredBool prd = CachedSplitPoints (fromIntegral $ Set.size $ GroundedAST.predProbabilisticFunctions prd) $
     foldl' (\pts pf -> Map.insert (BoolSplit pf) 1.0 pts) Map.empty $ GroundedAST.predProbabilisticFunctions prd
 
-heuristicBuildInPredString :: HashMap (GroundedAST.PFunc String) (HashSet String)
-                           -> GroundedAST.TypedBuildInPred String
+heuristicBuildInPredString :: HashMap (GroundedAST.PFunc Text) (HashSet Text)
+                           -> GroundedAST.TypedBuildInPred Text
                            -> CachedSplitPoints
 heuristicBuildInPredString _ prd = case prd of
     GroundedAST.Constant _ -> CachedSplitPoints 0.0 Map.empty
@@ -176,7 +177,7 @@ heuristicBuildInPredString _ prd = case prd of
     GroundedAST.Equality _ (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)     -> splitPointsStringPfs pfX pfY
     _                                                                                      -> undefined
     where
-    splitPointsStringPfConst :: GroundedAST.PFunc String -> GroundedAST.ConstantExpr String -> CachedSplitPoints
+    splitPointsStringPfConst :: GroundedAST.PFunc Text -> GroundedAST.ConstantExpr Text -> CachedSplitPoints
     splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints 1 $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
     splitPointsStringPfs _ _ = error "equality between two string-value PFs not implemented"
 

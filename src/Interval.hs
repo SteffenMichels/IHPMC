@@ -40,33 +40,37 @@ module Interval
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import qualified Data.HashMap.Strict as Map
-import Text.Printf (printf)
 import Numeric (fromRat)
 import Data.Foldable (foldl')
+import TextShow
+import Data.Monoid ((<>))
 
 data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic)
 
-instance Show IntervalLimit
-    where
-    show Inf        = "inf"
-    show (Open r)   = printf "Open %f" (fromRat r :: Float)
-    show (Closed r) = printf "Closed %f" (fromRat r :: Float)
+instance TextShow IntervalLimit where
+    showb Inf        = "inf"
+    showb (Open r)   = "Open "   <> showb (fromRat r :: Float)
+    showb (Closed r) = "Closed " <> showb (fromRat r :: Float)
 
 data LowerUpper = Lower | Upper
 data IntervalLimitPoint = PosInf | NegInf | Indet
                         | Point Rational Infinitesimal
                         deriving (Eq)
 
-instance Show IntervalLimitPoint
-    where
-    show PosInf          = "+inf"
-    show NegInf          = "-inf"
-    show Indet           = "?"
-    show (Point r infte) = printf "%f^%s" (fromRat r :: Float) (show infte)
+instance TextShow IntervalLimitPoint where
+    showb PosInf          = "+inf"
+    showb NegInf          = "-inf"
+    showb Indet           = "?"
+    showb (Point r infte) = showb (fromRat r :: Float) <> "^" <> showb infte
 
-data Infinitesimal = InfteNull | InftePlus | InfteMinus | InfteIndet deriving (Eq, Show)
+data Infinitesimal = InfteNull | InftePlus | InfteMinus | InfteIndet deriving Eq
+instance TextShow Infinitesimal where
+    showb InfteNull  = "0"
+    showb InftePlus  = "+"
+    showb InfteMinus = "-"
+    showb InfteIndet = "?"
 instance Hashable IntervalLimit
-data Interval = Interval IntervalLimit IntervalLimit deriving (Eq, Show, Generic)
+data Interval = Interval IntervalLimit IntervalLimit deriving (Eq, Generic)
 instance Hashable Interval
 
 toPoint :: LowerUpper -> IntervalLimit -> IntervalLimitPoint

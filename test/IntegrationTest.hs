@@ -42,12 +42,14 @@ import Main (Exception(..))
 import qualified Grounder
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
+import qualified Data.Text as T
+import Data.Text (Text)
 
 data IntegrationTest = IntegrationTest
     { label           :: String
     , model           :: String
-    , expectedResults :: [ ( HashMap String Int -> AST.RuleBodyElement
-                           , Exceptional Exception (Maybe ProbabilityBounds) -> HashMap String Int -> Bool
+    , expectedResults :: [ ( HashMap Text Int -> AST.RuleBodyElement
+                           , Exceptional Exception (Maybe ProbabilityBounds) -> HashMap Text Int -> Bool
                            )
                          ]
     }
@@ -55,57 +57,57 @@ data IntegrationTest = IntegrationTest
 undefinedQueryId :: Int
 undefinedQueryId = -1
 
-query :: String -> HashMap String Int -> AST.RuleBodyElement
+query :: Text -> HashMap Text Int -> AST.RuleBodyElement
 query label strs2id = AST.UserPredicate
     (AST.PredicateLabel $ Map.lookupDefault undefinedQueryId label strs2id)
     []
 
-queryStr :: String -> [String] -> HashMap String Int -> AST.RuleBodyElement
+queryStr :: Text -> [String] -> HashMap Text Int -> AST.RuleBodyElement
 queryStr label exprs strs2id = AST.UserPredicate
     (AST.PredicateLabel $ Map.lookupDefault undefined label strs2id)
-    (AST.ConstantExpr . AST.StrConstant <$> exprs)
+    (AST.ConstantExpr . AST.StrConstant . T.pack <$> exprs)
 
-queryInt :: String -> [Integer] -> HashMap String Int -> AST.RuleBodyElement
+queryInt :: Text -> [Integer] -> HashMap Text Int -> AST.RuleBodyElement
 queryInt label exprs strs2id = AST.UserPredicate
     (AST.PredicateLabel $ Map.lookupDefault undefined label strs2id)
     (AST.ConstantExpr . AST.IntConstant <$> exprs)
 
-preciseProb :: Probability -> Exceptional Exception (Maybe ProbabilityBounds) -> HashMap String Int-> Bool
+preciseProb :: Probability -> Exceptional Exception (Maybe ProbabilityBounds) -> HashMap Text Int -> Bool
 preciseProb p (Success (Just (ProbabilityBounds l u))) _ | l == u && l == p = True
 preciseProb _ _ _                                                           = False
 
-nonGround :: String -> Int -> Int -> Exceptional Exception a -> HashMap String Int -> Bool
+nonGround :: Text -> Int -> Int -> Exceptional Exception a -> HashMap Text Int -> Bool
 nonGround expLabel expN expNPreds (Exception (Main.GrounderException (Grounder.NonGroundPreds prds (AST.PredicateLabel label) n))) strs2id
     | label == Map.lookupDefault undefined expLabel strs2id && n == expN && length prds == expNPreds = True
 nonGround _ _ _ _ _                                                                                  = False
 
-typeError :: Exceptional Exception a -> HashMap String Int -> Bool
+typeError :: Exceptional Exception a -> HashMap Text Int -> Bool
 typeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) _ = True
 typeError _                                                             _ = False
 
-nonGroundQuery :: Exceptional Exception a -> HashMap String Int -> Bool
+nonGroundQuery :: Exceptional Exception a -> HashMap Text Int -> Bool
 nonGroundQuery (Exception (Main.GrounderException (Grounder.NonGroundQuery _))) _ = True
 nonGroundQuery _                                                                _ = False
 
-unsolvableConstrs :: Exceptional Exception a -> HashMap String Int -> Bool
+unsolvableConstrs :: Exceptional Exception a -> HashMap Text Int -> Bool
 unsolvableConstrs (Exception (Main.GrounderException (Grounder.UnsolvableConstraints _))) _ = True
 unsolvableConstrs _                                                                       _ = False
 
-undefinedRf :: String -> Int -> Exceptional Exception a -> HashMap String Int -> Bool
+undefinedRf :: Text -> Int -> Exceptional Exception a -> HashMap Text Int -> Bool
 undefinedRf expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRf pf n))) strs2id
     | AST.PFuncLabel (Map.lookupDefault undefined expRf strs2id) == pf && expN == n = True
 undefinedRf _ _ _ _                                                                 = False
 
-undefinedPred :: String -> Int -> Exceptional Exception a -> HashMap String Int -> Bool
+undefinedPred :: Text -> Int -> Exceptional Exception a -> HashMap Text Int -> Bool
 undefinedPred expPred expN  (Exception (Main.GrounderException (Grounder.UndefinedPred prd n))) strs2id
     | AST.PredicateLabel (Map.lookupDefault undefinedQueryId expPred strs2id) == prd && expN == n = True
 undefinedPred _ _ _ _                                                                             = False
 
-undefinedRfVal :: String -> Int -> Exceptional Exception a -> HashMap String Int -> Bool
+undefinedRfVal :: Text -> Int -> Exceptional Exception a -> HashMap Text Int -> Bool
 undefinedRfVal expRf expN  (Exception (Main.GrounderException (Grounder.UndefinedRfValue pf args))) strs2id
     | AST.PFuncLabel (Map.lookupDefault undefined expRf strs2id) == pf && expN == length args = True
 undefinedRfVal _ _ _ _                                                                        = False
 
-pfAsArg :: Exceptional Exception a -> HashMap String Int -> Bool
+pfAsArg :: Exceptional Exception a -> HashMap Text Int -> Bool
 pfAsArg (Exception (Main.GrounderException Grounder.ProbabilisticFuncUsedAsArg)) _ = True
 pfAsArg _                                                                        _ = False

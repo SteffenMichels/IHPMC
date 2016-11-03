@@ -51,7 +51,6 @@ module AST
     ) where
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
-import Text.Printf (printf)
 import Data.Char (toLower)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
@@ -60,6 +59,12 @@ import Probability
 import Util
 import Control.Arrow (second)
 import Data.Traversable (forM, mapAccumL)
+import Data.Text.Lazy.Builder (Builder)
+import qualified Data.Text.Lazy.Builder as TB
+import Data.Text (Text)
+import qualified Data.Text.Lazy as LT
+import TextShow
+import Data.Monoid ((<>))
 
 data AST = AST
     { pFuncDefs :: HashMap (PFuncLabel, Int)     [([HeadArgument], PFuncDef)] -- first matching def applies
@@ -69,24 +74,23 @@ data AST = AST
     }
 
 newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic)
-predicateLabelToText :: PredicateLabel -> HashMap Int String -> String
-predicateLabelToText (PredicateLabel idNr) = Map.lookupDefault undefined idNr
+predicateLabelToText :: PredicateLabel -> HashMap Int Text -> Builder
+predicateLabelToText (PredicateLabel idNr) = TB.fromText . Map.lookupDefault undefined idNr
 instance Hashable PredicateLabel
 
 newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic)
-pFuncLabelToText :: PFuncLabel -> HashMap Int String -> String
-pFuncLabelToText (PFuncLabel idNr) = Map.lookupDefault undefined idNr
+pFuncLabelToText :: PFuncLabel -> HashMap Int Text -> Builder
+pFuncLabelToText (PFuncLabel idNr) = TB.fromText . Map.lookupDefault undefined idNr
 instance Hashable PFuncLabel
 
 data PFuncDef = Flip     Probability
               | RealDist (Rational -> Probability) (Probability -> Rational)
-              | StrDist  [(Probability, String)]
+              | StrDist  [(Probability, Text)]
 
-instance Show PFuncDef
-    where
-    show (Flip p)        = printf "flip(%s)" $ show p
-    show (RealDist _ _)  = printf "realDist"
-    show (StrDist pairs) = printf "{%s}" $ showLst pairs
+instance TextShow PFuncDef where
+    showb (Flip p)        = "flip(" <> showb p <> ")"
+    showb (RealDist _ _)  = "realDist"
+    showb (StrDist pairs) = "{" <> showbLst pairs <> "}"
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 instance Hashable RuleBody
@@ -94,9 +98,9 @@ instance Hashable RuleBody
 data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic)
-ruleBodyElementToText :: RuleBodyElement -> HashMap Int String -> String
+ruleBodyElementToText :: RuleBodyElement -> HashMap Int Text -> Builder
 ruleBodyElementToText (UserPredicate label args) ids2str =
-    printf "%s(%s)" (predicateLabelToText label ids2str) (toTextLst args (`exprToText` ids2str))
+    predicateLabelToText label ids2str <> "(" <> toTextLst args (`exprToText` ids2str) <> ")"
 ruleBodyElementToText (BuildInPredicate prd) ids2str = buildInPredicateToText prd ids2str
 
 instance Hashable RuleBodyElement
@@ -105,35 +109,35 @@ instance Hashable RuleBodyElement
 data HeadArgument = ArgVariable VarName
                   | ArgConstant ConstantExpr
                   | ArgDontCareVariable
-                  deriving (Eq, Show, Generic)
+                  deriving (Eq, Generic)
 instance Hashable HeadArgument
 
-data VarName = VarName String
+data VarName = VarName Text
              | TempVar Int
              deriving (Eq, Generic)
-instance Show VarName
+instance TextShow VarName
     where
-    show (VarName str) = str
-    show (TempVar i)   = printf "_%i" i
+    showb (VarName str) = TB.fromText str
+    showb (TempVar i)   = showb i
 instance Hashable VarName
 
 data BuildInPredicate = Equality Bool Expr Expr
                       | Ineq     IneqOp Expr Expr
                       deriving (Eq, Generic)
-buildInPredicateToText :: BuildInPredicate -> HashMap Int String -> String
+buildInPredicateToText :: BuildInPredicate -> HashMap Int Text -> Builder
 buildInPredicateToText (Equality eq exprX exprY) ids2str =
-    printf "%s %s %s" (exprToText exprX ids2str) (if eq then "=" else "/=") (exprToText exprY ids2str)
+    exprToText exprX ids2str <> if eq then "=" else "/=" <> exprToText exprY ids2str
 buildInPredicateToText (Ineq     op exprX exprY) ids2str =
-    printf "%s %s %s" (exprToText exprX ids2str) (show op) (exprToText exprY ids2str)
+    exprToText exprX ids2str <> " " <> showb op <> " " <> exprToText exprY ids2str
 instance Hashable BuildInPredicate
 
 data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
-instance Show IneqOp
+instance TextShow IneqOp
     where
-    show Lt   = "<"
-    show LtEq = "<="
-    show Gt   = ">"
-    show GtEq = ">="
+    showb Lt   = "<"
+    showb LtEq = "<="
+    showb Gt   = ">"
+    showb GtEq = ">="
 instance Hashable IneqOp
 
 data Expr = ConstantExpr ConstantExpr
@@ -142,26 +146,26 @@ data Expr = ConstantExpr ConstantExpr
           | Sum          Expr Expr
           deriving (Eq, Generic)
 
-exprToText :: Expr -> HashMap Int String -> String
-exprToText (ConstantExpr cnst) _ = show cnst
+exprToText :: Expr -> HashMap Int Text -> Builder
+exprToText (ConstantExpr cnst) _ = showb cnst
 exprToText (PFunc pf args) ids2str =
-    printf "~%s(%s)" (pFuncLabelToText pf ids2str) $ toTextLst args (`exprToText` ids2str)
-exprToText (Variable var) _ = show var
-exprToText (Sum x y) ids2str = printf "%s + %s" (exprToText x ids2str) (exprToText y ids2str)
+    "~" <> pFuncLabelToText pf ids2str <> "(" <> toTextLst args (`exprToText` ids2str) <> ")"
+exprToText (Variable var) _ = showb var
+exprToText (Sum x y) ids2str = exprToText x ids2str <> " + " <> exprToText y ids2str
 instance Hashable Expr
 
 data ConstantExpr = BoolConstant Bool
                   | RealConstant Rational
-                  | StrConstant  String
+                  | StrConstant  Text
                   | IntConstant  Integer
                   deriving (Eq, Generic)
 
-instance Show ConstantExpr
+instance TextShow ConstantExpr
     where
-    show (BoolConstant cnst) = toLower <$> show cnst
-    show (RealConstant cnst) = printf "%f" (fromRat cnst::Float)
-    show (StrConstant  cnst) = printf "\"%s\"" cnst
-    show (IntConstant  cnst) = show cnst
+    showb (BoolConstant cnst) = TB.fromLazyText $ LT.map toLower $ TB.toLazyText $ showb cnst
+    showb (RealConstant cnst) = showb (fromRat cnst::Float)
+    showb (StrConstant  cnst) = "\"" <> TB.fromText cnst <> "\""
+    showb (IntConstant  cnst) = showb cnst
 instance Hashable ConstantExpr
 
 negateOp :: IneqOp -> IneqOp

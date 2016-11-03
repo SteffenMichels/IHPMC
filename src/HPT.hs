@@ -34,7 +34,6 @@ module HPT
     , addLeafWithinEvidence
     ) where
 import qualified Formula
-import Text.Printf (printf)
 import Probability
 import Data.PQueue.Max (MaxQueue)
 import qualified Data.PQueue.Max as PQ
@@ -83,7 +82,5 @@ bounds (HPT _ (ProbabilityQuadruple t f e u)) =
        | otherwise  = 1.0
     zu= t + f + e
 
-data ProbabilityQuadruple = ProbabilityQuadruple Probability Probability Probability Probability-- true prob, false prob (within evidence), within evidence, unknown prob
-instance Show ProbabilityQuadruple
-    where
-    show (ProbabilityQuadruple t f e u) = printf "(%s, %s, %s, %s)" (show t) (show f) (show e) (show u)
+-- (true prob, false prob (within evidence), within evidence, unknown prob)
+data ProbabilityQuadruple = ProbabilityQuadruple Probability Probability Probability Probability

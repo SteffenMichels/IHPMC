@@ -33,6 +33,9 @@ import Probability
 import System.Console.ArgParser.Params
 import Util
 import Text.Printf (printf)
+import TextShow
+import Data.Text.Lazy.Builder (Builder)
+import qualified Data.Text.Lazy.Builder as TB
 
 data Options = Options
     { modelFile   :: String
@@ -43,11 +46,11 @@ data Options = Options
     , formExpPath :: Maybe String
     }
 
-parseConsoleArgs :: Args -> ExceptionalT String IO Options
+parseConsoleArgs :: Args -> ExceptionalT Builder IO Options
 parseConsoleArgs args = do
-    interf <- mapExceptionT show $ doIO $ mkApp spec
+    interf <- mapExceptionT showb $ doIO $ mkApp spec
     let interf' = setAppDescr interf "Interative Hybrid Probabilistic Model Counting (IHPMC) 0.0.1\nCopyright (c) 2016 Steffen Michels\nLicense: MIT"
-    returnExceptional $ fromEither $ parseArgs args interf'
+    returnExceptional $ mapException TB.fromString $ fromEither $ parseArgs args interf'
     where
     spec :: ParserSpec Options
     spec = Options

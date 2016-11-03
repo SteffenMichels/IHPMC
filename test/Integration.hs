@@ -25,7 +25,6 @@ import qualified Parser
 import qualified Grounder
 import qualified FormulaConverter
 import Exception
-import Text.Printf (printf)
 import qualified IHPMC
 import Control.Monad.Exception.Synchronous
 import IntegrationTest (IntegrationTest (..))
@@ -40,6 +39,12 @@ import Probability
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import qualified IdNrMap
+import Data.Text (Text)
+import Data.Text.Lazy.Builder (Builder)
+import qualified Data.Text.Lazy.Builder as TB
+import qualified Data.Text.Lazy as LT
+import Data.Monoid ((<>))
+import TextShow
 
 allTests :: [(String, [IntegrationTest])]
 allTests = [IntegrationGrounding.tests, IntegrationExactProbabilities.tests]
@@ -55,22 +60,22 @@ toTests IntegrationTest{label, model, expectedResults} = Test inst
     where
     inst = TestInstance
          { run  = checkResults model expectedResults
-         , name = printf "\"%s\"" label
+         , name = "\"" <> label <> "\""
          , tags = []
          , options = []
          , setOption = \_ _ -> Right inst
          }
 
 checkResults :: String
-             -> [(HashMap String Int -> AST.RuleBodyElement, Exceptional Exception (Maybe ProbabilityBounds) -> HashMap String Int -> Bool)]
+             -> [(HashMap Text Int -> AST.RuleBodyElement, Exceptional Exception (Maybe ProbabilityBounds) -> HashMap Text Int -> Bool)]
              -> IO Progress
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
     return $ Finished $ case result of
-        Exception (e, ids2Str, ids2label) -> Error $ exceptionToText e ids2Str ids2label
+        Exception (e, ids2Str, ids2label) -> Error $ LT.unpack $ TB.toLazyText $ exceptionToText e ids2Str ids2label
         Success res                       -> res
     where
-    checkResults' :: ExceptionalT (Exception, HashMap Int String, HashMap Int (Int, [AST.ConstantExpr])) IO Result
+    checkResults' :: ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO Result
     checkResults' = do
         (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
         let ids2str = IdNrMap.fromIdNrMap identIds
@@ -86,18 +91,18 @@ checkResults src expRes = do
                 (_, _, bounds, _) <- mapExceptionT ((,Map.empty) . IOException) $ IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing) f
                 return bounds
             return (query', isExp (mapException fst res) strs2id, res)
-        return $ maybe Pass Fail $ foldl' (\mbErr res -> combineResults mbErr res ids2str) Nothing results
+        return $ maybe Pass Fail $ LT.unpack . TB.toLazyText <$> foldl' (\mbErr res -> combineResults mbErr res ids2str) Nothing results
 
     stopPred _ (ProbabilityBounds l u) _ = l == u
 
-combineResults :: Maybe String
+combineResults :: Maybe Builder
                -> (AST.RuleBodyElement, Bool, Exceptional (Exception, HashMap Int (Int, [AST.ConstantExpr])) (Maybe ProbabilityBounds))
-               -> HashMap Int String
-               -> Maybe String
+               -> HashMap Int Text
+               -> Maybe Builder
 combineResults mbErr (query, isExp, res) ids2str
     | isExp = mbErr
-    | otherwise = Just $ printf
-        "%sunexpected result '%s' for query '%s'"
-        (maybe "" (printf "%s; ") mbErr)
-        (show $ mapException (\(e, ids2label) -> exceptionToText e ids2str ids2label) res)
-        (AST.ruleBodyElementToText query ids2str)
+    | otherwise = Just $
+        maybe "" (\err -> showb err <> "; ") mbErr <>
+        "unexpected result '" <>
+        TB.fromLazyText (LT.pack $ show (mapException (\(e, ids2label) -> exceptionToText e ids2str ids2label) res)) <>
+        "' for query '" <> AST.ruleBodyElementToText query ids2str <> "'"
