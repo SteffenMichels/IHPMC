@@ -78,9 +78,9 @@ bounds (HPT _ (ProbabilityQuadruple t f e u)) =
     Just $ ProbabilityBounds lo up
     where
     lo = t / (t + f + e + u)
-    up | zu > 0.0 = (t + e + u) / zu
-       | otherwise  = 1.0
-    zu= t + f + e
+    up | up' < 1.0 = up'
+       | otherwise = 1.0
+    up' = (t + e + u) / (t + f + e)
 
 -- (true prob, false prob (within evidence), within evidence, unknown prob)
 data ProbabilityQuadruple = ProbabilityQuadruple Probability Probability Probability Probability
