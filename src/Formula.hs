@@ -74,7 +74,7 @@ import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))
 
 -- INTERFACE
-data Node = Composed NodeType [NodeRef]
+data Node = Composed !NodeType ![NodeRef]
           | BuildInPredicateBool   (GroundedAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
           | BuildInPredicateString (GroundedAST.TypedBuildInPred Text)              (HashMap (GroundedAST.PFunc Text) (HashSet Text))
           | BuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN) (HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval)
@@ -457,8 +457,7 @@ data ComposedLabel = ComposedLabel
     Int            -- stored hash to avoid recomputation
     deriving Eq
 
-instance Hashable ComposedLabel
-    where
+instance Hashable ComposedLabel where
     hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
 data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel PredicateLabelModifier deriving Eq

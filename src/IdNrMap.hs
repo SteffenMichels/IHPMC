@@ -21,7 +21,7 @@
 
 {-# LANGUAGE CPP #-}
 #if __GLASGOW_HASKELL__ >= 800
-{-# LANGUAGE Strict #-}
+{-# LANGUAGE StrictData #-}
 #endif
 
 module IdNrMap
