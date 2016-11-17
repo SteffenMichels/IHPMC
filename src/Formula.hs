@@ -76,8 +76,8 @@ import Data.Monoid ((<>))
 -- INTERFACE
 data Node = Composed !NodeType ![NodeRef]
           | BuildInPredicateBool   (GroundedAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
-          | BuildInPredicateString (GroundedAST.TypedBuildInPred Text)              (HashMap (GroundedAST.PFunc Text) (HashSet Text))
-          | BuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN) (HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval)
+          | BuildInPredicateString (GroundedAST.TypedBuildInPred Text)              (HashMap GroundedAST.PFuncLabel (HashSet Text))
+          | BuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN) (HashMap GroundedAST.PFuncLabel Interval)
           | Deterministic Bool
 
 data RefWithNode cachedInfo = RefWithNode
@@ -191,14 +191,14 @@ predRefWithNodeBool prd =
     predRefWithNode prd (RefBuildInPredicateBool prd) (BuildInPredicateBool prd)
 
 predRefWithNodeString :: GroundedAST.TypedBuildInPred Text
-                      -> HashMap (GroundedAST.PFunc Text) (HashSet Text)
+                      -> HashMap GroundedAST.PFuncLabel (HashSet Text)
                       -> cachedInfo
                       -> RefWithNode cachedInfo
 predRefWithNodeString prd sConds =
     predRefWithNode prd (RefBuildInPredicateString prd sConds) (BuildInPredicateString prd sConds)
 
 predRefWithNodeReal :: GroundedAST.TypedBuildInPred GroundedAST.RealN
-                    -> HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval
+                    -> HashMap GroundedAST.PFuncLabel Interval
                     -> cachedInfo
                     -> RefWithNode cachedInfo
 predRefWithNodeReal prd rConds =
@@ -291,8 +291,9 @@ conditionString origNodeEntry pf condSet
                     modify' (\f -> f {buildinCacheString = buildinCache'})
                     return $ predRefWithNodeString condPred sConds' cachedInfo
             where
-            sConds' = Map.insert pf condSet sConds
+            sConds'  = Map.insert pfLabel condSet sConds
             condPred = conditionPred prd sConds'
+            pfLabel  = GroundedAST.probabilisticFuncLabel pf
         RefBuildInPredicateBool prd -> do
             Formula{cacheComps} <- get
             return $ predRefWithNodeBool prd $ cachedInfoBuildInPredBool cacheComps prd
@@ -303,7 +304,7 @@ conditionString origNodeEntry pf condSet
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no pfunctions"
     where
         conditionPred :: GroundedAST.TypedBuildInPred Text
-                      -> HashMap (GroundedAST.PFunc Text) (HashSet Text)
+                      -> HashMap GroundedAST.PFuncLabel (HashSet Text)
                       -> GroundedAST.TypedBuildInPred Text
         conditionPred prd@(GroundedAST.Equality eq left right) sConds
             | Set.size possibleLeft == 1 && Set.size possibleRight == 1 =
@@ -336,7 +337,7 @@ conditionReal origNodeEntry pf interv
                     modify' (\f -> f {buildinCacheReal=buildinCache'})
                     return $ predRefWithNodeReal condPred rConds' cachedInfo
             where
-            rConds' = Map.insert pf interv rConds
+            rConds'  = Map.insert pfLabel interv rConds
             condPred = conditionPred prd rConds'
         RefBuildInPredicateBool prd -> do
             Formula{cacheComps} <- get
@@ -347,8 +348,10 @@ conditionReal origNodeEntry pf interv
                    $ fst $ cachedInfoBuildInPredCached sConds prd (cachedInfoBuildInPredString cacheComps) buildinCacheString
         RefDeterministic _ -> error "should not happen as deterministic nodes contain no pfunctions"
     where
+        pfLabel  = GroundedAST.probabilisticFuncLabel pf
+
         conditionPred :: GroundedAST.TypedBuildInPred GroundedAST.RealN
-                      -> HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval
+                      -> HashMap GroundedAST.PFuncLabel Interval
                       -> GroundedAST.TypedBuildInPred GroundedAST.RealN
         conditionPred prd@(GroundedAST.Ineq op left right) rConds
             -- check if choice is made for all 'pFuncs' in 'prd'
@@ -361,9 +364,9 @@ conditionReal origNodeEntry pf interv
                 | otherwise                            = prd
 
             checkedPreds = map (GroundedAST.checkRealIneqPred op left right) crns
-            conditions   = (pf, interv):[(pf',interv') | (pf',interv') <- Map.toList rConds, Set.member pf' predPFuncs && pf' /= pf]
+            conditions   = (pfLabel, interv):[(pf',interv') | (pf',interv') <- Map.toList rConds, Set.member pf' predPFuncs && pf' /= pfLabel]
             crns         = Interval.corners conditions
-            predPFuncs   = GroundedAST.predProbabilisticFunctions prd
+            predPFuncs   = Set.map GroundedAST.probabilisticFuncLabel $ GroundedAST.predProbabilisticFunctions prd
         conditionPred prd _ = prd
 
 conditionComposed :: Bool
@@ -443,8 +446,8 @@ data Formula cachedInfo = Formula
     { nodes              :: HashMap ComposedId (ComposedLabel, FormulaEntry cachedInfo)           -- graph representing formulas
     , freshCounter       :: Int                                                                   -- counter for fresh nodes
     , labels2ids         :: HashMap ComposedLabel ComposedId                                      -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
-    , buildinCacheString :: HashMap (GroundedAST.TypedBuildInPred Text,              HashMap (GroundedAST.PFunc Text) (HashSet Text))        cachedInfo -- cache for buildin predicates
-    , buildinCacheReal   :: HashMap (GroundedAST.TypedBuildInPred GroundedAST.RealN, HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval) cachedInfo -- cache for buildin predicates
+    , buildinCacheString :: HashMap (GroundedAST.TypedBuildInPred Text,              HashMap GroundedAST.PFuncLabel (HashSet Text)) cachedInfo -- cache for buildin predicates
+    , buildinCacheReal   :: HashMap (GroundedAST.TypedBuildInPred GroundedAST.RealN, HashMap GroundedAST.PFuncLabel Interval)       cachedInfo -- cache for buildin predicates
     , cacheComps         :: CacheComputations cachedInfo                                          -- how cached information attached to formulas is computed
     }
 
@@ -467,9 +470,9 @@ data PredicateLabelModifier = No
                             deriving Eq
 
 -- conditioned formulas
-data Conditions = Conditions { boolConds   :: HashMap (GroundedAST.PFunc Bool) Bool
-                             , stringConds :: HashMap (GroundedAST.PFunc Text) (HashSet Text)
-                             , realConds   :: HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval
+data Conditions = Conditions { boolConds   :: HashMap GroundedAST.PFuncLabel Bool
+                             , stringConds :: HashMap GroundedAST.PFuncLabel (HashSet Text)
+                             , realConds   :: HashMap GroundedAST.PFuncLabel Interval
                              }
                              deriving Eq
 
@@ -488,7 +491,7 @@ composedLabelToText (ComposedLabel (PredicateLabel label modif) Conditions{boolC
         ((\x -> showCondReal   x ids2str ids2label) <$> Map.toList realConds)
     )
     where
-        showCondBool (pf, val) = GroundedAST.pFuncToText pf ids2str ids2label <> "=" <> showb val
+        showCondBool (pf, val) = GroundedAST.pFuncLabelToText pf ids2str ids2label <> "=" <> showb val
 
 uncondComposedLabel :: GroundedAST.PredicateLabel -> ComposedLabel
 uncondComposedLabel label = ComposedLabel (PredicateLabel label No) (Conditions Map.empty Map.empty Map.empty) $ Hashable.hash label
@@ -504,28 +507,30 @@ uncondComposedLabelNr label nr =
 condComposedLabelBool :: GroundedAST.PFunc Bool -> Bool -> ComposedLabel -> ComposedLabel
 condComposedLabelBool pf val (ComposedLabel label conds hash) = ComposedLabel label conds{boolConds = bConds} hash'
     where
-    bConds = Map.insert pf val $ boolConds conds
+    bConds = Map.insert (GroundedAST.probabilisticFuncLabel pf) val $ boolConds conds
     hash'  = hash + Hashable.hashWithSalt (Hashable.hash pf) val
 
 condComposedLabelString :: GroundedAST.PFunc Text -> HashSet Text -> ComposedLabel -> ComposedLabel
 condComposedLabelString pf condSet (ComposedLabel label conds hash) = ComposedLabel label conds{stringConds = sConds} hash''
     where
-    sConds  = Map.insert pf condSet $ stringConds conds
+    sConds  = Map.insert pfLabel condSet $ stringConds conds
     hashPf  = Hashable.hash pf
     hash'   = hash + Hashable.hashWithSalt hashPf condSet
-    hash''  = case Map.lookup pf $ stringConds conds of
+    hash''  = case Map.lookup pfLabel $ stringConds conds of
         Just condSet' -> hash' - Hashable.hashWithSalt hashPf condSet'
         Nothing       -> hash'
+    pfLabel = GroundedAST.probabilisticFuncLabel pf
 
 condComposedLabelReal :: GroundedAST.PFunc GroundedAST.RealN -> Interval -> ComposedLabel -> ComposedLabel
 condComposedLabelReal pf interv (ComposedLabel label conds hash) = ComposedLabel label conds{realConds = rConds} hash''
     where
-    rConds  = Map.insert pf interv $ realConds conds
+    rConds  = Map.insert pfLabel interv $ realConds conds
     hashPf  = Hashable.hash pf
     hash'   = hash + Hashable.hashWithSalt hashPf interv
-    hash''  = case Map.lookup pf $ realConds conds of
+    hash''  = case Map.lookup pfLabel $ realConds conds of
         Just interv' -> hash' - Hashable.hashWithSalt hashPf interv'
         Nothing      -> hash'
+    pfLabel = GroundedAST.probabilisticFuncLabel pf
 
 labelId :: ComposedLabel -> FState cachednInfo (Maybe ComposedId)
 labelId label = gets labels2ids >>= \l2ids -> return $ Map.lookup label l2ids
@@ -539,8 +544,8 @@ instance Hashable NodeType
 -- node refs are used for optimisation, to avoid looking up leaves (build in preds and deterministic nodes) in the graph
 data NodeRef = RefComposed Bool ComposedId
              | RefBuildInPredicateBool   (GroundedAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
-             | RefBuildInPredicateString (GroundedAST.TypedBuildInPred Text)              (HashMap (GroundedAST.PFunc Text) (HashSet Text))
-             | RefBuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN) (HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval)
+             | RefBuildInPredicateString (GroundedAST.TypedBuildInPred Text)              (HashMap GroundedAST.PFuncLabel (HashSet Text))
+             | RefBuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN) (HashMap GroundedAST.PFuncLabel Interval)
              | RefDeterministic Bool
              deriving Eq
 
@@ -557,13 +562,13 @@ nodeRefToText (RefBuildInPredicateReal prd rConds) ids2str ids2label =
    toTextLstEnc "" ",\n" (Map.toList rConds) (\x -> showCondReal x ids2str ids2label)
 nodeRefToText (RefDeterministic val) _ _ = showb val
 
-showCondString :: (GroundedAST.PFunc Text, HashSet Text) -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+showCondString :: (GroundedAST.PFuncLabel, HashSet Text) -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
 showCondString (pf, condSet) ids2str ids2label =
-    GroundedAST.pFuncToText pf ids2str ids2label <> " in {" <> TB.fromLazyText (LT.replace "\"" "" $ TB.toLazyText $ showbLst $ Set.toList condSet) <> "}"
+    GroundedAST.pFuncLabelToText pf ids2str ids2label <> " in {" <> TB.fromLazyText (LT.replace "\"" "" $ TB.toLazyText $ showbLst $ Set.toList condSet) <> "}"
 
-showCondReal :: (GroundedAST.PFunc GroundedAST.RealN, Interval) -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+showCondReal :: (GroundedAST.PFuncLabel, Interval) -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
 showCondReal (pf, Interval.Interval l r) ids2str ids2label =
-    GroundedAST.pFuncToText pf ids2str ids2label <> " in (" <> showb l <> "," <> showb r <> ")"
+    GroundedAST.pFuncLabelToText pf ids2str ids2label <> " in (" <> showb l <> "," <> showb r <> ")"
 
 refDeterministic :: Bool -> NodeRef
 refDeterministic = RefDeterministic
@@ -585,20 +590,20 @@ deterministicNodeRef (RefDeterministic val) = Just val
 deterministicNodeRef _                      = Nothing
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed          :: [cachedInfo]                                                                                             -> cachedInfo
-    , cachedInfoBuildInPredBool   ::                                                           GroundedAST.TypedBuildInPred Bool              -> cachedInfo
-    , cachedInfoBuildInPredString :: HashMap (GroundedAST.PFunc Text) (HashSet Text)        -> GroundedAST.TypedBuildInPred Text              -> cachedInfo
-    , cachedInfoBuildInPredReal   :: HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval -> GroundedAST.TypedBuildInPred GroundedAST.RealN -> cachedInfo
-    , cachedInfoDeterministic     :: Bool                                                                                                     -> cachedInfo
+    { cachedInfoComposed          :: [cachedInfo]                                                                                    -> cachedInfo
+    , cachedInfoBuildInPredBool   ::                                                  GroundedAST.TypedBuildInPred Bool              -> cachedInfo
+    , cachedInfoBuildInPredString :: HashMap GroundedAST.PFuncLabel (HashSet Text) -> GroundedAST.TypedBuildInPred Text              -> cachedInfo
+    , cachedInfoBuildInPredReal   :: HashMap GroundedAST.PFuncLabel Interval       -> GroundedAST.TypedBuildInPred GroundedAST.RealN -> cachedInfo
+    , cachedInfoDeterministic     :: Bool                                                                                            -> cachedInfo
     }
 
 -- to avoid recomputation
 cachedInfoBuildInPredCached :: (Eq a, Hashable a)
-                            => HashMap (GroundedAST.PFunc b) a
+                            => HashMap GroundedAST.PFuncLabel a
                             -> GroundedAST.TypedBuildInPred b
-                            -> (HashMap (GroundedAST.PFunc b) a -> GroundedAST.TypedBuildInPred b -> cachedInfo)
-                            -> HashMap (GroundedAST.TypedBuildInPred b, HashMap (GroundedAST.PFunc b) a) cachedInfo
-                            -> (cachedInfo, HashMap (GroundedAST.TypedBuildInPred b, HashMap (GroundedAST.PFunc b) a) cachedInfo)
+                            -> (HashMap GroundedAST.PFuncLabel a -> GroundedAST.TypedBuildInPred b -> cachedInfo)
+                            -> HashMap (GroundedAST.TypedBuildInPred b, HashMap GroundedAST.PFuncLabel a) cachedInfo
+                            -> (cachedInfo, HashMap (GroundedAST.TypedBuildInPred b, HashMap GroundedAST.PFuncLabel a) cachedInfo)
 cachedInfoBuildInPredCached conds prd infoComp cache = case Map.lookup (prd,conds) cache of
     Just cachedInfo -> (cachedInfo, cache)
     Nothing         -> let cachedInfo = infoComp conds prd

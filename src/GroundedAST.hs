@@ -284,16 +284,16 @@ deterministicValueTyped (Ineq     op (ConstantExpr left) (ConstantExpr right))  
 deterministicValueTyped (Constant val) = Just val
 deterministicValueTyped _              = Nothing
 
-possibleValues :: Expr Text -> HashMap (PFunc Text) (HashSet Text) -> HashSet Text
+possibleValues :: Expr Text -> HashMap PFuncLabel (HashSet Text) -> HashSet Text
 possibleValues (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
-possibleValues (PFuncExpr pf@(PFunc _ (StrDist elements))) sConds =
-    Map.lookupDefault (Set.fromList $ snd <$> elements) pf sConds
+possibleValues (PFuncExpr (PFunc pfLabel (StrDist elements))) sConds =
+    Map.lookupDefault (Set.fromList $ snd <$> elements) pfLabel sConds
 possibleValues _ _ = undefined
 
 checkRealIneqPred :: AST.IneqOp
                   -> Expr RealN
                   -> Expr RealN
-                  -> Map.HashMap (PFunc GroundedAST.RealN) Interval.IntervalLimitPoint
+                  -> Map.HashMap PFuncLabel Interval.IntervalLimitPoint
                   -> Maybe Bool -- result may be undetermined -> Nothing
 checkRealIneqPred op left right point = case op of
     AST.Lt   -> evalLeft ~<  evalRight
@@ -304,8 +304,8 @@ checkRealIneqPred op left right point = case op of
     evalLeft  = eval left  point
     evalRight = eval right point
 
-eval :: Expr RealN -> HashMap (PFunc GroundedAST.RealN) Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (PFuncExpr pf) point              = Map.lookupDefault (error "AST.checkRealIneqPred: no point") pf point
+eval :: Expr RealN -> HashMap PFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
+eval (PFuncExpr pf) point              = Map.lookupDefault (error "AST.checkRealIneqPred: no point") (probabilisticFuncLabel pf) point
 eval (ConstantExpr (RealConstant r)) _ = Interval.rat2IntervLimPoint r
 eval (Sum x y) point                   = eval x point + eval y point
 

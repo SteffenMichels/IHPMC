@@ -132,7 +132,7 @@ splitFormula f lf (StringSplit splitPF splitSet) = do
            , pLeft
            )
     where
-    curSet                        = Map.lookupDefault (Set.fromList $ snd <$> elements) splitPF sConds
+    curSet                        = Map.lookupDefault (Set.fromList $ snd <$> elements) (GroundedAST.probabilisticFuncLabel splitPF) sConds
     Formula.Conditions _ sConds _ = Formula.entryChoices f
     GroundedAST.StrDist elements  = GroundedAST.probabilisticFuncDef splitPF
     pLeft                         = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
@@ -152,7 +152,7 @@ splitFormula f lf (ContinuousSplit splitPF spPoint) = do
     pUntilLower = cdf' cdf True curLower
     pUntilUpper = cdf' cdf False curUpper
     pUntilSplit = cdf spPoint
-    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) splitPF rConds
+    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel splitPF) rConds
     rConds = Formula.realConds $ Formula.entryChoices f
     GroundedAST.RealDist cdf _ = GroundedAST.probabilisticFuncDef splitPF
 
@@ -172,7 +172,7 @@ heuristicBuildInPredBool :: GroundedAST.TypedBuildInPred Bool -> HPT.CachedSplit
 heuristicBuildInPredBool prd = CachedSplitPoints (fromIntegral $ Set.size $ GroundedAST.predProbabilisticFunctions prd) $
     foldl' (\pts pf -> Map.insert (BoolSplit pf) 1.0 pts) Map.empty $ GroundedAST.predProbabilisticFunctions prd
 
-heuristicBuildInPredString :: HashMap (GroundedAST.PFunc Text) (HashSet Text)
+heuristicBuildInPredString :: HashMap GroundedAST.PFuncLabel (HashSet Text)
                            -> GroundedAST.TypedBuildInPred Text
                            -> HPT.CachedSplitPoints
 heuristicBuildInPredString _ prd = case prd of
@@ -186,7 +186,7 @@ heuristicBuildInPredString _ prd = case prd of
     splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints 1 $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
     splitPointsStringPfs _ _ = error "equality between two string-value PFs not implemented"
 
-heuristicBuildInPredReal :: HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval
+heuristicBuildInPredReal :: HashMap GroundedAST.PFuncLabel Interval
                          -> GroundedAST.TypedBuildInPred GroundedAST.RealN
                          -> HPT.CachedSplitPoints
 heuristicBuildInPredReal prevChoicesReal prd = case prd of
@@ -209,7 +209,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                     where
                     pUntilLower   = cdf' cdf True  curLower
                     pUntilUpper   = cdf' cdf False curUpper
-                    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) pf prevChoicesReal
+                    Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
                     GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
         splitPoints pfs
             | null pfs || null result = (pfs, Map.empty,                              result)
@@ -228,22 +228,27 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                                                      (lp ~< Interval.toPoint Upper upper) == Just True
                 where
                 lp = Interval.rat2IntervLimPoint p
-                Interval.Interval lower upper = Map.lookupDefault (Interval.Interval Inf Inf) pf prevChoicesReal
+                Interval.Interval lower upper = Map.lookupDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
             notOnBoundary _ _ = error "IHPMC.heuristicBuildInPred.notOnBoundary"
 
             reduction [] _ choices
                 | all ((==) $ Just True) checkedCorners || all ((==) $ Just False) checkedCorners = product [pDiff pf choices | pf <- Set.toList remainingRfs]
                 | otherwise                                                                       = 0.0
                     where
-                    extremePoints  = Set.map (\pf' -> (pf', Map.lookupDefault (Interval.Interval Inf Inf) pf' choices)) predRfs
+                    extremePoints  = Set.map
+                        ( \pf' -> let pfLabel = GroundedAST.probabilisticFuncLabel pf'
+                                  in (pfLabel, Map.lookupDefault (Interval.Interval Inf Inf) pfLabel choices)
+                        )
+                        predRfs
                     corners        = Interval.corners $ Set.toList extremePoints
-                    checkedCorners = map (GroundedAST.checkRealIneqPred op exprX exprY) corners
+                    checkedCorners = GroundedAST.checkRealIneqPred op exprX exprY <$> corners
             reduction (pf:pfs') corner choices = pDiff pf chLeft * reduction pfs' corner chLeft + pDiff pf chRight * reduction pfs' corner chRight
                 where
                 splitP  = spPoint pf corner
-                Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) pf choices
-                chLeft  = Map.insert pf (Interval.Interval curLower (Open splitP)) choices
-                chRight = Map.insert pf (Interval.Interval (Open splitP) curUpper) choices
+                Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) pfLabel choices
+                chLeft  = Map.insert pfLabel (Interval.Interval curLower (Open splitP)) choices
+                chRight = Map.insert pfLabel (Interval.Interval (Open splitP) curUpper) choices
+                pfLabel = GroundedAST.probabilisticFuncLabel pf
 
             spPoint pf remRfsCornerPts = (   (fromIntegral nPfs' - 1.0)*equalSplit pf
                                               + (if pfOnLeft then 1.0 else -1.0) * (sumExpr exprY evalVals - sumExpr exprX evalVals)
@@ -263,7 +268,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
             nPfs' = length pfs
 
             remRfsCorners = foldl'
-                (\corners pf -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) pf prevChoicesReal
+                (\corners pf -> let Interval.Interval l u = Map.lookupDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
                                     mbX                   = Interval.pointRational (Interval.toPoint Lower l)
                                     mbY                   = Interval.pointRational (Interval.toPoint Upper u)
                                     add mbC               = case mbC of
@@ -280,7 +285,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
             where
             pUntilLower = cdf' cdf True  curLower
             pUntilUpper = cdf' cdf False curUpper
-            Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) pf choices
+            Interval.Interval curLower curUpper = Map.lookupDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) choices
             cdf = case GroundedAST.probabilisticFuncDef pf of
                 GroundedAST.RealDist cdf'' _ -> cdf''
                 _ -> error "IHPMC.heuristicBuildInPred.cdf"
