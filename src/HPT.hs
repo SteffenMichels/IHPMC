@@ -55,9 +55,13 @@ data HPTLeafFormulas = MaybeWithinEv LazyNode Formula.NodeRef
                      | WithinEv      Formula.NodeRef
 type LazyNode = Formula.FState CachedSplitPoints (Formula.RefWithNode CachedSplitPoints)
 instance Eq HPTLeaf where
-    HPTLeaf _ px == HPTLeaf _ py = px == py
+    HPTLeaf fx px == HPTLeaf fy py = score fx px == score fy py
 instance Ord HPTLeaf where
-    HPTLeaf _ px <= HPTLeaf _ py = px <= py
+    HPTLeaf fx px <= HPTLeaf fy py = score fx px <= score fy py
+
+score :: HPTLeafFormulas -> Probability -> Probability
+score (MaybeWithinEv _ _) p = p
+score (WithinEv _)        p = 2 * p
 
 -- total score, split points + scores
 data CachedSplitPoints = CachedSplitPoints Double (HashMap SplitPoint Double)
