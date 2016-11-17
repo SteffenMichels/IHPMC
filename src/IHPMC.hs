@@ -27,13 +27,12 @@
 module IHPMC
     ( ihpmc
     , heuristicsCacheComputations
+    , CachedSplitPoints
     ) where
 import Formula (Formula)
 import qualified Formula
-import HPT (HPT)
+import HPT (HPT, SplitPoint(..), CachedSplitPoints(..))
 import qualified HPT
-import Data.Hashable (Hashable)
-import GHC.Generics (Generic)
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
 import Data.HashMap.Strict (HashMap)
@@ -41,7 +40,7 @@ import qualified Data.HashMap.Strict as Map
 import qualified GroundedAST
 import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~>), (~<))
 import qualified Interval
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, fromJust)
 import Control.Monad.State.Strict
 import qualified Data.List as List
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -50,24 +49,21 @@ import Data.Foldable (foldl')
 import Probability
 import Data.Text (Text)
 
--- total score, split points + scores
-data CachedSplitPoints = CachedSplitPoints Double (HashMap SplitPoint Double)
-type FState = Formula.FState CachedSplitPoints
-data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
-                | StringSplit     (GroundedAST.PFunc Text)              (HashSet Text) -- left branch: all string in this set, right branch: all remaining strings
-                | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN) Rational
-                deriving (Eq, Generic)
-instance Hashable SplitPoint
+type FState = Formula.FState HPT.CachedSplitPoints
 
 ihpmc :: Formula.NodeRef
       -> [Formula.NodeRef]
       -> (Int -> ProbabilityBounds -> Int -> Bool)
       -> (Int -> ProbabilityBounds -> Int -> Int -> Maybe (ExceptionalT IOException IO ()))
-      -> Formula CachedSplitPoints
-      -> ExceptionalT IOException IO (Int, Int, Maybe ProbabilityBounds, Formula CachedSplitPoints)
+      -> Formula HPT.CachedSplitPoints
+      -> ExceptionalT IOException IO (Int, Int, Maybe ProbabilityBounds, Formula HPT.CachedSplitPoints)
 ihpmc query evidence finishPred reportingIO f = do
     t <- doIO getTime
-    ((n, et, mbBounds), f'') <- runStateT (ihpmc' 1 t t $ HPT.initialHPT query $ Formula.entryRef evidenceConj) f'
+    ((n, et, mbBounds), f'') <- runStateT
+        ( do
+            initHpt <- state $ runState $ HPT.initialHPT query $ Formula.entryRef evidenceConj
+            ihpmc' 1 t t initHpt
+        ) f'
     return (n, et, mbBounds, f'')
     where
     (evidenceConj, f') = runState (Formula.insert
@@ -80,7 +76,7 @@ ihpmc query evidence finishPred reportingIO f = do
            -> Int
            -> Int
            -> HPT
-           -> StateT (Formula CachedSplitPoints) (ExceptionalT IOException IO) (Int, Int, Maybe ProbabilityBounds)
+           -> StateT (Formula HPT.CachedSplitPoints) (ExceptionalT IOException IO) (Int, Int, Maybe ProbabilityBounds)
     ihpmc' i startTime lastReportedTime hpt = do
         mbHpt <- state $ runState $ ihpmcIterate hpt
         curTime <- lift $ doIO getTime
@@ -98,39 +94,48 @@ ihpmc query evidence finishPred reportingIO f = do
 ihpmcIterate :: HPT -> FState (Maybe HPT)
 ihpmcIterate hpt = case HPT.nextLeaf hpt of
     Nothing -> return Nothing
-    Just (HPT.HPTLeaf q mbE p, hpt') -> Just <$> case mbE of
-        Nothing -> do
-            qEntry       <- Formula.augmentWithEntry q
-            let spPoint  =  splitPoint qEntry
-            (ql, qr, pl) <- splitFormula qEntry spPoint
-            let pr       =  1.0 - pl
+    Just (HPT.HPTLeaf fs p, hpt') -> Just <$> case fs of
+        HPT.WithinEv q -> do
+            qEntry             <- Formula.augmentWithEntry q
+            let spPoint        =  splitPoint qEntry
+            (ql, _, qr, _, pl) <- splitFormula qEntry Nothing spPoint
+            let pr             =  1.0 - pl
             return $ HPT.addLeafWithinEvidence ql (pl * p)
                    $ HPT.addLeafWithinEvidence qr (pr * p) hpt'
-        Just e -> do
-            qEntry       <- Formula.augmentWithEntry q
-            eEntry       <- Formula.augmentWithEntry e
-            let spPoint  =  splitPoint eEntry
-            (ql, qr, _)  <- splitFormula qEntry spPoint
-            (el, er, pl) <- splitFormula eEntry spPoint
-            let pr       =  1.0 - pl
-            return $ HPT.addLeaf ql el (pl * p) $ HPT.addLeaf qr er (pr * p) hpt'
+        HPT.MaybeWithinEv q e -> do
+            eEntry               <- Formula.augmentWithEntry e
+            let spPoint          =  splitPoint eEntry
+            (el, ql, er, qr, pl) <- splitFormula eEntry (Just q) spPoint
+            let pr               =  1.0 - pl
+            hpt''                <- HPT.addLeaf ql el (pl * p) hpt'
+            HPT.addLeaf qr er (pr * p) hpt''
 
-splitPoint :: Formula.RefWithNode CachedSplitPoints -> SplitPoint
+splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints -> SplitPoint
 splitPoint f = spPoint
     where
     (spPoint, _)         = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
-    candidateSplitPoints = Map.toList pts where CachedSplitPoints _ pts = Formula.entryCachedInfo f
+    candidateSplitPoints = Map.toList pts where HPT.CachedSplitPoints _ pts = Formula.entryCachedInfo f
 
-splitFormula :: Formula.RefWithNode CachedSplitPoints -> SplitPoint -> FState (Formula.NodeRef, Formula.NodeRef, Probability)
-splitFormula f (BoolSplit splitPF) = do
+splitFormula :: Formula.RefWithNode HPT.CachedSplitPoints -> Maybe HPT.LazyNode -> SplitPoint -> FState (Formula.NodeRef, HPT.LazyNode, Formula.NodeRef, HPT.LazyNode, Probability)
+splitFormula f lf (BoolSplit splitPF) = do
     left  <- Formula.conditionBool f splitPF True
     right <- Formula.conditionBool f splitPF False
     let GroundedAST.Flip pLeft = GroundedAST.probabilisticFuncDef splitPF
-    return (Formula.entryRef left, Formula.entryRef right, pLeft)
-splitFormula f (StringSplit splitPF splitSet) = do
+    return ( Formula.entryRef left
+           , fromJust lf >>= \f' -> Formula.conditionBool f' splitPF True
+           , Formula.entryRef right
+           , fromJust lf >>= \f' -> Formula.conditionBool f' splitPF False
+           , pLeft
+           )
+splitFormula f lf (StringSplit splitPF splitSet) = do
     left  <- Formula.conditionString f splitPF splitSet
     right <- Formula.conditionString f splitPF $ Set.difference curSet splitSet
-    return (Formula.entryRef left, Formula.entryRef right, pLeft)
+    return ( Formula.entryRef left
+           , fromJust lf >>= \f' -> Formula.conditionString f' splitPF splitSet
+           , Formula.entryRef right
+           , fromJust lf >>= \f' -> Formula.conditionString f' splitPF $ Set.difference curSet splitSet
+           , pLeft
+           )
     where
     curSet                        = Map.lookupDefault (Set.fromList $ snd <$> elements) splitPF sConds
     Formula.Conditions _ sConds _ = Formula.entryChoices f
@@ -138,10 +143,15 @@ splitFormula f (StringSplit splitPF splitSet) = do
     pLeft                         = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
     z                             = List.sum $ fst <$> curElements
     curElements                   = List.filter ((`Set.member` curSet) . snd) elements
-splitFormula f (ContinuousSplit splitPF spPoint) = do
+splitFormula f lf (ContinuousSplit splitPF spPoint) = do
     left  <- Formula.conditionReal f splitPF $ Interval.Interval curLower (Open spPoint)
     right <- Formula.conditionReal f splitPF $ Interval.Interval (Open spPoint) curUpper
-    return (Formula.entryRef left, Formula.entryRef right, pLeft)
+    return ( Formula.entryRef left
+           , fromJust lf >>= \f' -> Formula.conditionReal f' splitPF $ Interval.Interval curLower (Open spPoint)
+           , Formula.entryRef right
+           , fromJust lf >>= \f' -> Formula.conditionReal f' splitPF $ Interval.Interval (Open spPoint) curUpper
+           , pLeft
+           )
     where
     pLeft = (pUntilSplit - pUntilLower) / (pUntilUpper - pUntilLower)
     pUntilLower = cdf' cdf True curLower
@@ -151,7 +161,7 @@ splitFormula f (ContinuousSplit splitPF spPoint) = do
     rConds = Formula.realConds $ Formula.entryChoices f
     GroundedAST.RealDist cdf _ = GroundedAST.probabilisticFuncDef splitPF
 
-heuristicsCacheComputations :: Formula.CacheComputations CachedSplitPoints
+heuristicsCacheComputations :: Formula.CacheComputations HPT.CachedSplitPoints
 heuristicsCacheComputations = Formula.CacheComputations
     { Formula.cachedInfoComposed          = heuristicComposed
     , Formula.cachedInfoBuildInPredBool   = heuristicBuildInPredBool
@@ -160,16 +170,16 @@ heuristicsCacheComputations = Formula.CacheComputations
     , Formula.cachedInfoDeterministic     = heuristicDeterministic
     }
 
-heuristicDeterministic :: Bool -> CachedSplitPoints
+heuristicDeterministic :: Bool -> HPT.CachedSplitPoints
 heuristicDeterministic = const $ CachedSplitPoints 0 Map.empty
 
-heuristicBuildInPredBool :: GroundedAST.TypedBuildInPred Bool -> CachedSplitPoints
+heuristicBuildInPredBool :: GroundedAST.TypedBuildInPred Bool -> HPT.CachedSplitPoints
 heuristicBuildInPredBool prd = CachedSplitPoints (fromIntegral $ Set.size $ GroundedAST.predProbabilisticFunctions prd) $
     foldl' (\pts pf -> Map.insert (BoolSplit pf) 1.0 pts) Map.empty $ GroundedAST.predProbabilisticFunctions prd
 
 heuristicBuildInPredString :: HashMap (GroundedAST.PFunc Text) (HashSet Text)
                            -> GroundedAST.TypedBuildInPred Text
-                           -> CachedSplitPoints
+                           -> HPT.CachedSplitPoints
 heuristicBuildInPredString _ prd = case prd of
     GroundedAST.Constant _ -> CachedSplitPoints 0.0 Map.empty
     GroundedAST.Equality _ (GroundedAST.PFuncExpr pf)      (GroundedAST.ConstantExpr cnst) -> splitPointsStringPfConst pf cnst
@@ -177,13 +187,13 @@ heuristicBuildInPredString _ prd = case prd of
     GroundedAST.Equality _ (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)     -> splitPointsStringPfs pfX pfY
     _                                                                                      -> undefined
     where
-    splitPointsStringPfConst :: GroundedAST.PFunc Text -> GroundedAST.ConstantExpr Text -> CachedSplitPoints
+    splitPointsStringPfConst :: GroundedAST.PFunc Text -> GroundedAST.ConstantExpr Text -> HPT.CachedSplitPoints
     splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints 1 $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
     splitPointsStringPfs _ _ = error "equality between two string-value PFs not implemented"
 
 heuristicBuildInPredReal :: HashMap (GroundedAST.PFunc GroundedAST.RealN) Interval
                          -> GroundedAST.TypedBuildInPred GroundedAST.RealN
-                         -> CachedSplitPoints
+                         -> HPT.CachedSplitPoints
 heuristicBuildInPredReal prevChoicesReal prd = case prd of
     GroundedAST.Equality{} -> error "IHPMC: real equality not implemented"
     GroundedAST.Constant _ -> CachedSplitPoints 0.0 Map.empty
@@ -280,14 +290,14 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 GroundedAST.RealDist cdf'' _ -> cdf''
                 _ -> error "IHPMC.heuristicBuildInPred.cdf"
 
-heuristicComposed :: [CachedSplitPoints] -> CachedSplitPoints
-heuristicComposed points = CachedSplitPoints total ((/ total) <$> splitPts)
+heuristicComposed :: [HPT.CachedSplitPoints] -> HPT.CachedSplitPoints
+heuristicComposed points = HPT.CachedSplitPoints total ((/ total) <$> splitPts)
     where
-    CachedSplitPoints total splitPts = foldl'
-                        ( \(CachedSplitPoints total' splitPoints) (CachedSplitPoints total'' splitPoints') ->
-                          CachedSplitPoints (total' + total'') $ combineSplitPoints splitPoints splitPoints'
+    HPT.CachedSplitPoints total splitPts = foldl'
+                        ( \(HPT.CachedSplitPoints total' splitPoints) (HPT.CachedSplitPoints total'' splitPoints') ->
+                          HPT.CachedSplitPoints (total' + total'') $ combineSplitPoints splitPoints splitPoints'
                         )
-                        (CachedSplitPoints 0.0 Map.empty)
+                        (HPT.CachedSplitPoints 0.0 Map.empty)
                         points
 
     combineSplitPoints :: HashMap SplitPoint Double
