@@ -44,20 +44,20 @@ getFirst :: HashSet a -> a
 getFirst set = head $ Set.toList set
 
 showbLst :: TextShow a => [a] -> Builder
-showbLst []     = ""
-showbLst [a]    = showb a
-showbLst (a:as) = showb a <> ", " <> showbLst as
+showbLst = (`toTextLst` showb)
 
 showbLstEnc :: TextShow a => Builder -> Builder -> [a] -> Builder
-showbLstEnc _ _ []            = ""
-showbLstEnc open close [a]    = open <> showb a <> close
-showbLstEnc open close (a:as) = open <> showb a <> close <> ", " <> showbLstEnc open close as
+showbLstEnc open close lst = toTextLstEnc open close lst showb
 
 toTextLst :: [a] -> (a -> Builder) -> Builder
-toTextLst l toStr = showbLst $ toStr <$> l
+toTextLst []     _     = ""
+toTextLst [a]    toTxt = toTxt a
+toTextLst (a:as) toTxt = toTxt a <> ", " <> toTextLst as toTxt
 
 toTextLstEnc :: Builder -> Builder -> [a] -> (a -> Builder) -> Builder
-toTextLstEnc open close l toStr = showbLstEnc open close $ toStr <$> l
+toTextLstEnc _ _ [] _            = ""
+toTextLstEnc open close [a] toTxt   = open <> toTxt a <> close
+toTextLstEnc open close (a:as) toTxt = open <> toTxt a <> close <> ", " <> toTextLstEnc open close as toTxt
 
 doState :: Monad m => State s a -> StateT s m a
 doState = mapStateT (\(Identity x) -> return x)

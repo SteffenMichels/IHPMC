@@ -94,8 +94,8 @@ groundedAstToText ast ids2str ids2label = rulesStr <> queryStr <> evStr
                         let lStr = predicateLabelToText label ids2str ids2label
                         in  [lStr <> " <- " <> ruleBodyToText body ids2str ids2label <> ".\n" | body <- Set.toList bodies]
                    | (label, bodies) <- Map.toList $ rules ast]
-    queryStr     = mconcat ["query " <> ruleBodyElementToText query ids2str ids2label <> ".\n" | query <- Set.toList $ queries  ast]
-    evStr        = mconcat ["evidence %" <> ruleBodyElementToText ev ids2str ids2label <> ".\n" | ev <- Set.toList $ evidence ast]
+    queryStr     = mconcat ["query "    <> ruleBodyElementToText query ids2str ids2label <> ".\n" | query <- Set.toList $ queries  ast]
+    evStr        = mconcat ["evidence " <> ruleBodyElementToText ev    ids2str ids2label <> ".\n" | ev    <- Set.toList $ evidence ast]
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
 newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic)
@@ -183,7 +183,7 @@ data TypedBuildInPred a
 deriving instance Eq (TypedBuildInPred a)
 typedBuildInPredToText :: TypedBuildInPred a -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
 typedBuildInPredToText (Equality eq exprX exprY) ids2str ids2label =
-    exprToText exprX ids2str ids2label <> " " <> if eq then "=" else "/=" <> " " <> exprToText exprY ids2str ids2label
+    exprToText exprX ids2str ids2label <> " " <> (if eq then "=" else "/=") <> " " <> exprToText exprY ids2str ids2label
 typedBuildInPredToText (Ineq     op exprX exprY) ids2str ids2label =
     exprToText exprX ids2str ids2label <> " " <> showb op <> " " <> exprToText exprY ids2str ids2label
 typedBuildInPredToText (Constant cnst)           _       _ = showb cnst
