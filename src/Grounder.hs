@@ -250,10 +250,12 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                                             in st{rulesInProof = rip, rulesMaybeInProof = rmbip}
                                         )
                                 if null $ Set.intersection parents toPrune then do
-                                    let els'' = if   null $ Set.intersection toPrune parents'
-                                                then Seq.fromList $ (, parents') <$> els'
-                                                else Seq.empty
-                                    continue remaining' els'' valu oldSt
+                                    -- filter out already proven new goals
+                                    els'' <- filterM (\e -> not <$> alreadyProven e) els'
+                                    let els''' = if   null $ Set.intersection toPrune parents'
+                                                 then Seq.fromList $ (, parents') <$> els''
+                                                 else Seq.empty
+                                    continue remaining' els''' valu oldSt
                                 else -- prune proof (continue without elements of current rule)
                                     continue remaining' Seq.empty valu oldSt
                             _ -> put oldSt -- recover old state
@@ -297,6 +299,18 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                              , nextId = GoalId $ succ next
                              }
                     return ident
+
+                alreadyProven :: AST.RuleBodyElement -> GState Bool
+                alreadyProven (AST.UserPredicate label' givenArgs') = do
+                    let allArgsGround = not $ any AST.varsInExpr givenArgs'
+                    if allArgsGround then do
+                            args'  <- lift $ toPropArgs givenArgs'
+                            pLabel <- toPropPredLabel label' args'
+                            gRules <- gets groundedRules
+                            return $ isJust $ Map.lookup pLabel gRules
+                        else
+                            return False
+                alreadyProven _ = return False
 
         AST.BuildInPredicate bip -> case mbEquality of
             Just (var, expr) -> do
