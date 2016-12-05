@@ -121,7 +121,7 @@ data BuildInPredicate = Equality Bool Expr Expr
                       deriving (Eq, Generic)
 buildInPredicateToText :: BuildInPredicate -> HashMap Int Text -> Builder
 buildInPredicateToText (Equality eq exprX exprY) ids2str =
-    exprToText exprX ids2str <> if eq then "=" else "/=" <> exprToText exprY ids2str
+    exprToText exprX ids2str <> (if eq then "=" else "/=") <> exprToText exprY ids2str
 buildInPredicateToText (Ineq     op exprX exprY) ids2str =
     exprToText exprX ids2str <> " " <> showb op <> " " <> exprToText exprY ids2str
 instance Hashable BuildInPredicate

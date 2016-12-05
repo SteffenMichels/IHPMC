@@ -65,7 +65,7 @@ data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel 
 exceptionToText :: Exception -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
 exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str _ =
         "Could not ground predicate" <>
-        if length prds > 1 then "s " else " " <>
+        (if length prds > 1 then "s " else " ") <>
         toTextLstEnc "'" "'" prds (`AST.ruleBodyElementToText` ids2str) <>
         " in a body of '" <>
         AST.predicateLabelToText headLabel ids2str <>
@@ -98,7 +98,7 @@ exceptionToText (UndefinedPred label n) ids2str _ =
 exceptionToText ProbabilisticFuncUsedAsArg _ _ =
     "Probabilistic functions may not be used in arguments of predicates and functions."
 exceptionToText (UnsolvableConstraints constrs) ids2str _ =
-        "Could not solve constraint" <> if length constrs > 1 then "s" else "" <>
+        "Could not solve constraint" <> (if length constrs > 1 then "s" else "") <>
         toTextLstEnc "'" "'" constrs (`constraintToText` ids2str) <>
         "."
 exceptionToText (NonGroundQuery q) ids2str _ =
@@ -121,16 +121,27 @@ data GroundingState = GroundingState
     , varCounter        :: Int
     -- keep non-ground rule body elements and to ground elements as soon as all vars have a value
     -- this pruning partial proofs if predicate is false
-    , rulesInProof      :: HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
-    , rulesMaybeInProof :: [(GoalId, AST.PredicateLabel, [AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
+    , rulesInProof      :: HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)]
+    , rulesMaybeInProof :: [RuleMaybeInProof]
     , proofConstraints  :: HashSet Constraint
     , nextId            :: GoalId
     , labelIdentifiers  :: IdNrMap (Int, [AST.ConstantExpr])
     }
 
+data RuleMaybeInProof = RuleMaybeInProof
+    { goalId        :: GoalId
+    , label         :: AST.PredicateLabel
+    , args          :: [AST.Expr]
+    , nonGroundBody :: AST.RuleBody
+    , groundBody    :: GroundedAST.RuleBody
+    , ruleParents   :: HashSet GoalId
+    }
+
 newtype GoalId = GoalId Int deriving (Eq, Generic, Show)
 instance Hashable GoalId
 
+-- | Converts an AST go a grounded AST.
+-- Additionally, produces ID numbers for each constant expression, ocurring in the grounding.
 ground :: AST -> Exceptional Exception (GroundedAST, IdNrMap (Int, [AST.ConstantExpr]))
 ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.pFuncDefs=pfDefs} = evalStateT
     (do
@@ -154,6 +165,8 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                   , labelIdentifiers  = IdNrMap.empty
                   }
     where
+    -- | Computes a state which contains all ground rules.
+    -- Returns all queries and evidence as grounded elements.
     computeResultState :: GState (HashSet GroundedAST.RuleBodyElement, HashSet GroundedAST.RuleBodyElement)
     computeResultState = do
         queries'  <- forM queries  $ toPropQueryEvidence NonGroundQuery
@@ -162,23 +175,37 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
             \el -> computeGroundings $ Seq.singleton (el, Set.empty)
         return (Set.fromList queries', Set.fromList evidence')
             where
+            -- | Converts query or evidence elements into grounded elements.
+            toPropQueryEvidence :: (AST.RuleBodyElement -> Exception) -- the exception in case the element is not ground
+                                -> AST.RuleBodyElement                -- query/evidence which should be ground
+                                -> GState GroundedAST.RuleBodyElement
             toPropQueryEvidence exception x
                 | AST.varsInRuleBodyElement x = lift $ throw $ exception x
                 | otherwise                   = toPropRuleElement x pfDefs
+
+    -- | Computes all groundings given a current sequence of goal to still prove,
+    -- together with for each goal a set of parent IDs, used for pruning proofs.
     computeGroundings :: Seq (AST.RuleBodyElement, HashSet GoalId) -> GState ()
     computeGroundings todo = do
+        -- filter all goals which do not have to be proven any more
         todo' <- Seq.filter ((/= False3) . snd) <$> forM todo (\g -> (g,) <$> haveToProof (fst g))
+        -- find the first goal that certainly has to be proven
         let (prefix, postfix) = Seq.breakl ((== True3) . snd) todo'
         case Seq.viewl postfix of
+            -- continue with first goal
             (nextGoal, _) :< todoRest -> computeGroundingsGoal nextGoal False (fst <$> prefix >< todoRest)
+            -- no goal has to be proven for sure
             Seq.EmptyL -> case Seq.viewl todo of
+                    -- we have to continue with goal of which we do not know yet whether it has to be proven
                     nextGoal :< todoRest -> computeGroundingsGoal nextGoal True todoRest
-                    Seq.EmptyL           -> addGroundings -- no goal left
+                    -- no goal has to be proven at all -> finish proof
+                    Seq.EmptyL           -> addGroundings
 
-    computeGroundingsGoal :: (AST.RuleBodyElement, HashSet GoalId)
-                         -> Bool
-                         -> Seq (AST.RuleBodyElement, HashSet GoalId)
-                         -> GState ()
+    -- | Continues computing groundings with the goal given.
+    computeGroundingsGoal :: (AST.RuleBodyElement, HashSet GoalId)     -- the goal to continue with & set of parent IDs
+                          -> Bool                                      -- is it not known whether we still have to prove the goal yet?
+                          -> Seq (AST.RuleBodyElement, HashSet GoalId) -- the remaining goals to prove
+                          -> GState ()
     computeGroundingsGoal (goal, parents) maybeGoal remaining = case goal of
         AST.UserPredicate label givenArgs -> case Map.lookup (label, nArgs) rules of
             Just headRules -> forM_ headRules continueWithChosenRule
@@ -186,16 +213,20 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
             where
             nArgs = length givenArgs
 
+            -- | Continues computing groundings with the rule given.
             continueWithChosenRule :: ([AST.HeadArgument], AST.RuleBody) -> GState ()
             continueWithChosenRule (args, AST.RuleBody elements) = do
                 oldSt <- get
                 mbResult <- lift $ runMaybeT $ applyArgs givenArgs args elements
                 case mbResult of
+                    -- successfully matched given with required rule arguments
                     Just (els, valu, constrs) -> do
                         -- replace left-over (existentially quantified) vars
                         els' <- doState $ replaceEVars els
                         parents' <- doState $ if maybeGoal then do
-                                        goalId <- addRuleToMaybeProof els'
+                                        -- add the goal to 'maybe proofs', add goal Id to set of parents for next goals,
+                                        -- such that the goal can be pruned if it was not required to be proven
+                                        goalId <- addRuleToMaybeProof els' parents
                                         return $ Set.insert goalId parents
                                     else do
                                         addRuleToProof els'
@@ -207,44 +238,62 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                         mbToPrune  <- applyValuationMaybeInProof valu pfDefs
                         case (consistent, mbToPrune) of
                             -- valuation is consistent with proofs (and maybe proofs)
-                            (True, Just toPrune) ->
+                            (True, Just toPrune) -> do
+                                let remaining' = Seq.filter (\(_, parents'') -> null $ Set.intersection toPrune parents'') remaining
+                                modify' ( \st ->
+                                            let rip   = Map.filter (not . null) $
+                                                    filter (\(_, _, _, ruleParents) -> null $ Set.intersection toPrune ruleParents) <$>
+                                                    rulesInProof st
+                                                rmbip = filter
+                                                    (\RuleMaybeInProof{ruleParents} -> null $ Set.intersection toPrune ruleParents)
+                                                    (rulesMaybeInProof st)
+                                            in st{rulesInProof = rip, rulesMaybeInProof = rmbip}
+                                        )
                                 if null $ Set.intersection parents toPrune then do
-                                    let notToPrune (_, parents'') = null $ Set.intersection toPrune parents''
-                                        remaining' = Seq.filter notToPrune remaining
-                                        els''      = Seq.fromList $ filter notToPrune $ (, parents') <$> els'
+                                    let els'' = if   null $ Set.intersection toPrune parents'
+                                                then Seq.fromList $ (, parents') <$> els'
+                                                else Seq.empty
                                     continue remaining' els'' valu oldSt
                                 else -- prune proof (continue without elements of current rule)
-                                    continue remaining Seq.empty valu oldSt
+                                    continue remaining' Seq.empty valu oldSt
                             _ -> put oldSt -- recover old state
+                    -- given did not match required arguments required rule arguments -> end proof
                     Nothing -> put oldSt -- recover old state
                 where
-                continue :: Seq (AST.RuleBodyElement, HashSet GoalId)
-                         -> Seq (AST.RuleBodyElement, HashSet GoalId)
-                         -> HashMap AST.VarName AST.Expr
-                         -> GroundingState
+                -- | Continues finding proof with given remainig goals
+                continue :: Seq (AST.RuleBodyElement, HashSet GoalId) -- old remaining goals to prove
+                         -> Seq (AST.RuleBodyElement, HashSet GoalId) -- new remaining goals to prove
+                         -> HashMap AST.VarName AST.Expr              -- valuation to apply to old goals
+                         -> GroundingState                            -- grounding state
                          -> StateT GroundingState (Exceptional Exception) ()
                 continue remaining'' new valu oldSt = do
                     -- also apply valuation found to remaining goals todo
                     remaining''' <- applyVal remaining'' valu
-                    -- continue with rest
+                    -- continue with rest (breadth-first)
                     computeGroundings $ remaining''' >< new
                     -- recover previous state for next head rule, but keep groundings found
-                    modify' (\newSt -> oldSt {groundedRules = groundedRules newSt, labelIdentifiers = labelIdentifiers newSt})
+                    modify' (\newSt -> oldSt {groundedRules = groundedRules newSt, groundedRfDefs = groundedRfDefs newSt, labelIdentifiers = labelIdentifiers newSt})
 
                 addRuleToProof :: [AST.RuleBodyElement] -> State GroundingState ()
                 addRuleToProof elements' = modify' (\st -> st{rulesInProof = Map.insertWith
                     (\[x] -> (x :))
                     (label, nArgs)
-                    [(givenArgs, AST.RuleBody elements', GroundedAST.RuleBody Set.empty)]
+                    [(givenArgs, AST.RuleBody elements', GroundedAST.RuleBody Set.empty, parents)]
                     (rulesInProof st)
                 })
 
-                addRuleToMaybeProof :: [AST.RuleBodyElement] -> State GroundingState GoalId
-                addRuleToMaybeProof elements' = do
+                addRuleToMaybeProof :: [AST.RuleBodyElement] -> HashSet GoalId -> State GroundingState GoalId
+                addRuleToMaybeProof elements' parents' = do
                     st <- get
                     let ident@(GoalId next) = nextId st
-                    put $ st { rulesMaybeInProof =
-                                   (ident, label, givenArgs, AST.RuleBody elements', GroundedAST.RuleBody Set.empty) : rulesMaybeInProof st
+                    put $ st { rulesMaybeInProof = RuleMaybeInProof
+                                   { goalId        = ident
+                                   , label         = label
+                                   , args          = givenArgs
+                                   , nonGroundBody = AST.RuleBody elements'
+                                   , groundBody    = GroundedAST.RuleBody Set.empty
+                                   , ruleParents   = parents'
+                                   } : rulesMaybeInProof st
                              , nextId = GoalId $ succ next
                              }
                     return ident
@@ -288,15 +337,15 @@ addGroundings = do
     else
         lift $ throw $ UnsolvableConstraints $ Set.toList constrs
     where
-    checkAllElementsGrounded :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
+    checkAllElementsGrounded :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)])
                              -> Exceptional Exception (AST.PredicateLabel, Int, [([AST.Expr], GroundedAST.RuleBody)])
     checkAllElementsGrounded ((label, nArgs), bodies) = do
         bodies' <- forM bodies checkAllElementsGrounded'
         return (label, nArgs, bodies')
         where
-        checkAllElementsGrounded' :: ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
+        checkAllElementsGrounded' :: ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)
                                   -> Exceptional Exception ([AST.Expr], GroundedAST.RuleBody)
-        checkAllElementsGrounded' (args, AST.RuleBody nonGroundBody, groundedBody)
+        checkAllElementsGrounded' (args, AST.RuleBody nonGroundBody, groundedBody, _)
             | null nonGroundBody = return (args, groundedBody)
             | otherwise          = throw $ NonGroundPreds nonGroundBody label nArgs
 
@@ -474,11 +523,10 @@ haveToProof (AST.BuildInPredicate _) = return True3
 haveToProof (AST.UserPredicate label givenArgs) = do
     let nGivenArgs = length givenArgs
     rsInProof <- gets rulesInProof
-    gRules    <- gets groundedRules
     let inCurProof = case Map.lookup (label, nGivenArgs) rsInProof of
             Nothing -> False3
             Just rs -> foldl'
-                (\inProof (args, _, _) -> inProof ||* compareArgs args)
+                (\inProof (args, _, _, _) -> inProof ||* compareArgs args)
                 False3
                 rs
             where
@@ -488,17 +536,7 @@ haveToProof (AST.UserPredicate label givenArgs) = do
 
             compareArg (AST.ConstantExpr x) (AST.ConstantExpr y) = if x == y then True3 else False3
             compareArg _                    _                    = Unknown3
-
-    let allArgsGround = not $ any AST.varsInExpr givenArgs
-    alreadyProven <- if allArgsGround then do
-        args'  <- lift $ toPropArgs givenArgs
-        pLabel <- toPropPredLabel label  args'
-        return $ if isJust $ Map.lookup pLabel gRules
-            then True3
-            else False3
-     else
-        return False3
-    return $ notB (inCurProof ||* alreadyProven)
+    return $ notB inCurProof
 
 applyArgs :: [AST.Expr]
           -> [AST.HeadArgument]
@@ -562,20 +600,20 @@ applyValuation valu pfDefs = do
         _ ->
             return False
     where
-    applyValuRule :: HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
-                  -> ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
-                  -> MaybeT GState (HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)])
+    applyValuRule :: HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)]
+                  -> ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)])
+                  -> MaybeT GState (HashMap (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)])
     applyValuRule rules (signature, sigRules) = do
         sigRules' <- foldlM applyValu' [] sigRules
         return $ Map.insert signature sigRules' rules
 
-    applyValu' :: [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
-               -> ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
-               -> MaybeT GState [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody)]
-    applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements) = do
+    applyValu' :: [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)]
+               -> ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)
+               -> MaybeT GState [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, HashSet GoalId)]
+    applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements, parents) = do
         args' <- lift $ lift $ forM args $ applyValuArg valu
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
-        return $ (args', AST.RuleBody elements', GroundedAST.RuleBody gElements') : rules
+        return $ (args', AST.RuleBody elements', GroundedAST.RuleBody gElements', parents) : rules
 
     applyValuConstraint :: HashSet Constraint -> Constraint -> MaybeT (Exceptional Exception) (HashSet Constraint)
     applyValuConstraint constraints (EqConstraint exprX exprY)
@@ -602,25 +640,28 @@ applyValuationMaybeInProof valu pfDefs = do
         _ ->
             return Nothing
     where
-    applyValuRule :: ([(GoalId, AST.PredicateLabel, [AST.Expr], AST.RuleBody, GroundedAST.RuleBody)], HashSet GoalId)
-                  -> (GoalId, AST.PredicateLabel, [AST.Expr], AST.RuleBody, GroundedAST.RuleBody)
-                  -> MaybeT GState ([(GoalId, AST.PredicateLabel, [AST.Expr], AST.RuleBody, GroundedAST.RuleBody)], HashSet GoalId)
-    applyValuRule (rules, toPrune) (ident, label, args, AST.RuleBody elements, GroundedAST.RuleBody gElements) = do
+    applyValuRule :: ([RuleMaybeInProof], HashSet GoalId)
+                  -> RuleMaybeInProof
+                  -> MaybeT GState ([RuleMaybeInProof], HashSet GoalId)
+    applyValuRule (rules, toPrune) rule@RuleMaybeInProof{goalId, label, args, nonGroundBody = AST.RuleBody elements, groundBody = GroundedAST.RuleBody gElements, ruleParents} = do
         args' <- lift $ lift $ forM args $ applyValuArg valu
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
         toProof <- lift $ haveToProof $ AST.UserPredicate label args'
         case toProof of
             True3 -> do
-                modify' ( \st -> st{ rulesInProof = Map.insertWith
-                                         (++)
-                                         (label, length args')
-                                         [(args', AST.RuleBody elements', GroundedAST.RuleBody gElements')]
-                                         (rulesInProof st)
-                                   }
-                        )
+                modify' ( \st -> st { rulesInProof = Map.insertWith
+                        (++)
+                        (label, length args')
+                        [(args', AST.RuleBody elements', GroundedAST.RuleBody gElements', ruleParents)]
+                        (rulesInProof st)
+                    } )
                 return (rules, toPrune)
-            False3 -> return (rules, Set.insert ident toPrune)
-            Unknown3 -> return ((ident, label, args', AST.RuleBody elements', GroundedAST.RuleBody gElements') : rules, toPrune)
+            False3 -> return (rules, Set.insert goalId toPrune)
+            Unknown3 -> return (rule
+                { args          = args'
+                , nonGroundBody = AST.RuleBody elements'
+                , groundBody    = GroundedAST.RuleBody gElements'
+                } : rules, toPrune)
 
 applyValuBodyEl :: HashMap AST.VarName AST.Expr
                 -> HashMap (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
