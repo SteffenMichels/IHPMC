@@ -37,9 +37,9 @@ import Probability
 import Data.PQueue.Max (MaxQueue)
 import qualified Data.PQueue.Max as PQ
 import qualified GroundedAST
-import Data.HashMap.Strict (HashMap)
+import Data.HashMap (Map)
 import Data.Text (Text)
-import Data.HashSet (HashSet)
+import Data.HashSet (Set)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 
@@ -59,11 +59,11 @@ score (MaybeWithinEv _ _) p = p
 score (WithinEv _)        p = 2 * p
 
 -- total score, split points + scores
-data CachedSplitPoints = CachedSplitPoints Double (HashMap SplitPoint Double)
+data CachedSplitPoints = CachedSplitPoints Double (Map SplitPoint Double)
 data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
-                | StringSplit     (GroundedAST.PFunc Text)              (HashSet Text) -- left branch: all string in this set, right branch: all remaining strings
+                | StringSplit     (GroundedAST.PFunc Text)              (Set Text) -- left branch: all string in this set, right branch: all remaining strings
                 | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN) Rational
-                deriving (Eq, Generic)
+                deriving (Eq, Generic, Ord)
 instance Hashable SplitPoint
 
 initialHPT :: Formula.NodeRef -> Formula.NodeRef -> Formula.FState CachedSplitPoints HPT

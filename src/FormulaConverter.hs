@@ -25,13 +25,13 @@ import GroundedAST (GroundedAST(..))
 import qualified GroundedAST
 import Formula (Formula)
 import qualified Formula
-import Data.HashSet (HashSet)
+import Data.HashSet (Set)
 import qualified Data.HashSet as Set
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
 import Control.Monad.State.Strict
 import Data.Maybe (isJust)
-import Data.Foldable (foldrM, foldl')
+import Data.Foldable (foldrM)
 import Util
 
 convert :: GroundedAST
@@ -44,19 +44,22 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
              ) (Formula.empty cachedInfoComps)
     where
     headFormula :: GroundedAST.RuleBodyElement
-                -> HashSet GroundedAST.PredicateLabel
+                -> Set GroundedAST.PredicateLabel
                 -> Formula.FState cachedInfo Formula.NodeRef
     headFormula (GroundedAST.UserPredicate label) excludedGoals = do
             mbNodeId <- Formula.labelId flabel
             case mbNodeId of
-                Just nodeId -> return $ Formula.refComposed nodeId
+                Just nodeId -> do
+                    let nodeRef = Formula.refComposed nodeId
+                    Formula.reference nodeRef
+                    return nodeRef
                 _ -> do
-                    (fBodies,_) <- foldM ruleFormulas ([], 0::Int) $ Map.lookupDefault Set.empty label rules
+                    (fBodies,_) <- foldM ruleFormulas ([], 0::Int) $ Set.toList $ Map.findWithDefault Set.empty label rules
                     Formula.entryRef <$> Formula.insert flabel True Formula.Or fBodies
             where
-            flabel    = Formula.uncondComposedLabelExcluded label excludedGoals'
+            flabel         = Formula.uncondComposedLabelExcluded label excludedGoals'
             excludedGoals' = Set.intersection excludedGoals children
-            children = Map.lookupDefault (error "not in predChildren") label predChildren
+            children       = Map.findWithDefault (error "not in predChildren") label predChildren
 
             ruleFormulas :: ([Formula.NodeRef], Int)
                          -> GroundedAST.RuleBody
@@ -70,13 +73,14 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                         -> Formula.FState cachedInfo Formula.NodeRef
             bodyFormula counter (GroundedAST.RuleBody elements)
                 | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] = return $ Formula.refDeterministic False
-                | otherwise = case length elements of
+                | otherwise = case Set.size elements of
                         0 -> return $ Formula.refDeterministic True
                         1 -> headFormula (getFirst elements) excludedGoals''
-                        _ -> do fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el excludedGoals''
-                                                                         return $ newChild : fChildren
-                                                    ) [] elements
-                                Formula.entryRef <$> Formula.insert (Formula.uncondComposedLabelNr label counter) True Formula.And fChildren
+                        _ -> do
+                            fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el excludedGoals''
+                                                                     return $ newChild : fChildren
+                                                ) [] $ Set.toList elements
+                            Formula.entryRef <$> Formula.insert (Formula.uncondComposedLabelNr label excludedGoals' counter) True Formula.And fChildren
                where
                excludedGoals''
                    | Set.member label children = Set.insert label excludedGoals'
@@ -90,22 +94,22 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
 
     -- determins pred children for each query/evidence
     determinePredChildren :: GroundedAST.PredicateLabel
-                          -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) ()
+                          -> State (Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel)) ()
     determinePredChildren goal = do
         alreadyKnown <- get
         let childrAndDeps = childrAndDependencies goal alreadyKnown
         fillInDependencies goal childrAndDeps
 
     childrAndDependencies :: GroundedAST.PredicateLabel
-                          -> HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)
-                          -> HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel, HashSet GroundedAST.PredicateLabel)
+                          -> Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel)
+                          -> Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel, Set GroundedAST.PredicateLabel)
     childrAndDependencies goal pChildren = execState (determineChildrAndDeps goal Set.empty) Map.empty
         where
         determineChildrAndDeps :: GroundedAST.PredicateLabel
-                               -> HashSet GroundedAST.PredicateLabel
+                               -> Set GroundedAST.PredicateLabel
                                -> State
-                                      (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel, HashSet GroundedAST.PredicateLabel))
-                                      (HashSet GroundedAST.PredicateLabel)
+                                      (Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel, Set GroundedAST.PredicateLabel))
+                                      (Set GroundedAST.PredicateLabel)
         determineChildrAndDeps goal' activeGoals = case Map.lookup goal' pChildren of
             Just children -> return children
             Nothing -> do
@@ -123,23 +127,23 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                                     return (Set.union childChildren children', deps)
                             )
                             (Set.empty, Set.empty)
-                            (directChildren goal')
+                            (Set.toList $ directChildren goal')
                         modify' $ Map.insert goal' curChildrAndDeps
                         return $ fst curChildrAndDeps
 
     fillInDependencies :: GroundedAST.PredicateLabel
-                       -> HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel, HashSet GroundedAST.PredicateLabel)
-                       -> State (HashMap GroundedAST.PredicateLabel (HashSet GroundedAST.PredicateLabel)) ()
+                       -> Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel, Set GroundedAST.PredicateLabel)
+                       -> State (Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel)) ()
     fillInDependencies goal childrAndDeps = do
         pChildren <- get
         unless (isJust $ Map.lookup goal pChildren) $ do
-            let (childr, deps) = Map.lookupDefault undefined goal childrAndDeps
-            let childr'        = foldl' (\c dep -> Set.union c $ Map.lookupDefault undefined dep pChildren) childr deps
+            let (childr, deps) = Map.findWithDefault undefined goal childrAndDeps
+            let childr'        = Set.fold (\dep c -> Set.union c $ Map.findWithDefault undefined dep pChildren) childr deps
             put $ Map.insert goal childr' pChildren
-            forM_ (directChildren goal) (`fillInDependencies` childrAndDeps)
+            forM_ (Set.toList $ directChildren goal) (`fillInDependencies` childrAndDeps)
             return ()
         return ()
 
-    directChildren :: GroundedAST.PredicateLabel -> HashSet GroundedAST.PredicateLabel
+    directChildren :: GroundedAST.PredicateLabel -> Set GroundedAST.PredicateLabel
     directChildren goal = Set.unions [ Set.fromList [child | GroundedAST.UserPredicate child <- Set.toList elements]
-                                     | GroundedAST.RuleBody elements <- Set.toList $ Map.lookupDefault Set.empty goal rules ]
+                                     | GroundedAST.RuleBody elements <- Set.toList $ Map.findWithDefault Set.empty goal rules ]

@@ -36,8 +36,8 @@ import Main (Exception(..), exceptionToText)
 import qualified AST
 import Control.Monad.Trans.Class (lift)
 import Probability
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
 import qualified IdNrMap
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
@@ -67,7 +67,7 @@ toTests IntegrationTest{label, model, expectedResults} = Test inst
          }
 
 checkResults :: String
-             -> [(HashMap Text Int -> AST.RuleBodyElement, Exceptional Exception (Maybe ProbabilityBounds) -> HashMap Text Int -> Bool)]
+             -> [(Map Text Int -> AST.RuleBodyElement, Exceptional Exception (Maybe ProbabilityBounds) -> Map Text Int -> Bool)]
              -> IO Progress
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
@@ -75,7 +75,7 @@ checkResults src expRes = do
         Exception (e, ids2Str, ids2label) -> Error $ LT.unpack $ TB.toLazyText $ exceptionToText e ids2Str ids2label
         Success res                       -> res
     where
-    checkResults' :: ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO Result
+    checkResults' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO Result
     checkResults' = do
         (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
         let ids2str = IdNrMap.fromIdNrMap identIds
@@ -96,8 +96,8 @@ checkResults src expRes = do
     stopPred _ (ProbabilityBounds l u) _ = l == u
 
 combineResults :: Maybe Builder
-               -> (AST.RuleBodyElement, Bool, Exceptional (Exception, HashMap Int (Int, [AST.ConstantExpr])) (Maybe ProbabilityBounds))
-               -> HashMap Int Text
+               -> (AST.RuleBodyElement, Bool, Exceptional (Exception, Map Int (Int, [AST.ConstantExpr])) (Maybe ProbabilityBounds))
+               -> Map Int Text
                -> Maybe Builder
 combineResults mbErr (query, isExp, res) ids2str
     | isExp = mbErr

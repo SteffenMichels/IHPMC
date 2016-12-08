@@ -63,9 +63,9 @@ module GroundedAST ( GroundedAST(..)
 import qualified AST
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
-import Data.HashSet (HashSet)
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
+import Data.HashSet (Set)
 import qualified Data.HashSet as Set
 import GHC.Generics (Generic)
 import Interval ((~<), (~>), (~<=), (~>=))
@@ -82,12 +82,12 @@ import qualified Data.Text.Lazy as LT
 
 -- use sets here to avoid duplicate elements
 data GroundedAST = GroundedAST
-    { rules     :: HashMap PredicateLabel (HashSet RuleBody)
-    , queries   :: HashSet RuleBodyElement
-    , evidence  :: HashSet RuleBodyElement
+    { rules     :: Map PredicateLabel (Set RuleBody)
+    , queries   :: Set RuleBodyElement
+    , evidence  :: Set RuleBodyElement
     }
 
-groundedAstToText :: GroundedAST -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+groundedAstToText :: GroundedAST -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 groundedAstToText ast ids2str ids2label = rulesStr <> queryStr <> evStr
     where
     rulesStr     = mconcat $ mconcat [
@@ -98,22 +98,24 @@ groundedAstToText ast ids2str ids2label = rulesStr <> queryStr <> evStr
     evStr        = mconcat ["evidence " <> ruleBodyElementToText ev    ids2str ids2label <> ".\n" | ev    <- Set.toList $ evidence ast]
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
-newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic)
-predicateLabelToText :: PredicateLabel -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
+predicateLabelToText :: PredicateLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 predicateLabelToText (PredicateLabel idNr) ids2str ids2label =
     AST.predicateLabelToText (AST.PredicateLabel label) ids2str <>
     if null args then "" else "(" <> showbLst args <> ")"
-    where (label, args) = Map.lookupDefault undefined idNr ids2label
+    where (label, args) = Map.findWithDefault undefined idNr ids2label
 instance Hashable PredicateLabel
 
 data PFunc a = PFunc PFuncLabel (PFuncDef a)
 -- there should never be more than one PF with the same label, so compare/hash only label and ignore definition
 instance Eq (PFunc a) where
     PFunc x _ == PFunc y _ = x == y
+instance Ord (PFunc a) where
+    PFunc x _ <= PFunc y _ = x <= y
 instance Hashable (PFunc a) where
     hashWithSalt salt (PFunc label _) = Hashable.hashWithSalt salt label
 
-pFuncToText :: PFunc a -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+pFuncToText :: PFunc a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 pFuncToText (PFunc l _) = pFuncLabelToText l
 
 data PFuncDef a where
@@ -136,28 +138,28 @@ makePFuncReal label cdf cdf' = PFunc label $ RealDist cdf cdf'
 makePFuncString :: PFuncLabel -> [(Probability, Text)] -> PFunc Text
 makePFuncString label dist = PFunc label $ StrDist dist
 
-newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic)
-pFuncLabelToText :: PFuncLabel -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
+pFuncLabelToText :: PFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 pFuncLabelToText (PFuncLabel idNr) ids2str ids2label =
     "~" <>
-    TB.fromText (Map.lookupDefault undefined label ids2str) <>
+    TB.fromText (Map.findWithDefault undefined label ids2str) <>
     if null args then "" else "(" <> showbLst args <> ")"
     where
-    (label, args) = Map.lookupDefault undefined idNr ids2label
+    (label, args) = Map.findWithDefault undefined idNr ids2label
 instance Hashable PFuncLabel
 
-newtype RuleBody = RuleBody (HashSet RuleBodyElement) deriving (Eq, Generic)
+newtype RuleBody = RuleBody (Set RuleBodyElement) deriving (Eq, Generic, Ord)
 
-ruleBodyToText :: RuleBody -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+ruleBodyToText :: RuleBody -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 ruleBodyToText (RuleBody elements) ids2str ids2label =
     toTextLst (Set.toList elements) (\x -> ruleBodyElementToText x ids2str ids2label)
 instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel
                      | BuildInPredicate BuildInPredicate
-                     deriving (Eq, Generic)
+                     deriving (Eq, Generic, Ord)
 
-ruleBodyElementToText :: RuleBodyElement -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+ruleBodyElementToText :: RuleBodyElement -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 ruleBodyElementToText (UserPredicate label)  ids2str ids2label = predicateLabelToText label ids2str ids2label
 ruleBodyElementToText (BuildInPredicate prd) ids2str ids2label = buildInPredToText    prd   ids2str ids2label
 instance Hashable RuleBodyElement
@@ -166,8 +168,8 @@ data BuildInPredicate = BuildInPredicateBool (TypedBuildInPred Bool)
                       | BuildInPredicateReal (TypedBuildInPred RealN)
                       | BuildInPredicateStr  (TypedBuildInPred Text)
                       | BuildInPredicateInt  (TypedBuildInPred Integer)
-                      deriving (Eq, Generic)
-buildInPredToText :: BuildInPredicate -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+                      deriving (Eq, Generic, Ord)
+buildInPredToText :: BuildInPredicate -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 buildInPredToText (BuildInPredicateBool b) = typedBuildInPredToText b
 buildInPredToText (BuildInPredicateReal r) = typedBuildInPredToText r
 buildInPredToText (BuildInPredicateStr  s) = typedBuildInPredToText s
@@ -181,7 +183,8 @@ data TypedBuildInPred a
     Constant ::           Bool                           -> TypedBuildInPred a
 
 deriving instance Eq (TypedBuildInPred a)
-typedBuildInPredToText :: TypedBuildInPred a -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+deriving instance Ord (TypedBuildInPred a)
+typedBuildInPredToText :: TypedBuildInPred a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 typedBuildInPredToText (Equality eq exprX exprY) ids2str ids2label =
     exprToText exprX ids2str ids2label <> " " <> (if eq then "=" else "/=") <> " " <> exprToText exprY ids2str ids2label
 typedBuildInPredToText (Ineq     op exprX exprY) ids2str ids2label =
@@ -200,7 +203,8 @@ data Expr a
     Sum          :: Addition a => Expr a -> Expr a -> Expr a
 
 deriving instance Eq (Expr a)
-exprToText :: Expr a -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+deriving instance Ord (Expr a)
+exprToText :: Expr a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 exprToText (ConstantExpr cExpr) _       _         = showb cExpr
 exprToText (PFuncExpr pf)       ids2str ids2label = pFuncToText pf ids2str ids2label
 exprToText (Sum x y)            ids2str ids2label =
@@ -250,12 +254,12 @@ class Ineq a
 instance Ineq Integer
 instance Ineq RealN
 
-predProbabilisticFunctions :: TypedBuildInPred a -> HashSet (PFunc a)
+predProbabilisticFunctions :: TypedBuildInPred a -> Set (PFunc a)
 predProbabilisticFunctions (Equality _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
 predProbabilisticFunctions (Ineq     _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
 predProbabilisticFunctions (Constant _)            = Set.empty
 
-exprProbabilisticFunctions :: Expr a -> HashSet (PFunc a)
+exprProbabilisticFunctions :: Expr a -> Set (PFunc a)
 exprProbabilisticFunctions (PFuncExpr pf)   = Set.singleton pf
 exprProbabilisticFunctions (ConstantExpr _) = Set.empty
 exprProbabilisticFunctions (Sum x y)        = Set.union (exprProbabilisticFunctions x) (exprProbabilisticFunctions y)
@@ -284,16 +288,16 @@ deterministicValueTyped (Ineq     op (ConstantExpr left) (ConstantExpr right))  
 deterministicValueTyped (Constant val) = Just val
 deterministicValueTyped _              = Nothing
 
-possibleValues :: Expr Text -> HashMap PFuncLabel (HashSet Text) -> HashSet Text
+possibleValues :: Expr Text -> Map PFuncLabel (Set Text) -> Set Text
 possibleValues (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
 possibleValues (PFuncExpr (PFunc pfLabel (StrDist elements))) sConds =
-    Map.lookupDefault (Set.fromList $ snd <$> elements) pfLabel sConds
+    Map.findWithDefault (Set.fromList $ snd <$> elements) pfLabel sConds
 possibleValues _ _ = undefined
 
 checkRealIneqPred :: AST.IneqOp
                   -> Expr RealN
                   -> Expr RealN
-                  -> Map.HashMap PFuncLabel Interval.IntervalLimitPoint
+                  -> Map PFuncLabel Interval.IntervalLimitPoint
                   -> Maybe Bool -- result may be undetermined -> Nothing
 checkRealIneqPred op left right point = case op of
     AST.Lt   -> evalLeft ~<  evalRight
@@ -304,8 +308,8 @@ checkRealIneqPred op left right point = case op of
     evalLeft  = eval left  point
     evalRight = eval right point
 
-eval :: Expr RealN -> HashMap PFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (PFuncExpr pf) point              = Map.lookupDefault (error "AST.checkRealIneqPred: no point") (probabilisticFuncLabel pf) point
+eval :: Expr RealN -> Map PFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
+eval (PFuncExpr pf) point              = Map.findWithDefault (error "AST.checkRealIneqPred: no point") (probabilisticFuncLabel pf) point
 eval (ConstantExpr (RealConstant r)) _ = Interval.rat2IntervLimPoint r
 eval (Sum x y) point                   = eval x point + eval y point
 

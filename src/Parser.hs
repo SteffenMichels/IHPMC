@@ -27,7 +27,7 @@ module Parser
     ) where
 import AST (AST)
 import qualified AST
-import qualified Data.HashMap.Strict as Map
+import qualified Data.HashMap as Map
 import IdNrMap (IdNrMap)
 import qualified IdNrMap
 import Text.Parsec (Parsec)

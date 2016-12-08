@@ -35,8 +35,8 @@ import System.Exit (exitFailure)
 import Data.Maybe (isJust)
 import qualified Formula
 import Probability
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
 import qualified IdNrMap
 import qualified AST
 import Data.Text.Lazy.Builder (Builder)
@@ -53,7 +53,7 @@ data Exception = GrounderException        Grounder.Exception
                | IOException              IOException
                | TestException            Builder
 
-exceptionToText :: Exception -> HashMap Int Text -> HashMap Int (Int, [AST.ConstantExpr]) -> Builder
+exceptionToText :: Exception -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 exceptionToText (GrounderException e)        ids2str ids2label = "Invalid model: " <> Grounder.exceptionToText e ids2str ids2label
 exceptionToText (ParameterException e)       _       _         = "Invalid parameter: " <> e
 exceptionToText (CommandLineArgsException e) _       _         = e
@@ -68,7 +68,7 @@ main = do
         Exception (e, ids2str, ids2label) -> LTIO.putStrLn (TB.toLazyText $ exceptionToText e ids2str ids2label) >> exitFailure
         Success _                         -> return ()
 
-main' :: ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO ()
+main' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
 main' = do
     args <- doIOException getArgs
     Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
@@ -120,10 +120,10 @@ main' = do
                     " (error bound: " <> showb ((u - l) / 2.0) <> ")"
                 Nothing -> "inconsistent evidence"
 
-doIOException :: IO a -> ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO a
+doIOException :: IO a -> ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO a
 doIOException io = mapExceptionT ((,Map.empty, Map.empty) . IOException) $ doIO io
 
-printIfSet :: (a -> Builder) -> Maybe a -> ExceptionalT (Exception, HashMap Int Text, HashMap Int (Int, [AST.ConstantExpr])) IO ()
+printIfSet :: (a -> Builder) -> Maybe a -> ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
 printIfSet fstr = maybe (return ()) $ doIOException . LTIO.putStrLn . TB.toLazyText . fstr
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()

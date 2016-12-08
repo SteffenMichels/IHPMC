@@ -19,6 +19,8 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Util
     ( getFirst
     , showbLst
@@ -30,7 +32,9 @@ module Util
     , Bool3(..)
     , maybeRead
     ) where
-import Data.HashSet (HashSet)
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
+import Data.HashSet (Set)
 import qualified Data.HashSet as Set
 import Control.Monad.State.Strict
 import Control.Monad.Identity
@@ -39,8 +43,16 @@ import Data.Boolean
 import Data.Maybe (listToMaybe)
 import TextShow
 import Data.Monoid ((<>))
+import Data.Hashable (Hashable)
+import qualified Data.Hashable as Hashable
 
-getFirst :: HashSet a -> a
+instance Hashable a => Hashable (Set a) where
+    hashWithSalt = Set.fold (flip Hashable.hashWithSalt)
+
+instance (Hashable a, Hashable b) => Hashable (Map a b) where
+    hashWithSalt = Map.foldWithKey (\k a s -> Hashable.hashWithSalt (Hashable.hashWithSalt s k) a)
+
+getFirst :: Set a -> a
 getFirst set = head $ Set.toList set
 
 showbLst :: TextShow a => [a] -> Builder
@@ -66,7 +78,7 @@ doMaybe :: Monad m => Maybe a -> MaybeT m a
 doMaybe Nothing  = mzero
 doMaybe (Just x) = return x
 
-data Bool3 = True3 | False3 | Unknown3 deriving (Eq, Show)
+data Bool3 = True3 | False3 | Unknown3 deriving Eq
 
 instance Boolean Bool3 where
     true  = True3

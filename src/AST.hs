@@ -44,8 +44,8 @@ module AST
     , ruleBodyElementToText
     , exprToText
     ) where
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
 import Data.Char (toLower)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
@@ -62,20 +62,20 @@ import TextShow
 import Data.Monoid ((<>))
 
 data AST = AST
-    { pFuncDefs :: HashMap (PFuncLabel, Int)     [([HeadArgument], PFuncDef)] -- first matching def applies
-    , rules     :: HashMap (PredicateLabel, Int) [([HeadArgument], RuleBody)]
+    { pFuncDefs :: Map (PFuncLabel, Int)     [([HeadArgument], PFuncDef)] -- first matching def applies
+    , rules     :: Map (PredicateLabel, Int) [([HeadArgument], RuleBody)]
     , queries   :: [RuleBodyElement]
     , evidence  :: [RuleBodyElement]
     }
 
-newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic)
-predicateLabelToText :: PredicateLabel -> HashMap Int Text -> Builder
-predicateLabelToText (PredicateLabel idNr) = TB.fromText . Map.lookupDefault undefined idNr
+newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
+predicateLabelToText :: PredicateLabel -> Map Int Text -> Builder
+predicateLabelToText (PredicateLabel idNr) = TB.fromText . Map.findWithDefault undefined idNr
 instance Hashable PredicateLabel
 
-newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic)
-pFuncLabelToText :: PFuncLabel -> HashMap Int Text -> Builder
-pFuncLabelToText (PFuncLabel idNr) = TB.fromText . Map.lookupDefault undefined idNr
+newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
+pFuncLabelToText :: PFuncLabel -> Map Int Text -> Builder
+pFuncLabelToText (PFuncLabel idNr) = TB.fromText . Map.findWithDefault undefined idNr
 instance Hashable PFuncLabel
 
 data PFuncDef = Flip     Probability
@@ -92,8 +92,8 @@ instance Hashable RuleBody
 
 data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
                      | BuildInPredicate BuildInPredicate
-                     deriving (Eq, Generic)
-ruleBodyElementToText :: RuleBodyElement -> HashMap Int Text -> Builder
+                     deriving (Eq, Generic, Ord)
+ruleBodyElementToText :: RuleBodyElement -> Map Int Text -> Builder
 ruleBodyElementToText (UserPredicate label args) ids2str =
     predicateLabelToText label ids2str <> "(" <> toTextLst args (`exprToText` ids2str) <> ")"
 ruleBodyElementToText (BuildInPredicate prd) ids2str = buildInPredicateToText prd ids2str
@@ -109,7 +109,7 @@ instance Hashable HeadArgument
 
 data VarName = VarName Text
              | TempVar Int
-             deriving (Eq, Generic)
+             deriving (Eq, Generic, Ord)
 instance TextShow VarName
     where
     showb (VarName str) = TB.fromText str
@@ -118,15 +118,15 @@ instance Hashable VarName
 
 data BuildInPredicate = Equality Bool Expr Expr
                       | Ineq     IneqOp Expr Expr
-                      deriving (Eq, Generic)
-buildInPredicateToText :: BuildInPredicate -> HashMap Int Text -> Builder
+                      deriving (Eq, Generic, Ord)
+buildInPredicateToText :: BuildInPredicate -> Map Int Text -> Builder
 buildInPredicateToText (Equality eq exprX exprY) ids2str =
     exprToText exprX ids2str <> (if eq then "=" else "/=") <> exprToText exprY ids2str
 buildInPredicateToText (Ineq     op exprX exprY) ids2str =
     exprToText exprX ids2str <> " " <> showb op <> " " <> exprToText exprY ids2str
 instance Hashable BuildInPredicate
 
-data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic)
+data IneqOp = Lt | LtEq | Gt | GtEq deriving (Eq, Generic, Ord)
 instance TextShow IneqOp
     where
     showb Lt   = "<"
@@ -139,9 +139,9 @@ data Expr = ConstantExpr ConstantExpr
           | PFunc        PFuncLabel [Expr]
           | Variable     VarName
           | Sum          Expr Expr
-          deriving (Eq, Generic)
+          deriving (Eq, Generic, Ord)
 
-exprToText :: Expr -> HashMap Int Text -> Builder
+exprToText :: Expr -> Map Int Text -> Builder
 exprToText (ConstantExpr cnst) _ = showb cnst
 exprToText (PFunc pf args) ids2str =
     "~" <> pFuncLabelToText pf ids2str <> "(" <> toTextLst args (`exprToText` ids2str) <> ")"
@@ -153,7 +153,7 @@ data ConstantExpr = BoolConstant Bool
                   | RealConstant Rational
                   | StrConstant  Text
                   | IntConstant  Integer
-                  deriving (Eq, Generic)
+                  deriving (Eq, Generic, Ord)
 
 instance TextShow ConstantExpr
     where

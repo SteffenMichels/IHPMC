@@ -31,22 +31,22 @@ module IdNrMap
     , fromIdNrMap
     , toIdNrMap
     ) where
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
 import Data.Hashable (Hashable)
 
-data IdNrMap a = IdNrMap (HashMap a Int) (HashMap Int a) Int
+data IdNrMap a = IdNrMap (Map a Int) (Map Int a) Int
 
 empty :: IdNrMap a
 empty = IdNrMap Map.empty Map.empty 0
 
-getIdNr :: (Eq a, Hashable a) => a -> IdNrMap a -> (Int, IdNrMap a)
+getIdNr :: (Ord a, Hashable a) => a -> IdNrMap a -> (Int, IdNrMap a)
 getIdNr x m@(IdNrMap to from count) = case Map.lookup x to of
     Just idNr -> (idNr, m)
     Nothing   -> (count, IdNrMap (Map.insert x count to) (Map.insert count x from) (succ count))
 
-fromIdNrMap :: IdNrMap a -> HashMap Int a
+fromIdNrMap :: IdNrMap a -> Map Int a
 fromIdNrMap (IdNrMap _ from _) = from
 
-toIdNrMap :: IdNrMap a -> HashMap a Int
+toIdNrMap :: IdNrMap a -> Map a Int
 toIdNrMap (IdNrMap to _ _) = to

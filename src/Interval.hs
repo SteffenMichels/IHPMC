@@ -39,13 +39,14 @@ module Interval
     ) where
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
-import qualified Data.HashMap.Strict as Map
+import Data.HashMap (Map)
+import qualified Data.HashMap as Map
 import Numeric (fromRat)
 import Data.Foldable (foldl')
 import TextShow
 import Data.Monoid ((<>))
 
-data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic)
+data IntervalLimit = Inf | Open Rational | Closed Rational deriving (Eq, Generic, Ord)
 
 instance TextShow IntervalLimit where
     showb Inf        = "inf"
@@ -70,7 +71,7 @@ instance TextShow Infinitesimal where
     showb InfteMinus = "-"
     showb InfteIndet = "?"
 instance Hashable IntervalLimit
-data Interval = Interval IntervalLimit IntervalLimit deriving (Eq, Generic)
+data Interval = Interval IntervalLimit IntervalLimit deriving (Eq, Generic, Ord)
 instance Hashable Interval
 
 toPoint :: LowerUpper -> IntervalLimit -> IntervalLimitPoint
@@ -198,7 +199,7 @@ oneArgIndet Indet _     = True
 oneArgIndet _     Indet = True
 oneArgIndet _     _     = False
 
-corners :: (Eq k, Hashable k) => [(k, Interval)] -> [Map.HashMap k IntervalLimitPoint]
+corners :: (Ord k, Hashable k) => [(k, Interval)] -> [Map k IntervalLimitPoint]
 corners choices = foldl'
         ( \crnrs (pf, Interval l u) ->
           [Map.insert pf (Interval.toPoint Lower l) c | c <- crnrs] ++ [Map.insert pf (Interval.toPoint Upper u) c | c <- crnrs]
