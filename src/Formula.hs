@@ -74,6 +74,7 @@ import qualified Data.Text.Lazy.Builder as TB
 import TextShow
 import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))
+import Control.Arrow (first)
 
 -- INTERFACE
 data Node = Composed !NodeType ![NodeRef]
@@ -118,7 +119,7 @@ insert label sign op children = do
             case simplifiedNode of
                 Composed nType nChildren -> do
                     let pFuncs = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
-                    modify' (\f -> f{ nodes        = Map.insert (ComposedId freshCounter) (1, label, FormulaEntry nType nChildren pFuncs cachedInfo) nodes
+                    modify' (\f -> f{ nodes        = Map.insert (ComposedId freshCounter) (1, FormulaEntry label nType nChildren pFuncs cachedInfo) nodes
                                     , freshCounter = succ freshCounter
                                     , labels2ids   = Map.insert label (ComposedId freshCounter) labels2ids
                                     }
@@ -145,7 +146,7 @@ insert label sign op children = do
             forM_ (nodeChildren $ entryNode e) reference
             dereference onlyChild
             return (entryNode e, sign')
-        _ | RefDeterministic singleDeterminismValue `elem` childRefs  -> do
+        _ | RefDeterministic singleDeterminismValue `elem` newChildRefs  -> do
             forM_ newChildRefs dereference
             return (Deterministic singleDeterminismValue, True)
         _ ->
@@ -170,8 +171,8 @@ augmentWithEntryRef ref = augmentWithEntryBase ref True
 augmentWithEntryBase :: NodeRef -> Bool -> FState cachedInfo (RefWithNode cachedInfo)
 augmentWithEntryBase ref@(RefComposed _ i) incRefCount = do
     fNodes <- gets nodes
-    (_, label, FormulaEntry nType nChildren pFuncs cachedInfo) <- if incRefCount then do
-        let (Just entry, fNodes') = Map.insertLookupWithKey (\_ _ (rCount, label, ent) -> (succ rCount, label, ent)) i undefined fNodes
+    (_, FormulaEntry label nType nChildren pFuncs cachedInfo) <- if incRefCount then do
+        let (Just entry, fNodes') = Map.insertLookupWithKey (\_ _ (rCount, ent) -> (succ rCount, ent)) i undefined fNodes
         modify' (\st -> st{nodes = fNodes'})
         return entry
     else
@@ -258,7 +259,7 @@ conditionBool origNodeEntry pf val
         reference $ entryRef origNodeEntry
         return origNodeEntry
     | otherwise = case entryRef origNodeEntry of
-        RefComposed sign origId -> conditionComposed sign origNodeEntry origId pf
+        RefComposed sign _ -> conditionComposed sign origNodeEntry pf
                                        (\pf' label -> condComposedLabelBool pf' val label)
                                        (\ref pf' -> conditionBool ref pf' val)
         RefBuildInPredicateBool prd -> do
@@ -297,7 +298,7 @@ conditionString origNodeEntry pf condSet
         reference $ entryRef origNodeEntry
         return origNodeEntry
     | otherwise = case entryRef origNodeEntry of
-        RefComposed sign origId -> conditionComposed sign origNodeEntry origId pf
+        RefComposed sign _ -> conditionComposed sign origNodeEntry pf
                                        (\pf' label -> condComposedLabelString pf' condSet label)
                                        (\ref pf' -> conditionString ref pf' condSet)
         RefBuildInPredicateString prd sConds -> do
@@ -345,7 +346,7 @@ conditionReal origNodeEntry pf interv
         reference $ entryRef origNodeEntry
         return origNodeEntry
     | otherwise = case entryRef origNodeEntry of
-        RefComposed sign origId -> conditionComposed sign origNodeEntry origId pf
+        RefComposed sign _ -> conditionComposed sign origNodeEntry pf
                                        (\pf' label -> condComposedLabelReal pf' interv label)
                                        (\ref pf' -> conditionReal ref pf' interv)
         RefBuildInPredicateReal prd rConds -> do
@@ -391,41 +392,40 @@ conditionReal origNodeEntry pf interv
 
 conditionComposed :: Bool
                   -> RefWithNode cachedInfo
-                  -> ComposedId
                   -> GroundedAST.PFunc a
                   -> (GroundedAST.PFunc a -> ComposedLabel -> ComposedLabel)
                   -> (RefWithNode cachedInfo -> GroundedAST.PFunc a -> FState cachedInfo (RefWithNode cachedInfo))
                   -> FState cachedInfo (RefWithNode cachedInfo)
-conditionComposed sign origNodeEntry origLabel pf labelFunc conditionFunc = do
-            Formula{labels2ids, nodes} <- get
-            case Map.lookup newLabel labels2ids of
-                Just nodeId -> augmentWithEntryRef $ RefComposed sign nodeId
-                _ -> do
-                    let (_, _, FormulaEntry op children _ _) = fromJust $ Map.lookup origLabel nodes
-                    condChildren <- forM
-                        children
-                        (\child -> do
-                            condRef <- augmentWithEntry child
-                            conditionFunc condRef pf
-                        )
-                    insert newLabel sign op $ map entryRef condChildren
-            where
-            newLabel = labelFunc pf $ fromJust $ entryLabel origNodeEntry
+conditionComposed sign origNodeEntry pf labelFunc conditionFunc = do
+    labels2ids <- gets labels2ids
+    case Map.lookup newLabel labels2ids of
+        Just nodeId -> augmentWithEntryRef $ RefComposed sign nodeId
+        _ -> do
+            condChildren <- forM
+                children
+                (\child -> do
+                    condRef <- augmentWithEntry child
+                    conditionFunc condRef pf
+                )
+            insert newLabel sign op $ map entryRef condChildren
+    where
+    Composed op children = entryNode origNodeEntry
+    newLabel             = labelFunc pf $ fromJust $ entryLabel origNodeEntry
 
 reference :: NodeRef -> FState cachedInfo ()
 reference (RefComposed _ cid) =  modify'
-    (\st -> st{nodes = Map.adjust (\(refCount, label, entry) -> (succ refCount, label, entry)) cid $ nodes st})
+    (\st -> st{nodes = Map.adjust (first succ) cid $ nodes st})
 reference _ = return ()
 
 dereference :: NodeRef -> FState cachedInfo ()
 dereference (RefComposed _ cid) = do
-        Formula{nodes, labels2ids} <- get
-        let (Just (refCount, label, FormulaEntry _ children _ _), nodes') = Map.updateLookupWithKey
-                (\_ (rc, l, entry) -> if rc == 1 then Nothing else Just (rc - 1, l, entry))
+        nodes <- gets nodes
+        let (Just (refCount, FormulaEntry label _ children _ _), nodes') = Map.updateLookupWithKey
+                (\_ (rc, entry) -> if rc == 1 then Nothing else Just (rc - 1, entry))
                 cid
                 nodes
         if refCount == 1 then do
-            modify' (\st -> st{nodes = nodes', labels2ids = Map.delete label labels2ids})
+            modify' (\st -> st{nodes = nodes', labels2ids = Map.delete label $ labels2ids st})
             forM_ children dereference
         else
             modify' (\st -> st{nodes = nodes'})
@@ -446,8 +446,8 @@ exportAsDot path Formula{nodes} ids2str ids2label = do
     doIO (hPutStrLn file "}")
     doIO (hClose file)
     where
-        printNode :: Handle -> (ComposedId, (Int, ComposedLabel, FormulaEntry cachedInfo)) -> ExceptionalT IOException IO ()
-        printNode file (ComposedId i, (refCount, label, FormulaEntry op children _ _)) = do
+        printNode :: Handle -> (ComposedId, (Int, FormulaEntry cachedInfo)) -> ExceptionalT IOException IO ()
+        printNode file (ComposedId i, (refCount, FormulaEntry label op children _ _)) = do
             doIO ( LTIO.hPutStrLn file $ TB.toLazyText $
                        showb i <>
                        "[label=\"" <>
@@ -482,7 +482,7 @@ exportAsDot path Formula{nodes} ids2str ids2label = do
 
 -- FORMULA STORAGE
 data Formula cachedInfo = Formula
-    { nodes              :: Map ComposedId (Int, ComposedLabel, FormulaEntry cachedInfo)                                           -- graph representing formulas
+    { nodes              :: Map ComposedId (Int, FormulaEntry cachedInfo)                                                          -- graph representing formulas
     , freshCounter       :: Int                                                                                                    -- counter for fresh nodes
     , labels2ids         :: Map ComposedLabel ComposedId                                                                           -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
     , buildinCacheString :: Map (GroundedAST.TypedBuildInPred Text,              Map GroundedAST.PFuncLabel (Set Text)) cachedInfo -- cache for buildin predicates
@@ -575,7 +575,7 @@ labelId :: ComposedLabel -> FState cachednInfo (Maybe ComposedId)
 labelId label = gets labels2ids >>= \l2ids -> return $ Map.lookup label l2ids
 
 -- the FormulaEntry contains composed node, plus additional, redundant, cached information to avoid recomputations
-data FormulaEntry cachedInfo = FormulaEntry NodeType [NodeRef] (Set GroundedAST.PFuncLabel) cachedInfo
+data FormulaEntry cachedInfo = FormulaEntry ComposedLabel NodeType [NodeRef] (Set GroundedAST.PFuncLabel) cachedInfo
 
 data NodeType = And | Or deriving (Eq, Generic)
 instance Hashable NodeType
