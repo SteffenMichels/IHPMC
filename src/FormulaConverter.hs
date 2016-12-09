@@ -38,54 +38,54 @@ convert :: GroundedAST
         -> Formula.CacheComputations cachedInfo
         -> (([(GroundedAST.RuleBodyElement, Formula.NodeRef)], [Formula.NodeRef]), Formula cachedInfo)
 convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = evidence, GroundedAST.rules = rules} cachedInfoComps =
-    runState (do groundedQueries  <- forM (Set.toList queries)  (\q -> (\ref -> (q, ref)) <$> headFormula q Set.empty)
-                 groundedEvidence <- forM (Set.toList evidence) (`headFormula` Set.empty)
+    runState (do groundedQueries  <- forM (Set.toList queries)  (\q -> (\entry -> (q, Formula.entryRef entry)) <$> headFormula q Set.empty)
+                 groundedEvidence <- forM (Set.toList evidence) (\e -> Formula.entryRef <$> headFormula e Set.empty)
                  return (groundedQueries, groundedEvidence)
              ) (Formula.empty cachedInfoComps)
     where
     headFormula :: GroundedAST.RuleBodyElement
                 -> Set GroundedAST.PredicateLabel
-                -> Formula.FState cachedInfo Formula.NodeRef
+                -> Formula.FState cachedInfo (Formula.RefWithNode cachedInfo)
     headFormula (GroundedAST.UserPredicate label) excludedGoals = do
             mbNodeId <- Formula.labelId flabel
             case mbNodeId of
                 Just nodeId -> do
                     let nodeRef = Formula.refComposed nodeId
-                    Formula.reference nodeRef
-                    return nodeRef
+                    Formula.augmentWithEntryRef nodeRef
                 _ -> do
                     (fBodies,_) <- foldM ruleFormulas ([], 0::Int) $ Set.toList $ Map.findWithDefault Set.empty label rules
-                    Formula.entryRef <$> Formula.insert flabel True Formula.Or fBodies
+                    Formula.insert flabel True Formula.Or fBodies
             where
             flabel         = Formula.uncondComposedLabelExcluded label excludedGoals'
             excludedGoals' = Set.intersection excludedGoals children
             children       = Map.findWithDefault (error "not in predChildren") label predChildren
 
-            ruleFormulas :: ([Formula.NodeRef], Int)
+            ruleFormulas :: ([Formula.RefWithNode cachedInfo], Int)
                          -> GroundedAST.RuleBody
-                         -> Formula.FState cachedInfo ([Formula.NodeRef], Int)
+                         -> Formula.FState cachedInfo ([Formula.RefWithNode cachedInfo], Int)
             ruleFormulas (fBodies, counter) body = do
                 newChild <- bodyFormula counter body
                 return (newChild : fBodies, succ counter)
 
             bodyFormula :: Int
                         -> GroundedAST.RuleBody
-                        -> Formula.FState cachedInfo Formula.NodeRef
+                        -> Formula.FState cachedInfo (Formula.RefWithNode cachedInfo)
             bodyFormula counter (GroundedAST.RuleBody elements)
-                | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] = return $ Formula.refDeterministic False
+                | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] =
+                    Formula.augmentWithEntry $ Formula.refDeterministic False
                 | otherwise = case Set.size elements of
-                        0 -> return $ Formula.refDeterministic True
+                        0 -> Formula.augmentWithEntry $ Formula.refDeterministic True
                         1 -> headFormula (getFirst elements) excludedGoals''
                         _ -> do
                             fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el excludedGoals''
                                                                      return $ newChild : fChildren
                                                 ) [] $ Set.toList elements
-                            Formula.entryRef <$> Formula.insert (Formula.uncondComposedLabelNr label excludedGoals' counter) True Formula.And fChildren
+                            Formula.insert (Formula.uncondComposedLabelNr label excludedGoals' counter) True Formula.And fChildren
                where
                excludedGoals''
                    | Set.member label children = Set.insert label excludedGoals'
                    | otherwise                 = excludedGoals'
-    headFormula (GroundedAST.BuildInPredicate bip) _ = return $ Formula.refBuildInPredicate bip
+    headFormula (GroundedAST.BuildInPredicate bip) _ = Formula.augmentWithEntry $ Formula.refBuildInPredicate bip
 
     predChildren = execState
         (do forM_ [q | GroundedAST.UserPredicate q <- Set.toList queries]  (\q -> (\ref -> (q, ref)) <$> determinePredChildren q)

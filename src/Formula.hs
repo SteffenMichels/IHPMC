@@ -36,6 +36,7 @@ module Formula
     , empty
     , insert
     , augmentWithEntry
+    , augmentWithEntryRef
     , labelId
     , exportAsDot
     , uncondComposedLabel
@@ -75,6 +76,7 @@ import TextShow
 import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))
 import Control.Arrow (first)
+import qualified Data.List as List
 
 -- INTERFACE
 data Node = Composed !NodeType ![NodeRef]
@@ -105,7 +107,7 @@ empty cacheComps = Formula { nodes              = Map.empty
 insert :: ComposedLabel
        -> Bool
        -> NodeType
-       -> [NodeRef]
+       -> [RefWithNode cachedInfo]
        -> FState cachedInfo (RefWithNode cachedInfo)
 insert label sign op children = do
     mbCId <- gets $ Map.lookup label . labels2ids
@@ -135,24 +137,36 @@ insert label sign op children = do
                 BuildInPredicateReal   prd rConds -> return $ predRefWithNodeReal   (if sign then prd else GroundedAST.negatePred prd) rConds cachedInfo
                 Deterministic val                 -> return $ deterministicRefWithNode (val == sign) cachedInfo
     where
-    simplify :: NodeType -> [NodeRef] -> FState cachedInfo (Node, Bool)
-    simplify operator childRefs = case newChildRefs of
-        []          -> return (Deterministic filterValue, True)
-        [onlyChild] -> do
-            let sign' = case onlyChild of
-                    RefComposed sign'' _ -> sign''
-                    _                    -> True
-            e <- augmentWithEntry onlyChild
-            forM_ (nodeChildren $ entryNode e) reference
-            dereference onlyChild
-            return (entryNode e, sign')
-        _ | RefDeterministic singleDeterminismValue `elem` newChildRefs  -> do
-            forM_ newChildRefs dereference
+    simplify :: NodeType -> [RefWithNode cachedInfo] -> FState cachedInfo (Node, Bool)
+    simplify operator children'
+        | RefDeterministic singleDeterminismValue `elem` childRefs = do
+            forM_ childRefs dereference
             return (Deterministic singleDeterminismValue, True)
-        _ ->
-            return (Composed operator newChildRefs, True)
+        | otherwise = do
+            newChildRefs <- List.concat <$> mapM mapChild children'
+            case newChildRefs of
+                []          -> return (Deterministic filterValue, True)
+                [onlyChild] -> do
+                    let sign' = case onlyChild of
+                            RefComposed sign'' _ -> sign''
+                            _                    -> True
+                    e <- augmentWithEntry onlyChild
+                    forM_ (nodeChildren $ entryNode e) reference
+                    dereference onlyChild
+                    return (entryNode e, sign')
+                _ ->
+                    return (Composed operator newChildRefs, True)
         where
-        newChildRefs = filter (RefDeterministic filterValue /=) childRefs
+        childRefs = entryRef <$> children'
+
+        mapChild c = case entryNode c of
+            Composed cop cs | cop == operator -> do
+                forM_ cs reference
+                dereference $ entryRef c
+                return cs
+            Deterministic v | v == filterValue -> return []
+            _ -> return [entryRef c]
+
         -- truth value that causes determinism if at least a single child has it
         singleDeterminismValue = operator == Or
         -- truth value that can be filtered out
@@ -407,7 +421,7 @@ conditionComposed sign origNodeEntry pf labelFunc conditionFunc = do
                     condRef <- augmentWithEntry child
                     conditionFunc condRef pf
                 )
-            insert newLabel sign op $ map entryRef condChildren
+            insert newLabel sign op condChildren
     where
     Composed op children = entryNode origNodeEntry
     newLabel             = labelFunc pf $ fromJust $ entryLabel origNodeEntry
