@@ -439,6 +439,7 @@ data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
                       | ExprReal (GroundedAST.Expr GroundedAST.RealN)
                       | ExprStr  (GroundedAST.Expr Text)
                       | ExprInt  (GroundedAST.Expr Integer)
+                      | ExprObj  (GroundedAST.Expr GroundedAST.Object)
 
 propExprWithTypeToText :: PropExprWithType -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " <> typeStr <> ")"
@@ -448,12 +449,14 @@ propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " 
         ExprReal expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Real")
         ExprStr  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "String")
         ExprInt  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Integer")
+        ExprObj  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Object")
 
 mapPropExprWithType :: (forall a. GroundedAST.Expr a -> GroundedAST.Expr a) -> PropExprWithType -> PropExprWithType
 mapPropExprWithType f (ExprBool expr) = ExprBool $ f expr
 mapPropExprWithType f (ExprReal expr) = ExprReal $ f expr
 mapPropExprWithType f (ExprStr  expr) = ExprStr  $ f expr
 mapPropExprWithType f (ExprInt  expr) = ExprInt  $ f expr
+mapPropExprWithType f (ExprObj  expr) = ExprObj  $ f expr
 
 -- precondition: no vars left in 'bip'
 toPropBuildInPred :: AST.BuildInPredicate
@@ -475,6 +478,7 @@ toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
             (ExprBool exprX'', ExprBool exprY'') -> return $ GroundedAST.BuildInPredicateBool $ bipConstructor exprX'' exprY''
             (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
             (ExprStr  exprX'', ExprStr  exprY'') -> return $ GroundedAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
+            (ExprObj  exprX'', ExprObj  exprY'') -> return $ GroundedAST.BuildInPredicateObj  $ bipConstructor exprX'' exprY''
             _                                    -> lift $ throw $ TypeError exprX' exprY'
 
     toPropBuildInPredIneq' :: (forall a. GroundedAST.Ineq a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.TypedBuildInPred a)
@@ -508,9 +512,10 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 })
                 return def
         case pfDef of
-            AST.Flip p            -> return $ ExprBool $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncBool propPFuncLabel p
-            AST.RealDist cdf cdf' -> return $ ExprReal $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncReal propPFuncLabel cdf cdf'
+            AST.Flip p            -> return $ ExprBool $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncBool   propPFuncLabel p
+            AST.RealDist cdf cdf' -> return $ ExprReal $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncReal   propPFuncLabel cdf cdf'
             AST.StrDist dist      -> return $ ExprStr  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncString propPFuncLabel dist
+            AST.UniformObjDist nr -> return $ ExprObj  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncObj    propPFuncLabel nr
     AST.Sum exprX exprY ->toPropExprPairAdd GroundedAST.Sum exprX exprY
         where
         toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)
@@ -531,6 +536,7 @@ toPropExprConst (AST.BoolConstant cnst) = ExprBool $ GroundedAST.ConstantExpr $ 
 toPropExprConst (AST.RealConstant cnst) = ExprReal $ GroundedAST.ConstantExpr $ GroundedAST.RealConstant cnst
 toPropExprConst (AST.StrConstant  cnst) = ExprStr  $ GroundedAST.ConstantExpr $ GroundedAST.StrConstant  cnst
 toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ GroundedAST.ConstantExpr $ GroundedAST.IntConstant  cnst
+toPropExprConst (AST.ObjConstant  cnst) = ExprObj  $ GroundedAST.ConstantExpr $ GroundedAST.ObjConstant  cnst
 
 haveToProof :: AST.RuleBodyElement -> GState Bool3
 haveToProof (AST.BuildInPredicate _) = return True3

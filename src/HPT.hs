@@ -61,8 +61,9 @@ score (WithinEv _)        p = 2 * p
 -- total score, split points + scores
 data CachedSplitPoints = CachedSplitPoints Double (Map SplitPoint Double)
 data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
-                | StringSplit     (GroundedAST.PFunc Text)              (Set Text) -- left branch: all string in this set, right branch: all remaining strings
-                | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN) Rational
+                | StringSplit     (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
+                | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN)  Rational
+                | ObjectSplit     (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object, right branch: excluding this object
                 deriving (Eq, Generic, Ord)
 instance Hashable SplitPoint
 

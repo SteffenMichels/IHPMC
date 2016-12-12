@@ -137,12 +137,29 @@ splitFormula f lf (StringSplit splitPF splitSet) = do
            , pLeft
            )
     where
-    curSet                        = Map.findWithDefault (Set.fromList $ snd <$> elements) (GroundedAST.probabilisticFuncLabel splitPF) sConds
-    Formula.Conditions _ sConds _ = Formula.entryChoices f
-    GroundedAST.StrDist elements  = GroundedAST.probabilisticFuncDef splitPF
-    pLeft                         = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
-    z                             = List.sum $ fst <$> curElements
-    curElements                   = List.filter ((`Set.member` curSet) . snd) elements
+    curSet                          = Map.findWithDefault (Set.fromList $ snd <$> elements) (GroundedAST.probabilisticFuncLabel splitPF) sConds
+    Formula.Conditions _ sConds _ _ = Formula.entryChoices f
+    GroundedAST.StrDist elements    = GroundedAST.probabilisticFuncDef splitPF
+    pLeft                           = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
+    z                               = List.sum $ fst <$> curElements
+    curElements                     = List.filter ((`Set.member` curSet) . snd) elements
+splitFormula f lf (ObjectSplit splitPF splitObj) = do
+    left  <- Formula.conditionObject f splitPF $ Formula.Object splitObj
+    right <- Formula.conditionObject f splitPF $ Formula.AnyExcept $ Set.insert splitObj curExclSet
+    return ( Formula.entryRef left
+           , conditionLazyFormula lf $ \f' -> Formula.conditionObject f' splitPF $ Formula.Object splitObj
+           , Formula.entryRef right
+           , conditionLazyFormula lf $ \f' -> Formula.conditionObject f' splitPF $ Formula.AnyExcept $ Set.insert splitObj curExclSet
+           , pLeft
+           )
+    where
+    curExclSet = case Map.lookup (GroundedAST.probabilisticFuncLabel splitPF) oConds of
+        Just (Formula.AnyExcept s) -> s
+        Just (Formula.Object _)    -> error "object PF restricted to single object should never be selected to split on"
+        Nothing                    -> Set.empty
+    Formula.Conditions _ _ _ oConds = Formula.entryChoices f
+    GroundedAST.UniformObjDist nr   = GroundedAST.probabilisticFuncDef splitPF
+    pLeft                           = 1 / intToProb (nr - fromIntegral (Set.size curExclSet))
 splitFormula f lf (ContinuousSplit splitPF spPoint) = do
     left  <- Formula.conditionReal f splitPF $ Interval.Interval curLower (Open spPoint)
     right <- Formula.conditionReal f splitPF $ Interval.Interval (Open spPoint) curUpper
@@ -176,6 +193,7 @@ heuristicsCacheComputations = Formula.CacheComputations
     , Formula.cachedInfoBuildInPredBool   = heuristicBuildInPredBool
     , Formula.cachedInfoBuildInPredString = heuristicBuildInPredString
     , Formula.cachedInfoBuildInPredReal   = heuristicBuildInPredReal
+    , Formula.cachedInfoBuildInPredObject = heuristicBuildInPredObject
     , Formula.cachedInfoDeterministic     = heuristicDeterministic
     }
 
@@ -190,7 +208,6 @@ heuristicBuildInPredString :: Map GroundedAST.PFuncLabel (Set Text)
                            -> GroundedAST.TypedBuildInPred Text
                            -> HPT.CachedSplitPoints
 heuristicBuildInPredString _ prd = case prd of
-    GroundedAST.Constant _ -> CachedSplitPoints 0.0 Map.empty
     GroundedAST.Equality _ (GroundedAST.PFuncExpr pf)      (GroundedAST.ConstantExpr cnst) -> splitPointsStringPfConst pf cnst
     GroundedAST.Equality _ (GroundedAST.ConstantExpr cnst) (GroundedAST.PFuncExpr pf)      -> splitPointsStringPfConst pf cnst
     GroundedAST.Equality _ (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)     -> splitPointsStringPfs pfX pfY
@@ -198,7 +215,7 @@ heuristicBuildInPredString _ prd = case prd of
     where
     splitPointsStringPfConst :: GroundedAST.PFunc Text -> GroundedAST.ConstantExpr Text -> HPT.CachedSplitPoints
     splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints 1 $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
-    splitPointsStringPfs _ _ = error "equality between two string-value PFs not implemented"
+    splitPointsStringPfs _ _ = error "equality between two string-valued PFs not implemented"
 
 heuristicBuildInPredReal :: Map GroundedAST.PFuncLabel Interval
                          -> GroundedAST.TypedBuildInPred GroundedAST.RealN
@@ -303,6 +320,19 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
             cdf = case GroundedAST.probabilisticFuncDef pf of
                 GroundedAST.RealDist cdf'' _ -> cdf''
                 _ -> error "IHPMC.heuristicBuildInPred.cdf"
+
+heuristicBuildInPredObject :: Map GroundedAST.PFuncLabel Formula.ObjCondition
+                           -> GroundedAST.TypedBuildInPred GroundedAST.Object
+                           -> HPT.CachedSplitPoints
+heuristicBuildInPredObject _ prd = case prd of
+    GroundedAST.Equality _ (GroundedAST.PFuncExpr pf)      (GroundedAST.ConstantExpr cnst) -> splitPointsObjPfConst pf cnst
+    GroundedAST.Equality _ (GroundedAST.ConstantExpr cnst) (GroundedAST.PFuncExpr pf)      -> splitPointsObjPfConst pf cnst
+    GroundedAST.Equality _ (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)     -> splitPointsObjPfs pfX pfY
+    _                                                                                      -> undefined
+    where
+    splitPointsObjPfConst :: GroundedAST.PFunc GroundedAST.Object -> GroundedAST.ConstantExpr GroundedAST.Object -> HPT.CachedSplitPoints
+    splitPointsObjPfConst pf (GroundedAST.ObjConstant cnst) = CachedSplitPoints 1 $ Map.singleton (ObjectSplit pf cnst) 1.0
+    splitPointsObjPfs _ _ = error "equality between two object-valued PFs not implemented"
 
 heuristicComposed :: [HPT.CachedSplitPoints] -> HPT.CachedSplitPoints
 heuristicComposed points = HPT.CachedSplitPoints total ((/ total) <$> splitPts)

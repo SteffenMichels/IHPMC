@@ -26,6 +26,7 @@ module Probability
     , ProbabilityBounds(..)
     , doubleToProb
     , probToDouble
+    , intToProb
     ) where
 import Control.Arrow (first)
 import TextShow
@@ -62,6 +63,9 @@ doubleToProb = Probability . toRational
 probToDouble :: Probability -> Double
 probToDouble (Probability p) = fromRat p
 #endif
+
+intToProb :: Integer -> Probability
+intToProb i = Probability $ fromIntegral i
 
 instance Read Probability
     where

@@ -34,6 +34,7 @@ module GroundedAST ( GroundedAST(..)
                    , makePFuncBool
                    , makePFuncReal
                    , makePFuncString
+                   , makePFuncObj
                    , Expr(..)
                    , PredicateLabel(..)
                    , ConstantExpr(..)
@@ -41,6 +42,7 @@ module GroundedAST ( GroundedAST(..)
                    , Addition
                    , Ineq
                    , RealN
+                   , Object
                    , RuleBody(..)
                    , RuleBodyElement(..)
                    , negatePred
@@ -119,9 +121,10 @@ pFuncToText :: PFunc a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> B
 pFuncToText (PFunc l _) = pFuncLabelToText l
 
 data PFuncDef a where
-    Flip     :: Probability                                            -> PFuncDef Bool
-    RealDist :: (Rational -> Probability) -> (Probability -> Rational) -> PFuncDef GroundedAST.RealN
-    StrDist  :: [(Probability, Text)]                                  -> PFuncDef Text
+    Flip           :: Probability                                            -> PFuncDef Bool
+    RealDist       :: (Rational -> Probability) -> (Probability -> Rational) -> PFuncDef GroundedAST.RealN
+    StrDist        :: [(Probability, Text)]                                  -> PFuncDef Text
+    UniformObjDist :: Integer                                                -> PFuncDef Object
 
 probabilisticFuncLabel :: PFunc a -> PFuncLabel
 probabilisticFuncLabel (PFunc label _) = label
@@ -137,6 +140,9 @@ makePFuncReal label cdf cdf' = PFunc label $ RealDist cdf cdf'
 
 makePFuncString :: PFuncLabel -> [(Probability, Text)] -> PFunc Text
 makePFuncString label dist = PFunc label $ StrDist dist
+
+makePFuncObj :: PFuncLabel -> Integer -> PFunc Object
+makePFuncObj label nr = PFunc label $ UniformObjDist nr
 
 newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
 pFuncLabelToText :: PFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
@@ -168,12 +174,14 @@ data BuildInPredicate = BuildInPredicateBool (TypedBuildInPred Bool)
                       | BuildInPredicateReal (TypedBuildInPred RealN)
                       | BuildInPredicateStr  (TypedBuildInPred Text)
                       | BuildInPredicateInt  (TypedBuildInPred Integer)
+                      | BuildInPredicateObj  (TypedBuildInPred Object)
                       deriving (Eq, Generic, Ord)
 buildInPredToText :: BuildInPredicate -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 buildInPredToText (BuildInPredicateBool b) = typedBuildInPredToText b
 buildInPredToText (BuildInPredicateReal r) = typedBuildInPredToText r
 buildInPredToText (BuildInPredicateStr  s) = typedBuildInPredToText s
 buildInPredToText (BuildInPredicateInt  i) = typedBuildInPredToText i
+buildInPredToText (BuildInPredicateObj  o) = typedBuildInPredToText o
 instance Hashable BuildInPredicate
 
 data TypedBuildInPred a
@@ -221,6 +229,7 @@ data ConstantExpr a
     RealConstant :: Rational -> ConstantExpr RealN
     StrConstant  :: Text     -> ConstantExpr Text
     IntConstant  :: Integer  -> ConstantExpr Integer
+    ObjConstant  :: Integer  -> ConstantExpr Object
 
 deriving instance Eq (ConstantExpr a)
 instance TextShow (ConstantExpr a) where
@@ -228,23 +237,27 @@ instance TextShow (ConstantExpr a) where
     showb (RealConstant cnst) = showb (fromRat cnst::Float)
     showb (StrConstant  cnst) = TB.fromText cnst
     showb (IntConstant  cnst) = showb cnst
+    showb (ObjConstant  cnst) = "#" <> showb cnst
 instance Hashable (ConstantExpr a)
     where
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
     hashWithSalt salt (RealConstant r) = Hashable.hashWithSalt salt r
     hashWithSalt salt (StrConstant  s) = Hashable.hashWithSalt salt s
     hashWithSalt salt (IntConstant  i) = Hashable.hashWithSalt salt i
+    hashWithSalt salt (ObjConstant  o) = Hashable.hashWithSalt salt o
 instance Ord (ConstantExpr a)
     where
     BoolConstant x <= BoolConstant y = x <= y
     RealConstant x <= RealConstant y = x <= y
     StrConstant  x <= StrConstant  y = x <= y
     IntConstant  x <= IntConstant  y = x <= y
+    ObjConstant  x <= ObjConstant  y = x <= y
 #if __GLASGOW_HASKELL__ < 800
     _              <= _              = undefined
 #endif
 
-data RealN -- phantom for real numbered expression etc.
+data RealN  -- phantom for real numbered expression etc.
+data Object -- phantom for expressions about objects
 
 class Addition a
 instance Addition Integer
@@ -274,6 +287,7 @@ deterministicValue (BuildInPredicateBool b) = deterministicValueTyped b
 deterministicValue (BuildInPredicateReal r) = deterministicValueTyped r
 deterministicValue (BuildInPredicateStr  s) = deterministicValueTyped s
 deterministicValue (BuildInPredicateInt  i) = deterministicValueTyped i
+deterministicValue (BuildInPredicateObj  o) = deterministicValueTyped o
 
 deterministicValueTyped :: TypedBuildInPred a -> Maybe Bool
 deterministicValueTyped (Equality eq (ConstantExpr left) (ConstantExpr right))              = Just $ (if eq then (==) else (/=)) left right
@@ -318,6 +332,7 @@ simplifiedBuildInPred (BuildInPredicateBool prd) = BuildInPredicateBool $ simpli
 simplifiedBuildInPred (BuildInPredicateReal prd) = BuildInPredicateReal $ simplifiedTypedBuildInPred prd
 simplifiedBuildInPred (BuildInPredicateInt  prd) = BuildInPredicateInt  $ simplifiedTypedBuildInPred prd
 simplifiedBuildInPred (BuildInPredicateStr  prd) = BuildInPredicateStr  $ simplifiedTypedBuildInPred prd
+simplifiedBuildInPred (BuildInPredicateObj  prd) = BuildInPredicateObj  $ simplifiedTypedBuildInPred prd
 
 simplifiedTypedBuildInPred :: TypedBuildInPred a -> TypedBuildInPred a
 simplifiedTypedBuildInPred (Equality eq exprX exprY) = Equality eq (simplifiedExpr exprX) (simplifiedExpr exprY)

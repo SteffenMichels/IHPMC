@@ -73,6 +73,7 @@ reservedOp = Token.reservedOp lexer
 parens     = Token.parens     lexer
 braces     = Token.braces     lexer
 colon      = Token.colon      lexer
+hash       = Token.lexeme     lexer $ string "#"
 rational   = Token.lexeme     lexer parseRat
     where
     parseRat :: P Rational
@@ -205,7 +206,7 @@ pFuncDef :: P (AST.PFuncLabel, [AST.HeadArgument], AST.PFuncDef)
 pFuncDef = do
     (lbl, args) <- pFunc headArgument
     reservedOp "~"
-    def <- flipDef <|> normDef <|> strDef
+    def <- flipDef <|> normDef <|> strDef <|> objDef
     return (lbl, args, def)
 
 pFunc :: P arg -> P (AST.PFuncLabel, [arg])
@@ -242,6 +243,13 @@ strDef = const <$> braces (AST.StrDist <$> sepBy choicesElement comma) <*> dot
                          <*> colon
                          <*> stringConstant
 
+objDef :: P AST.PFuncDef
+objDef = do
+    reserved "uniformObjects"
+    nr <- parens integer
+    _ <- dot
+    return $ AST.UniformObjDist nr
+
 headArgument :: P AST.HeadArgument
 headArgument =     AST.ArgConstant               <$> constantExpression
                <|> (AST.ArgVariable . AST.VarName . T.pack) <$> variable
@@ -263,8 +271,11 @@ constantExpression =     const (AST.BoolConstant True)  <$> reserved "true"
                      <|> AST.StrConstant . T.pack       <$> stringConstant
                      <|> AST.RealConstant               <$> try rational
                      <|> AST.IntConstant                <$> integer
+                     <|> AST.ObjConstant                <$> objectConstant
 
 stringConstant = identifier <|> stringLit
+
+objectConstant = hash >> integer
 
 -- queries
 query :: P AST.RuleBodyElement

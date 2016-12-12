@@ -78,14 +78,16 @@ pFuncLabelToText :: PFuncLabel -> Map Int Text -> Builder
 pFuncLabelToText (PFuncLabel idNr) = TB.fromText . Map.findWithDefault undefined idNr
 instance Hashable PFuncLabel
 
-data PFuncDef = Flip     Probability
-              | RealDist (Rational -> Probability) (Probability -> Rational)
-              | StrDist  [(Probability, Text)]
+data PFuncDef = Flip           Probability
+              | RealDist       (Rational -> Probability) (Probability -> Rational)
+              | StrDist        [(Probability, Text)]
+              | UniformObjDist Integer -- number of objects in domain
 
 instance TextShow PFuncDef where
-    showb (Flip p)        = "flip(" <> showb p <> ")"
-    showb (RealDist _ _)  = "realDist"
-    showb (StrDist pairs) = "{" <> showbLst pairs <> "}"
+    showb (Flip p)            = "flip(" <> showb p <> ")"
+    showb (RealDist _ _)      = "realDist"
+    showb (StrDist pairs)     = "{" <> showbLst pairs <> "}"
+    showb (UniformObjDist nr) = "uniformObjects(" <> showb nr <> ")"
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 instance Hashable RuleBody
@@ -153,6 +155,7 @@ data ConstantExpr = BoolConstant Bool
                   | RealConstant Rational
                   | StrConstant  Text
                   | IntConstant  Integer
+                  | ObjConstant  Integer
                   deriving (Eq, Generic, Ord)
 
 instance TextShow ConstantExpr
@@ -161,6 +164,7 @@ instance TextShow ConstantExpr
     showb (RealConstant cnst) = showb (fromRat cnst::Float)
     showb (StrConstant  cnst) = "\"" <> TB.fromText cnst <> "\""
     showb (IntConstant  cnst) = showb cnst
+    showb (ObjConstant  cnst) = "#" <> showb cnst
 instance Hashable ConstantExpr
 
 negateOp :: IneqOp -> IneqOp
