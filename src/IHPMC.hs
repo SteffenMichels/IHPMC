@@ -19,6 +19,11 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 800
+{-# LANGUAGE Strict #-}
+#endif
+
 module IHPMC
     ( ihpmc
     , heuristicsCacheComputations
@@ -35,7 +40,7 @@ import qualified Data.HashMap as Map
 import qualified GroundedAST
 import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~>), (~<))
 import qualified Interval
-import Data.Maybe (fromMaybe, fromJust)
+import Data.Maybe (fromMaybe)
 import Control.Monad.State.Strict
 import qualified Data.List as List
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -43,6 +48,7 @@ import Exception
 import Data.Foldable (foldl')
 import Probability
 import Data.Text (Text)
+import Control.Arrow (second)
 
 type FState = Formula.FState HPT.CachedSplitPoints
 
@@ -102,7 +108,7 @@ ihpmc query evidence finishPred reportingIO f = do
             HPT.MaybeWithinEv q e -> do
                 eEntry               <- Formula.augmentWithEntry e
                 let spPoint          =  splitPoint eEntry
-                (el, ql, er, qr, pl) <- splitFormula eEntry (Just q) spPoint
+                (el, Just ql, er, Just qr, pl) <- splitFormula eEntry (Just q) spPoint
                 Formula.dereference e
                 when (Formula.deterministicNodeRef el /= Just False && Formula.deterministicNodeRef er /= Just False)
                      (Formula.reference query) -- new lazy formula refers to initial query
@@ -116,43 +122,54 @@ splitPoint f = spPoint
     (spPoint, _)         = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
     candidateSplitPoints = Map.toList pts where HPT.CachedSplitPoints _ pts = Formula.entryCachedInfo f
 
-splitFormula :: Formula.RefWithNode HPT.CachedSplitPoints -> Maybe HPT.LazyNode -> SplitPoint -> FState (Formula.NodeRef, HPT.LazyNode, Formula.NodeRef, HPT.LazyNode, Probability)
+splitFormula :: Formula.RefWithNode HPT.CachedSplitPoints -> Maybe HPT.LazyNode -> SplitPoint -> FState (Formula.NodeRef, Maybe HPT.LazyNode, Formula.NodeRef, Maybe HPT.LazyNode, Probability)
 splitFormula f lf (BoolSplit splitPF) = do
-    left  <- Formula.conditionBool f splitPF True
-    right <- Formula.conditionBool f splitPF False
+    left  <- Formula.condition f $ addCond True  Formula.noConditions
+    right <- Formula.condition f $ addCond False Formula.noConditions
     let GroundedAST.Flip pLeft = GroundedAST.probabilisticFuncDef splitPF
     return ( Formula.entryRef left
-           , conditionLazyFormula lf $ \f' ->Formula.conditionBool f' splitPF True
+           , second (addCond True)  <$> lf
            , Formula.entryRef right
-           , conditionLazyFormula lf $ \f' ->Formula.conditionBool f' splitPF False
-           , pLeft
-           )
-splitFormula f lf (StringSplit splitPF splitSet) = do
-    left  <- Formula.conditionString f splitPF splitSet
-    right <- Formula.conditionString f splitPF $ Set.difference curSet splitSet
-    return ( Formula.entryRef left
-           , conditionLazyFormula lf $ \f' -> Formula.conditionString f' splitPF splitSet
-           , Formula.entryRef right
-           , conditionLazyFormula lf $ \f' -> Formula.conditionString f' splitPF $ Set.difference curSet splitSet
+           , second (addCond False) <$> lf
            , pLeft
            )
     where
-    curSet                          = Map.findWithDefault (Set.fromList $ snd <$> elements) (GroundedAST.probabilisticFuncLabel splitPF) sConds
+    pfLabel = GroundedAST.probabilisticFuncLabel splitPF
+    addCond val conds = conds{Formula.boolConds = Map.insert pfLabel val $ Formula.boolConds conds}
+splitFormula f lf (StringSplit splitPF splitSet) = do
+    left  <- Formula.condition f $ addCond splitSet      Formula.noConditions
+    right <- Formula.condition f $ addCond splitSetCompl Formula.noConditions
+    return ( Formula.entryRef left
+           , second (addCond splitSet)      <$> lf
+           , Formula.entryRef right
+           , second (addCond splitSetCompl) <$> lf
+           , pLeft
+           )
+    where
+    splitSetCompl                   = Set.difference curSet splitSet
+    curSet                          = Map.findWithDefault
+                                          (Set.fromList $ snd <$> elements)
+                                          (GroundedAST.probabilisticFuncLabel splitPF)
+                                          sConds
     Formula.Conditions _ sConds _ _ = Formula.entryChoices f
     GroundedAST.StrDist elements    = GroundedAST.probabilisticFuncDef splitPF
     pLeft                           = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
     z                               = List.sum $ fst <$> curElements
     curElements                     = List.filter ((`Set.member` curSet) . snd) elements
+    pfLabel                         = GroundedAST.probabilisticFuncLabel splitPF
+    addCond val conds               = conds{Formula.stringConds = Map.insert pfLabel val $ Formula.stringConds conds}
 splitFormula f lf (ObjectSplit splitPF splitObj) = do
-    left  <- Formula.conditionObject f splitPF $ Formula.Object splitObj
-    right <- Formula.conditionObject f splitPF $ Formula.AnyExcept $ Set.insert splitObj curExclSet
+    left  <- Formula.condition f $ addCond leftCond  Formula.noConditions
+    right <- Formula.condition f $ addCond rightCond Formula.noConditions
     return ( Formula.entryRef left
-           , conditionLazyFormula lf $ \f' -> Formula.conditionObject f' splitPF $ Formula.Object splitObj
+           , second (addCond leftCond)  <$> lf
            , Formula.entryRef right
-           , conditionLazyFormula lf $ \f' -> Formula.conditionObject f' splitPF $ Formula.AnyExcept $ Set.insert splitObj curExclSet
+           , second (addCond rightCond) <$> lf
            , pLeft
            )
     where
+    leftCond  = Formula.Object splitObj
+    rightCond = Formula.AnyExcept $ Set.insert splitObj curExclSet
     curExclSet = case Map.lookup (GroundedAST.probabilisticFuncLabel splitPF) oConds of
         Just (Formula.AnyExcept s) -> s
         Just (Formula.Object _)    -> error "object PF restricted to single object should never be selected to split on"
@@ -160,32 +177,32 @@ splitFormula f lf (ObjectSplit splitPF splitObj) = do
     Formula.Conditions _ _ _ oConds = Formula.entryChoices f
     GroundedAST.UniformObjDist nr   = GroundedAST.probabilisticFuncDef splitPF
     pLeft                           = 1 / intToProb (nr - fromIntegral (Set.size curExclSet))
+    pfLabel                         = GroundedAST.probabilisticFuncLabel splitPF
+    addCond val conds               = conds{Formula.objConds = Map.insert pfLabel val $ Formula.objConds conds}
 splitFormula f lf (ContinuousSplit splitPF spPoint) = do
-    left  <- Formula.conditionReal f splitPF $ Interval.Interval curLower (Open spPoint)
-    right <- Formula.conditionReal f splitPF $ Interval.Interval (Open spPoint) curUpper
+    left  <- Formula.condition f $ addCond leftCond  Formula.noConditions
+    right <- Formula.condition f $ addCond rightCond Formula.noConditions
     return ( Formula.entryRef left
-           , conditionLazyFormula lf $ \f' ->Formula.conditionReal f' splitPF $ Interval.Interval curLower (Open spPoint)
+           , second (addCond leftCond)  <$> lf
            , Formula.entryRef right
-           , conditionLazyFormula lf $ \f' ->Formula.conditionReal f' splitPF $ Interval.Interval (Open spPoint) curUpper
+           , second (addCond rightCond) <$> lf
            , pLeft
            )
     where
+    leftCond  = Interval.Interval curLower (Open spPoint)
+    rightCond = Interval.Interval (Open spPoint) curUpper
     pLeft = (pUntilSplit - pUntilLower) / (pUntilUpper - pUntilLower)
     pUntilLower = cdf' cdf True curLower
     pUntilUpper = cdf' cdf False curUpper
     pUntilSplit = cdf spPoint
-    Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel splitPF) rConds
+    Interval.Interval curLower curUpper = Map.findWithDefault
+                                              (Interval.Interval Inf Inf)
+                                              (GroundedAST.probabilisticFuncLabel splitPF)
+                                              rConds
     rConds = Formula.realConds $ Formula.entryChoices f
     GroundedAST.RealDist cdf _ = GroundedAST.probabilisticFuncDef splitPF
-
-conditionLazyFormula :: Maybe HPT.LazyNode
-                     -> (Formula.RefWithNode HPT.CachedSplitPoints -> HPT.LazyNode)
-                     -> HPT.LazyNode
-conditionLazyFormula lf func = do
-    f  <- fromJust lf
-    f' <- func f
-    Formula.dereference $ Formula.entryRef f
-    return f'
+    pfLabel           = GroundedAST.probabilisticFuncLabel splitPF
+    addCond val conds = conds{Formula.realConds = Map.insert pfLabel val $ Formula.realConds conds}
 
 heuristicsCacheComputations :: Formula.CacheComputations HPT.CachedSplitPoints
 heuristicsCacheComputations = Formula.CacheComputations

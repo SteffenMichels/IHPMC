@@ -19,6 +19,11 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 800
+{-# LANGUAGE Strict #-}
+#endif
+
 module HPT
     ( HPT(..)
     , HPTLeaf(..)
@@ -48,7 +53,7 @@ data HPT = HPT (MaxQueue HPTLeaf) ProbabilityQuadruple
 data HPTLeaf = HPTLeaf HPTLeafFormulas Probability
 data HPTLeafFormulas = MaybeWithinEv LazyNode Formula.NodeRef
                      | WithinEv      Formula.NodeRef
-type LazyNode = Formula.FState CachedSplitPoints (Formula.RefWithNode CachedSplitPoints)
+type LazyNode = (Formula.NodeRef, Formula.Conditions)
 instance Eq HPTLeaf where
     HPTLeaf fx px == HPTLeaf fy py = score fx px == score fy py
 instance Ord HPTLeaf where
@@ -68,7 +73,7 @@ data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
 instance Hashable SplitPoint
 
 initialHPT :: Formula.NodeRef -> Formula.NodeRef -> Formula.FState CachedSplitPoints HPT
-initialHPT q e = addLeaf (Formula.augmentWithEntry q) e 1.0 $ HPT PQ.empty $ ProbabilityQuadruple 0.0 0.0 0.0 0.0
+initialHPT q e = addLeaf (q, Formula.noConditions) e 1.0 $ HPT PQ.empty $ ProbabilityQuadruple 0.0 0.0 0.0 0.0
 
 nextLeaf :: HPT -> Maybe (HPTLeaf, HPT)
 nextLeaf (HPT leaves (ProbabilityQuadruple t f e u)) = case PQ.maxView leaves of
@@ -80,12 +85,13 @@ nextLeaf (HPT leaves (ProbabilityQuadruple t f e u)) = case PQ.maxView leaves of
             WithinEv _        -> ProbabilityQuadruple t f (e - p) u
 
 addLeaf :: LazyNode -> Formula.NodeRef -> Probability -> HPT -> Formula.FState CachedSplitPoints HPT
-addLeaf q ev p hpt@(HPT leaves (ProbabilityQuadruple t f e u)) = case Formula.deterministicNodeRef ev of
+addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e u)) = case Formula.deterministicNodeRef ev of
     Just True -> do
-        q' <- Formula.entryRef <$> q
-        return $ addLeafWithinEvidence q' p hpt
+        q'  <- Formula.augmentWithEntry q
+        q'' <- Formula.condition q' qConds
+        return $ addLeafWithinEvidence (Formula.entryRef q'') p hpt
     Just False -> return hpt
-    Nothing    -> return $ HPT (PQ.insert (HPTLeaf (MaybeWithinEv q ev) p) leaves) (ProbabilityQuadruple t f e (u + p))
+    Nothing    -> return $ HPT (PQ.insert (HPTLeaf (MaybeWithinEv qWithConds ev) p) leaves) (ProbabilityQuadruple t f e (u + p))
 
 addLeafWithinEvidence :: Formula.NodeRef -> Probability -> HPT -> HPT
 addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u)) = case Formula.deterministicNodeRef q of
