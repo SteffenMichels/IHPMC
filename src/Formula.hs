@@ -111,73 +111,53 @@ insert :: ComposedLabel
        -> NodeType
        -> [RefWithNode cachedInfo]
        -> FState cachedInfo (RefWithNode cachedInfo)
-insert label sign op children = do
+insert label sign operator children = do
     mbCId <- gets $ Map.lookup label . labels2ids
     case mbCId of
         Just cid -> augmentWithEntryRef $ RefComposed sign cid
         Nothing -> do
-            (simplifiedNode, simplifiedSign) <- simplify op children
-            children' <- forM (nodeChildren simplifiedNode) augmentWithEntry
-            Formula{cacheComps, freshCounter, labels2ids, nodes} <- get
-            let cachedInfo = cachedInfoComposed cacheComps (entryCachedInfo <$> children')
-            case simplifiedNode of
-                Composed nType nChildren -> do
-                    let pFuncs = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
-                    modify' (\f -> f{ nodes        = Map.insert (ComposedId freshCounter) (1, FormulaEntry label nType nChildren pFuncs cachedInfo) nodes
-                                    , freshCounter = succ freshCounter
-                                    , labels2ids   = Map.insert label (ComposedId freshCounter) labels2ids
-                                    }
-                            )
-                    return RefWithNode { entryRef        = RefComposed (sign == simplifiedSign) $ ComposedId freshCounter
-                                       , entryNode       = simplifiedNode
-                                       , entryLabel      = Just label
-                                       , entryPFuncs     = pFuncs
-                                       , entryCachedInfo = cachedInfo
-                                       }
-                BuildInPredicateBool   prd        -> return $ predRefWithNodeBool   (if sign then prd else GroundedAST.negatePred prd) cachedInfo
-                BuildInPredicateString prd sConds -> return $ predRefWithNodeString (if sign then prd else GroundedAST.negatePred prd) sConds cachedInfo
-                BuildInPredicateReal   prd rConds -> return $ predRefWithNodeReal   (if sign then prd else GroundedAST.negatePred prd) rConds cachedInfo
-                BuildInPredicateObject prd oConds -> return $ predRefWithNodeObject (if sign then prd else GroundedAST.negatePred prd) oConds cachedInfo
-                Deterministic val                 -> return $ deterministicRefWithNode (val == sign) cachedInfo
-    where
-    simplify :: NodeType -> [RefWithNode cachedInfo] -> FState cachedInfo (Node, Bool)
-    simplify operator children'
-        | RefDeterministic singleDeterminismValue `elem` childRefs = do
-            forM_ childRefs dereference
-            return (Deterministic singleDeterminismValue, True)
-        | otherwise = do
-            newChildRefs <- List.concat <$> mapM mapChild children'
-            case newChildRefs of
-                []          -> return (Deterministic filterValue, True)
-                [onlyChild] -> do
-                    let sign' = case onlyChild of
-                            RefComposed sign'' _ -> sign''
-                            _                    -> True
-                    e <- augmentWithEntry onlyChild
-                    forM_ (nodeChildren $ entryNode e) reference
-                    dereference onlyChild
-                    return (entryNode e, sign')
-                _ ->
-                    return (Composed operator newChildRefs, True)
+            Formula{cacheComps, freshCounter} <- get
+            if RefDeterministic singleDeterminismValue `elem` childRefs then do
+                forM_ childRefs dereference
+                return $ deterministicRefWithNode singleDeterminismValue $ cachedInfoDeterministic cacheComps singleDeterminismValue
+            else do
+                children' <- List.concat <$> mapM simplifyChild children
+                case children' of
+                    [] -> return $ deterministicRefWithNode filterValue $ cachedInfoDeterministic cacheComps filterValue
+                    [onlyChild] -> return onlyChild
+                    _ -> do
+                        let pFuncs     = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
+                        let cachedInfo = cachedInfoComposed cacheComps (entryCachedInfo <$> children')
+                        let childRefs' = entryRef <$> children'
+                        modify' (\f -> f{ nodes        = Map.insert
+                                                             (ComposedId freshCounter)
+                                                             (1, FormulaEntry label operator childRefs' pFuncs cachedInfo)
+                                                             (nodes f)
+                                        , freshCounter = succ freshCounter
+                                        , labels2ids   = Map.insert label (ComposedId freshCounter) $ labels2ids f
+                                        }
+                                )
+                        return RefWithNode { entryRef        = RefComposed sign $ ComposedId freshCounter
+                                           , entryNode       = Composed operator childRefs'
+                                           , entryLabel      = Just label
+                                           , entryPFuncs     = pFuncs
+                                           , entryCachedInfo = cachedInfo
+                                           }
         where
-        childRefs = entryRef <$> children'
+            -- truth value that causes determinism if at least a single child has it
+            singleDeterminismValue = operator == Or
+            -- truth value that can be filtered out
+            filterValue = operator == And
+            childRefs = entryRef <$> children
 
-        mapChild c = case entryNode c of
-            Composed cop cs | cop == operator -> do
-                forM_ cs reference
-                dereference $ entryRef c
-                return cs
-            Deterministic v | v == filterValue -> return []
-            _ -> return [entryRef c]
-
-        -- truth value that causes determinism if at least a single child has it
-        singleDeterminismValue = operator == Or
-        -- truth value that can be filtered out
-        filterValue = operator == And
-
-    nodeChildren :: Node -> [NodeRef]
-    nodeChildren (Composed _ children'') = children''
-    nodeChildren _                       = []
+            simplifyChild :: RefWithNode cachedInfo -> FState cachedInfo [RefWithNode cachedInfo]
+            simplifyChild c = case entryNode c of
+                Composed cop cs | cop == operator -> do
+                    augCs <- forM cs augmentWithEntryRef
+                    dereference $ entryRef c
+                    return augCs
+                Deterministic v | v == filterValue -> return []
+                _ -> return [c]
 
 augmentWithEntry :: NodeRef -> FState cachedInfo (RefWithNode cachedInfo)
 augmentWithEntry ref = augmentWithEntryBase ref False
@@ -430,22 +410,22 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                                ]
 
 reference :: NodeRef -> FState cachedInfo ()
-reference (RefComposed _ cid) =  modify'
+reference (RefComposed _ cid) = modify'
     (\st -> st{nodes = Map.adjust (first succ) cid $ nodes st})
 reference _ = return ()
 
 dereference :: NodeRef -> FState cachedInfo ()
 dereference (RefComposed _ cid) = do
-        nodes <- gets nodes
-        let (Just (refCount, FormulaEntry label _ children _ _), nodes') = Map.updateLookupWithKey
-                (\_ (rc, entry) -> if rc == 1 then Nothing else Just (rc - 1, entry))
-                cid
-                nodes
-        if refCount == 1 then do
-            modify' (\st -> st{nodes = nodes', labels2ids = Map.delete label $ labels2ids st})
+        (delete, label, children) <- state (\f ->
+                let (Just (refCount, FormulaEntry label _ children _ _), nodes') = Map.updateLookupWithKey
+                        (\_ (rc, entry) -> if rc == 1 then Nothing else Just (rc - 1, entry))
+                        cid
+                        (nodes f)
+                in ((refCount == 1, label, children), f{nodes = nodes'})
+            )
+        when delete $ do
+            modify' (\st -> st{labels2ids = Map.delete label $ labels2ids st})
             forM_ children dereference
-        else
-            modify' (\st -> st{nodes = nodes'})
 dereference _ = return ()
 
 negate :: NodeRef -> NodeRef
@@ -487,7 +467,7 @@ exportAsDot path Formula{nodes} ids2str ids2label = do
                 childStr (RefBuildInPredicateString prd _)       = printPrd prd
                 childStr (RefBuildInPredicateReal prd _)         = printPrd prd
                 childStr (RefBuildInPredicateObject prd _)       = printPrd prd
-                childStr (RefDeterministic _)                    = error "Formula export: should this happen?"
+                childStr (RefDeterministic v)                    = showb v
 
                 printPrd :: GroundedAST.TypedBuildInPred a -> Builder
                 printPrd prd = showb h <>

@@ -89,6 +89,7 @@ addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e 
     Just True -> do
         q'  <- Formula.augmentWithEntry q
         q'' <- Formula.condition q' qConds
+        Formula.dereference q
         return $ addLeafWithinEvidence (Formula.entryRef q'') p hpt
     Just False -> return hpt
     Nothing    -> return $ HPT (PQ.insert (HPTLeaf (MaybeWithinEv qWithConds ev) p) leaves) (ProbabilityQuadruple t f e (u + p))
