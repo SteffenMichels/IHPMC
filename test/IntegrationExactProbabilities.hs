@@ -29,7 +29,7 @@ import Data.Text (unpack)
 
 tests :: (String, [IntegrationTest])
 tests = ("exact probabilities", [ boolsAnd, boolsOr, boolEq, boolNonEq, stringAnd, stringOr
-                                , oneDimReal, oneDimRealAnd, oneDimRealOr
+                                , oneDimReal, oneDimRealAnd, oneDimRealOr, objectsUniform
                                 ]
         )
 
@@ -174,5 +174,22 @@ oneDimRealOr = IntegrationTest
               |]
     , expectedResults =
         [ (query "q", preciseProb 1.0)
+        ]
+    }
+
+objectsUniform :: IntegrationTest
+objectsUniform = IntegrationTest
+    { label = "object distributions"
+    , model = unpack $ [text|
+                  ~x ~ uniformObjects(100).
+                  a <- ~x = #0.
+                  b <- ~x = #0, ~x = #1.
+                  c <- ~x = #0.
+                  c <- ~x = #1.
+              |]
+    , expectedResults =
+        [ (query "a", preciseProb 0.01)
+        , (query "b", preciseProb 0.0)
+        , (query "c", preciseProb 0.02)
         ]
     }
