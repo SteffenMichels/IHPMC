@@ -120,7 +120,7 @@ splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints -> SplitPoint
 splitPoint f = spPoint
     where
     (spPoint, _)         = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
-    candidateSplitPoints = Map.toList pts where HPT.CachedSplitPoints _ pts = Formula.entryCachedInfo f
+    candidateSplitPoints = Map.toList pts where HPT.CachedSplitPoints pts = Formula.entryCachedInfo f
 
 splitFormula :: Formula.RefWithNode HPT.CachedSplitPoints -> Maybe HPT.LazyNode -> SplitPoint -> FState (Formula.NodeRef, Maybe HPT.LazyNode, Formula.NodeRef, Maybe HPT.LazyNode, Probability)
 splitFormula f lf (BoolSplit splitPF) = do
@@ -215,10 +215,10 @@ heuristicsCacheComputations = Formula.CacheComputations
     }
 
 heuristicDeterministic :: Bool -> HPT.CachedSplitPoints
-heuristicDeterministic = const $ CachedSplitPoints 0 Map.empty
+heuristicDeterministic = const $ CachedSplitPoints Map.empty
 
 heuristicBuildInPredBool :: GroundedAST.TypedBuildInPred Bool -> HPT.CachedSplitPoints
-heuristicBuildInPredBool prd = CachedSplitPoints (fromIntegral $ Set.size $ GroundedAST.predProbabilisticFunctions prd) $
+heuristicBuildInPredBool prd = CachedSplitPoints $
     Set.fold (\pf pts -> Map.insert (BoolSplit pf) 1.0 pts) Map.empty $ GroundedAST.predProbabilisticFunctions prd
 
 heuristicBuildInPredString :: Map GroundedAST.PFuncLabel (Set Text)
@@ -231,7 +231,7 @@ heuristicBuildInPredString _ prd = case prd of
     _                                                                                      -> undefined
     where
     splitPointsStringPfConst :: GroundedAST.PFunc Text -> GroundedAST.ConstantExpr Text -> HPT.CachedSplitPoints
-    splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints 1 $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
+    splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
     splitPointsStringPfs _ _ = error "equality between two string-valued PFs not implemented"
 
 heuristicBuildInPredReal :: Map GroundedAST.PFuncLabel Interval
@@ -239,8 +239,8 @@ heuristicBuildInPredReal :: Map GroundedAST.PFuncLabel Interval
                          -> HPT.CachedSplitPoints
 heuristicBuildInPredReal prevChoicesReal prd = case prd of
     GroundedAST.Equality{} -> error "IHPMC: real equality not implemented"
-    GroundedAST.Constant _ -> CachedSplitPoints 0.0 Map.empty
-    GroundedAST.Ineq op exprX exprY -> CachedSplitPoints (foldl' (\tot s -> tot + (2 - s)) 0.0 scores) scores
+    GroundedAST.Constant _ -> CachedSplitPoints Map.empty
+    GroundedAST.Ineq op exprX exprY -> CachedSplitPoints scores
         where
         predRfs = GroundedAST.predProbabilisticFunctions prd
         nPfs = Set.size predRfs
@@ -348,17 +348,17 @@ heuristicBuildInPredObject _ prd = case prd of
     _                                                                                      -> undefined
     where
     splitPointsObjPfConst :: GroundedAST.PFunc GroundedAST.Object -> GroundedAST.ConstantExpr GroundedAST.Object -> HPT.CachedSplitPoints
-    splitPointsObjPfConst pf (GroundedAST.ObjConstant cnst) = CachedSplitPoints 1 $ Map.singleton (ObjectSplit pf cnst) 1.0
+    splitPointsObjPfConst pf (GroundedAST.ObjConstant cnst) = CachedSplitPoints $ Map.singleton (ObjectSplit pf cnst) 1.0
     splitPointsObjPfs _ _ = error "equality between two object-valued PFs not implemented"
 
 heuristicComposed :: [HPT.CachedSplitPoints] -> HPT.CachedSplitPoints
-heuristicComposed points = HPT.CachedSplitPoints total ((/ total) <$> splitPts)
+heuristicComposed points = HPT.CachedSplitPoints ((/ pi) <$> splitPts)
     where
-    HPT.CachedSplitPoints total splitPts = foldl'
-                        ( \(HPT.CachedSplitPoints total' splitPoints) (HPT.CachedSplitPoints total'' splitPoints') ->
-                          HPT.CachedSplitPoints (total' + total'') $ combineSplitPoints splitPoints splitPoints'
+    HPT.CachedSplitPoints splitPts = foldl'
+                        ( \(HPT.CachedSplitPoints splitPoints) (HPT.CachedSplitPoints splitPoints') ->
+                          HPT.CachedSplitPoints $ combineSplitPoints splitPoints splitPoints'
                         )
-                        (HPT.CachedSplitPoints 0.0 Map.empty)
+                        (HPT.CachedSplitPoints Map.empty)
                         points
 
     combineSplitPoints :: Map SplitPoint Double
