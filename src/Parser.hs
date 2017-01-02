@@ -206,7 +206,7 @@ pFuncDef :: P (AST.PFuncLabel, [AST.HeadArgument], AST.PFuncDef)
 pFuncDef = do
     (lbl, args) <- pFunc headArgument
     reservedOp "~"
-    def <- flipDef <|> normDef <|> strDef <|> objDef
+    def <- flipDef <|> normDef <|> strDef <|> objDef <|> objDefUniformOtherObject
     return (lbl, args, def)
 
 pFunc :: P arg -> P (AST.PFuncLabel, [arg])
@@ -250,10 +250,17 @@ objDef = do
     _ <- dot
     return $ AST.UniformObjDist nr
 
+objDefUniformOtherObject :: P AST.PFuncDef
+objDefUniformOtherObject = do
+    reserved "uniformOtherObject"
+    (lbl, args) <- parens $ pFunc expression
+    _ <- dot
+    return $ AST.UniformOtherObjDist lbl args
+
 headArgument :: P AST.HeadArgument
-headArgument =     AST.ArgConstant               <$> constantExpression
+headArgument =     AST.ArgConstant                          <$> constantExpression
                <|> (AST.ArgVariable . AST.VarName . T.pack) <$> variable
-               <|> const AST.ArgDontCareVariable <$> string "_"
+               <|> const AST.ArgDontCareVariable            <$> string "_"
 
 -- expressions
 expression :: P AST.Expr

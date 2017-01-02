@@ -35,6 +35,7 @@ module GroundedAST ( GroundedAST(..)
                    , makePFuncReal
                    , makePFuncString
                    , makePFuncObj
+                   , makePFuncObjOther
                    , Expr(..)
                    , PredicateLabel(..)
                    , ConstantExpr(..)
@@ -50,7 +51,7 @@ module GroundedAST ( GroundedAST(..)
                    , exprProbabilisticFunctions
                    , deterministicValue
                    , deterministicValueTyped
-                   , possibleValues
+                   , possibleValuesStr
                    , checkRealIneqPred
                    , simplifiedBuildInPred
                    , simplifiedExpr
@@ -117,14 +118,17 @@ instance Ord (PFunc a) where
 instance Hashable (PFunc a) where
     hashWithSalt salt (PFunc label _) = Hashable.hashWithSalt salt label
 
+instance Show (PFunc a) where show (PFunc (PFuncLabel l) _) = show l
+
 pFuncToText :: PFunc a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 pFuncToText (PFunc l _) = pFuncLabelToText l
 
 data PFuncDef a where
-    Flip           :: Probability                                            -> PFuncDef Bool
-    RealDist       :: (Rational -> Probability) -> (Probability -> Rational) -> PFuncDef GroundedAST.RealN
-    StrDist        :: [(Probability, Text)]                                  -> PFuncDef Text
-    UniformObjDist :: Integer                                                -> PFuncDef Object
+    Flip                :: Probability                                            -> PFuncDef Bool
+    RealDist            :: (Rational -> Probability) -> (Probability -> Rational) -> PFuncDef GroundedAST.RealN
+    StrDist             :: [(Probability, Text)]                                  -> PFuncDef Text
+    UniformObjDist      :: Integer                                                -> PFuncDef Object
+    UniformOtherObjDist :: PFunc Object                                           -> PFuncDef Object
 
 probabilisticFuncLabel :: PFunc a -> PFuncLabel
 probabilisticFuncLabel (PFunc label _) = label
@@ -143,6 +147,9 @@ makePFuncString label dist = PFunc label $ StrDist dist
 
 makePFuncObj :: PFuncLabel -> Integer -> PFunc Object
 makePFuncObj label nr = PFunc label $ UniformObjDist nr
+
+makePFuncObjOther :: PFuncLabel -> PFunc Object -> PFunc Object
+makePFuncObjOther label other = PFunc label $ UniformOtherObjDist other
 
 newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
 pFuncLabelToText :: PFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
@@ -273,7 +280,9 @@ predProbabilisticFunctions (Ineq     _ left right) = Set.union (exprProbabilisti
 predProbabilisticFunctions (Constant _)            = Set.empty
 
 exprProbabilisticFunctions :: Expr a -> Set (PFunc a)
-exprProbabilisticFunctions (PFuncExpr pf)   = Set.singleton pf
+exprProbabilisticFunctions (PFuncExpr pf) = case probabilisticFuncDef pf of
+    GroundedAST.UniformOtherObjDist otherPf -> Set.insert pf $ exprProbabilisticFunctions $ PFuncExpr otherPf
+    _                                       -> Set.singleton pf
 exprProbabilisticFunctions (ConstantExpr _) = Set.empty
 exprProbabilisticFunctions (Sum x y)        = Set.union (exprProbabilisticFunctions x) (exprProbabilisticFunctions y)
 
@@ -302,11 +311,11 @@ deterministicValueTyped (Ineq     op (ConstantExpr left) (ConstantExpr right))  
 deterministicValueTyped (Constant val) = Just val
 deterministicValueTyped _              = Nothing
 
-possibleValues :: Expr Text -> Map PFuncLabel (Set Text) -> Set Text
-possibleValues (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
-possibleValues (PFuncExpr (PFunc pfLabel (StrDist elements))) sConds =
+possibleValuesStr :: Expr Text -> Map PFuncLabel (Set Text) -> Set Text
+possibleValuesStr (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
+possibleValuesStr (PFuncExpr (PFunc pfLabel (StrDist elements))) sConds =
     Map.findWithDefault (Set.fromList $ snd <$> elements) pfLabel sConds
-possibleValues _ _ = undefined
+possibleValuesStr _ _ = undefined
 
 checkRealIneqPred :: AST.IneqOp
                   -> Expr RealN

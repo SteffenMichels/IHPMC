@@ -36,7 +36,7 @@ import Control.Monad.State.Strict
 import Data.Foldable (foldl', foldlM)
 import Data.Sequence (Seq, ViewL((:<)), (><))
 import qualified Data.Sequence as Seq
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, catMaybes)
 import Data.Hashable (Hashable)
 import GHC.Generics (Generic)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
@@ -53,62 +53,78 @@ import TextShow
 type GState = StateT GroundingState (Exceptional Exception)
 
 data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel Int
+               | NonGroundPfDef        AST.PFuncDef AST.PFuncLabel Int
                | TypeError             PropExprWithType PropExprWithType
-               | UndefinedRf           AST.PFuncLabel Int
-               | UndefinedRfValue      AST.PFuncLabel [AST.ConstantExpr]
+               | UndefinedPf           AST.PFuncLabel Int
+               | UndefinedPfValue      AST.PFuncLabel [AST.ConstantExpr]
                | UndefinedPred         AST.PredicateLabel Int
                | ProbabilisticFuncUsedAsArg
                | UnsolvableConstraints [Constraint]
                | NonGroundQuery        AST.RuleBodyElement
                | NonGroundEvidence     AST.RuleBodyElement
+               | DefArgShouldBeObjPf   GroundedAST.PFuncLabel PropExprWithType
 
 exceptionToText :: Exception -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str _ =
-        "Could not ground predicate" <>
-        (if length prds > 1 then "s " else " ") <>
-        toTextLstEnc "'" "'" prds (`AST.ruleBodyElementToText` ids2str) <>
-        " in a body of '" <>
-        AST.predicateLabelToText headLabel ids2str <>
-        "/" <>
-        showb headNArgs <>
-        "'."
+    "Could not ground predicate" <>
+    (if length prds > 1 then "s " else " ") <>
+    toTextLstEnc "'" "'" prds (`AST.ruleBodyElementToText` ids2str) <>
+    " in a body of '" <>
+    AST.predicateLabelToText headLabel ids2str <>
+    "/" <>
+    showb headNArgs <>
+    "'."
+exceptionToText (NonGroundPfDef def pfLabel pfNArgs) ids2str _ =
+    "Could not ground probabilistic function definition '" <>
+    AST.pFuncDefToText def ids2str <>
+    "', which is a definition of '" <>
+    AST.pFuncLabelToText pfLabel ids2str <>
+    "/" <>
+    showb pfNArgs <>
+    "'."
 exceptionToText (TypeError exprX exprY) ids2str ids2label =
-        "Types of expressions " <>
-        propExprWithTypeToText exprX ids2str ids2label <>
-        " and " <>
-        propExprWithTypeToText exprY ids2str ids2label <>
-        " do not match."
-exceptionToText (UndefinedRf pf n) ids2str _ =
-        "Probabilistic function '" <>
-        AST.pFuncLabelToText pf ids2str <>
-        "/" <>
-        showb n <>
-        "' is undefined."
-exceptionToText (UndefinedRfValue pf args) ids2str _ =
-        "'" <>
-        AST.pFuncLabelToText pf ids2str <>
-        "(" <>  showbLst args <> ")" <>
-        "' is undefined."
+    "Types of expressions " <>
+    propExprWithTypeToText exprX ids2str ids2label <>
+    " and " <>
+    propExprWithTypeToText exprY ids2str ids2label <>
+    " do not match."
+exceptionToText (UndefinedPf pf n) ids2str _ =
+    "Probabilistic function '" <>
+    AST.pFuncLabelToText pf ids2str <>
+    "/" <>
+    showb n <>
+    "' is undefined."
+exceptionToText (UndefinedPfValue pf args) ids2str _ =
+    "'" <>
+    AST.pFuncLabelToText pf ids2str <>
+    "(" <>  showbLst args <> ")" <>
+    "' is undefined."
 exceptionToText (UndefinedPred label n) ids2str _ =
-        "Predicate '" <>
-        AST.predicateLabelToText label ids2str <>
-        "/" <>
-        showb n <>
-        "' is undefined."
-exceptionToText ProbabilisticFuncUsedAsArg _ _ =
+    "Predicate '" <>
+    AST.predicateLabelToText label ids2str <>
+    "/" <>
+    showb n <>
+    "' is undefined."
+exceptionToText ProbabilisticFuncUsedAsArg _ _=
     "Probabilistic functions may not be used in arguments of predicates and functions."
 exceptionToText (UnsolvableConstraints constrs) ids2str _ =
-        "Could not solve constraint" <> (if length constrs > 1 then "s" else "") <>
-        toTextLstEnc "'" "'" constrs (`constraintToText` ids2str) <>
-        "."
+    "Could not solve constraint" <> (if length constrs > 1 then "s" else "") <>
+    toTextLstEnc "'" "'" constrs (`constraintToText` ids2str) <>
+    "."
 exceptionToText (NonGroundQuery q) ids2str _ =
-        "All queries have to be ground. Query '" <>
-        AST.ruleBodyElementToText q ids2str <>
-        "' is not ground."
+    "All queries have to be ground. Query '" <>
+    AST.ruleBodyElementToText q ids2str <>
+    "' is not ground."
 exceptionToText (NonGroundEvidence e) ids2str _ =
-        "All evidence has to be ground. Evidence '" <>
-        AST.ruleBodyElementToText e ids2str <>
-        "' is not ground."
+    "All evidence has to be ground. Evidence '" <>
+    AST.ruleBodyElementToText e ids2str <>
+    "' is not ground."
+exceptionToText (DefArgShouldBeObjPf pf arg) ids2str ids2label =
+    "Argument '" <>
+    propExprWithTypeToText arg ids2str ids2label <>
+    "' of definition of random function '" <>
+    GroundedAST.pFuncLabelToText pf ids2str ids2label <>
+    "' should be a random function of type 'Object'."
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Ord)
 constraintToText :: Constraint -> Map Int Text -> Builder
@@ -335,7 +351,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
         applyVal goals valu = lift $ forM goals (\(r, parents') -> do
                 r' <- AST.mapExprsInRuleBodyElementM
                     r
-                    (applyValuArg valu)
+                    (\a -> snd <$> applyValuArg valu a)
                     (return . snd . applyValuExpr valu)
                 return (r', parents')
             )
@@ -493,30 +509,53 @@ toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
             (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
             _                                    -> lift $ throw $ TypeError exprX' exprY'
 
--- precondition: no vars left in 'expr'
+-- precondition: no vars left in 'expr' (PF defs with vars result in exceptions)
 toPropExpr :: AST.Expr
            -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
            -> GState PropExprWithType
 toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr of
     AST.ConstantExpr cnst -> return $ toPropExprConst cnst
-    AST.PFunc label args -> do
-        gPfDefs <- gets groundedRfDefs
-        propArgs <- lift $ toPropArgs args
-        propPFuncLabel <- toPropPFuncLabel label propArgs
-        pfDef <- case Map.lookup propPFuncLabel gPfDefs of
-            Just def -> return def
-            Nothing  -> do
-                def <- lift $ pfDefFor label propArgs pfDefs
-                modify' (\st -> st{groundedRfDefs =
-                    Map.insert propPFuncLabel def $ groundedRfDefs st
-                })
-                return def
-        case pfDef of
-            AST.Flip p            -> return $ ExprBool $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncBool   propPFuncLabel p
-            AST.RealDist cdf cdf' -> return $ ExprReal $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncReal   propPFuncLabel cdf cdf'
-            AST.StrDist dist      -> return $ ExprStr  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncString propPFuncLabel dist
-            AST.UniformObjDist nr -> return $ ExprObj  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncObj    propPFuncLabel nr
-    AST.Sum exprX exprY ->toPropExprPairAdd GroundedAST.Sum exprX exprY
+    AST.PFunc label args -> toPropPFunc label args
+        where
+        toPropPFunc :: AST.PFuncLabel -> [AST.Expr] -> GState PropExprWithType
+        toPropPFunc label' args' = do
+            gPfDefs <- gets groundedRfDefs
+            propArgs <- lift $ toPropArgs args'
+            propPFuncLabel <- toPropPFuncLabel label' propArgs
+            pfDef <- case Map.lookup propPFuncLabel gPfDefs of
+                Just def -> return def
+                Nothing  -> do
+                    (def, valu) <- lift $ pfDefFor label' propArgs pfDefs
+                    def' <- lift $ applyValuPfDef valu def
+                    modify' (\st -> st{groundedRfDefs =
+                        Map.insert propPFuncLabel def' $ groundedRfDefs st
+                    })
+                    return def'
+            case pfDef of
+                AST.Flip p            -> return $ ExprBool $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncBool   propPFuncLabel p
+                AST.RealDist cdf cdf' -> return $ ExprReal $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncReal   propPFuncLabel cdf cdf'
+                AST.StrDist dist      -> return $ ExprStr  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncString propPFuncLabel dist
+                AST.UniformObjDist nr -> return $ ExprObj  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncObj    propPFuncLabel nr
+                AST.UniformOtherObjDist labelOther argsOther -> do
+                    otherPf <- toPropPFunc labelOther argsOther
+                    case otherPf of
+                        ExprObj (GroundedAST.PFuncExpr otherPf') ->
+                            return $ ExprObj  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncObjOther propPFuncLabel otherPf'
+                        _ ->
+                            lift $ throw $ DefArgShouldBeObjPf propPFuncLabel otherPf
+            where
+            applyValuPfDef :: Map AST.VarName AST.ConstantExpr -> AST.PFuncDef -> Exceptional Exception AST.PFuncDef
+            applyValuPfDef valu def = case def of
+                AST.UniformOtherObjDist labelOther argsOther -> do
+                    argsOther' <- forM argsOther $ \arg -> do
+                        (varP, arg') <- applyValuArg valu' arg
+                        if varP then throw $ NonGroundPfDef def label' $ length args'
+                                else return arg'
+                    return $ AST.UniformOtherObjDist labelOther argsOther'
+                _ -> return def
+                where
+                valu' = Map.map AST.ConstantExpr valu
+    AST.Sum exprX exprY -> toPropExprPairAdd GroundedAST.Sum exprX exprY
         where
         toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.Expr a)
                           -> AST.Expr
@@ -566,7 +605,7 @@ applyArgs givenArgs args elements = do
         (intValu, extValu, constrs) <- doMaybe mbVals
         elements' <- lift $ forM elements (\e -> AST.mapExprsInRuleBodyElementM
                 e
-                (applyValuArg intValu)
+                (\a -> snd <$> applyValuArg intValu a)
                 (return . snd . applyValuExpr intValu)
             )
         return (elements', extValu, constrs)
@@ -631,7 +670,7 @@ applyValuation valu pfDefs = do
                -> ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, Set GoalId)
                -> MaybeT GState [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, Set GoalId)]
     applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements, parents) = do
-        args' <- lift $ lift $ forM args $ applyValuArg valu
+        args' <- lift $ lift $ forM args $ \a -> snd <$> applyValuArg valu a
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
         return $ (args', AST.RuleBody elements', GroundedAST.RuleBody gElements', parents) : rules
 
@@ -664,7 +703,7 @@ applyValuationMaybeInProof valu pfDefs = do
                   -> RuleMaybeInProof
                   -> MaybeT GState ([RuleMaybeInProof], Set GoalId)
     applyValuRule (rules, toPrune) rule@RuleMaybeInProof{goalId, label, args, nonGroundBody = AST.RuleBody elements, groundBody = GroundedAST.RuleBody gElements, ruleParents} = do
-        args' <- lift $ lift $ forM args $ applyValuArg valu
+        args' <- lift $ lift $ forM args $ \a -> snd <$> applyValuArg valu a
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
         toProof <- lift $ haveToProof $ AST.UserPredicate label args'
         case toProof of
@@ -718,12 +757,12 @@ applyValuExpr valu = AST.mapAccExpr applyValuExpr' False
 
 -- simplifies if no vars are present any more
 -- assumes no Rfs in expr (as it a predicate arg)
-applyValuArg :: Map AST.VarName AST.Expr -> AST.Expr-> Exceptional Exception AST.Expr
+applyValuArg :: Map AST.VarName AST.Expr -> AST.Expr -> Exceptional Exception (Bool, AST.Expr)
 applyValuArg valu expr
-    | varPresent = return expr'
+    | varPresent = return (True, expr')
     | otherwise = do
         arg <- toPropArg expr'
-        return $ AST.ConstantExpr arg
+        return (False, AST.ConstantExpr arg)
     where
     (varPresent, expr') = applyValuExpr valu expr
 
@@ -749,32 +788,32 @@ replaceEVars elements = state (\st -> let (varCounter', _, elements') = foldl'
 pfDefFor :: AST.PFuncLabel
          -> [AST.ConstantExpr]
          -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
-         -> Exceptional Exception AST.PFuncDef
+         -> Exceptional Exception (AST.PFuncDef, Map AST.VarName AST.ConstantExpr)
 pfDefFor label args pfDefs = do
-    defs <- exceptionalFromMaybe (UndefinedRf label nArgs) $ Map.lookup (label, nArgs) pfDefs
-    let matchingDefs = filter (\(defArgs, _) -> matchArgs args defArgs) defs
+    defs <- exceptionalFromMaybe (UndefinedPf label nArgs) $ Map.lookup (label, nArgs) pfDefs
+    let matchingDefs = catMaybes $ (\(defArgs, def) -> (def, ) <$> matchArgs args defArgs) <$> defs
     case matchingDefs of
-        []             -> throw $ UndefinedRfValue label args
-        ((_,fstDef):_) -> return fstDef
+        []         -> throw $ UndefinedPfValue label args
+        (fstDef:_) -> return fstDef
     where
     nArgs = length args
 
-    matchArgs :: [AST.ConstantExpr] -> [AST.HeadArgument] -> Bool
-    matchArgs givenArgs reqArgs = isJust $ foldl' match (Just Map.empty) (zip givenArgs reqArgs)
+    matchArgs :: [AST.ConstantExpr] -> [AST.HeadArgument] -> Maybe (Map AST.VarName AST.ConstantExpr)
+    matchArgs givenArgs reqArgs = foldl' match (Just Map.empty) (zip givenArgs reqArgs)
 
-match :: Maybe (Map AST.VarName AST.ConstantExpr)
-      -> (AST.ConstantExpr, AST.HeadArgument)
-      -> Maybe (Map AST.VarName AST.ConstantExpr)
-match mbVal (given, req) = do
-    val <- mbVal
-    case req of
-        AST.ArgConstant cnst -> if given == cnst then return val
-                                                 else Nothing
-        AST.ArgVariable var -> case Map.lookup var val of
-            Nothing                   -> return $ Map.insert var given val
-            Just cnst | cnst == given -> return val
-            _                         -> Nothing
-        AST.ArgDontCareVariable -> return val
+    match :: Maybe (Map AST.VarName AST.ConstantExpr)
+          -> (AST.ConstantExpr, AST.HeadArgument)
+          -> Maybe (Map AST.VarName AST.ConstantExpr)
+    match mbVal (given, req) = do
+        val <- mbVal
+        case req of
+            AST.ArgConstant cnst -> if given == cnst then return val
+                                                     else Nothing
+            AST.ArgVariable var -> case Map.lookup var val of
+                Nothing                   -> return $ Map.insert var given val
+                Just cnst | cnst == given -> return val
+                _                         -> Nothing
+            AST.ArgDontCareVariable -> return val
 
 -- precondition: no vars left in constraints
 -- throws exception if PF is included in constr

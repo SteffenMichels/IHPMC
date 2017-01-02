@@ -30,8 +30,9 @@ import qualified AST
 import qualified Data.HashMap as Map
 
 tests :: (String, [IntegrationTest])
-tests = ("grounding", [ queries, typesBip, typesArgs, strLits, preds, pfs, varsInExpr, existVars
-                      , constraints, count, tablingProp, tablingFO, tablingPrune, network1, network2
+tests = ("grounding", [ queries, typesBip, typesArgs, typesOtherObjArg, strLits, preds, pfs, uniformOtherObjectPfs
+                      , varsInExpr, existVars, constraints, count, tablingProp, tablingFO, tablingPrune
+                      , network1, network2
                       ]
         )
 
@@ -107,6 +108,19 @@ typesArgs = IntegrationTest
         , (query "int",        preciseProb 0.9)
         , (query "real",       preciseProb 0.8)
         , (query "err",        typeError)
+        ]
+    }
+
+typesOtherObjArg :: IntegrationTest
+typesOtherObjArg = IntegrationTest
+    { label = "type checking (uniformOtherObject argument)"
+    , model = unpack $ [text|
+                  ~y ~ uniformOtherObject(~z).
+                  ~z ~ flip(0.1).
+                  q <- ~y = #0.
+              |]
+    , expectedResults =
+        [ (query "q", wrongObjOtherArg)
         ]
     }
 
@@ -192,12 +206,32 @@ pfs = IntegrationTest
         , (query "pf2",            preciseProb 0.992)
         , (query "pfErrRfAsArg",   pfAsArg)
         , (query "pfErrNonGround", nonGround "pfErrNonGround" 0 1)
-        , (query "pfErrUndefined", undefinedRf "pf2" 0)
-        , (query "pfErrUndefVal",  undefinedRfVal "pf" 1)
-        , (query "pfErrUndefVal2", undefinedRfVal "pf" 2)
-        , (query "pfErrUndefVal3", undefinedRfVal "pf" 2)
+        , (query "pfErrUndefined", undefinedPf "pf2" 0)
+        , (query "pfErrUndefVal",  undefinedPfVal "pf" 1)
+        , (query "pfErrUndefVal2", undefinedPfVal "pf" 2)
+        , (query "pfErrUndefVal3", undefinedPfVal "pf" 2)
         ]
     }
+
+uniformOtherObjectPfs :: IntegrationTest
+uniformOtherObjectPfs = IntegrationTest
+    { label = "uniform other object probabilistic functions"
+    , model = unpack $ [text|
+                  ~x(a)    ~ uniformObjects(10).
+                  ~x(b)    ~ uniformObjects(100).
+                  ~y(X)    ~ uniformOtherObject(~x(X)).
+                  ~yErr(X) ~ uniformOtherObject(~x(Y)).
+                  qa    <- ~y(a) = #0.
+                  qb    <- ~y(b) = #0.
+                  qbErr <- ~yErr(b) = #0.
+              |]
+    , expectedResults =
+        [ (query "qa",    preciseProb 0.1)
+        , (query "qb",    preciseProb 0.01)
+        , (query "qbErr", nonGroundPfDef)
+        ]
+    }
+
 
 varsInExpr :: IntegrationTest
 varsInExpr = IntegrationTest

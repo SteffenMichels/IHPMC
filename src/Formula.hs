@@ -334,8 +334,8 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                     | Set.null $ Set.intersection possibleLeft possibleRight = GroundedAST.Constant $ not eq
                     | otherwise = prd
                     where
-                    possibleLeft  = GroundedAST.possibleValues exprL sConds'
-                    possibleRight = GroundedAST.possibleValues exprR sConds'
+                    possibleLeft  = GroundedAST.possibleValuesStr exprL sConds'
+                    possibleRight = GroundedAST.possibleValuesStr exprR sConds'
             RefBuildInPredicateReal prd@(GroundedAST.Ineq op left right) rConds -> do
                 Formula{cacheComps, buildinCacheReal} <- get
                 case GroundedAST.deterministicValueTyped condPred of

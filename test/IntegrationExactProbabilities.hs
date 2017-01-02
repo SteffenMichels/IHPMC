@@ -30,6 +30,7 @@ import Data.Text (unpack)
 tests :: (String, [IntegrationTest])
 tests = ("exact probabilities", [ boolsAnd, boolsOr, boolEq, boolNonEq, stringAnd, stringOr
                                 , oneDimReal, oneDimRealAnd, oneDimRealOr, objectsUniform
+                                , objectsOtherUniform, objectsOtherUniformChain, objectsOtherUniformMulti
                                 ]
         )
 
@@ -179,7 +180,7 @@ oneDimRealOr = IntegrationTest
 
 objectsUniform :: IntegrationTest
 objectsUniform = IntegrationTest
-    { label = "object distributions"
+    { label = "uniform object distributions"
     , model = unpack $ [text|
                   ~x ~ uniformObjects(100).
                   a <- ~x = #0.
@@ -191,5 +192,66 @@ objectsUniform = IntegrationTest
         [ (query "a", preciseProb 0.01)
         , (query "b", preciseProb 0.0)
         , (query "c", preciseProb 0.02)
+        ]
+    }
+
+objectsOtherUniform :: IntegrationTest
+objectsOtherUniform = IntegrationTest
+    { label = "uniform other object distributions"
+    , model = unpack $ [text|
+                  ~x ~ uniformObjects(100).
+                  ~y ~ uniformOtherObject(~x).
+                  q1 <- ~y = #0.
+                  q2 <- ~y /= #0.
+                  q3 <- ~x = #0, ~y = #1.
+                  q4 <- ~y /= #0, ~y /= #1.
+                  q5 <- ~x = #0, ~y = #0.
+              |]
+    , expectedResults =
+        [ (query "q1", preciseProb 0.01)
+        , (query "q2", preciseProb 0.99)
+        , (query "q3", preciseProb $ 1/9900)
+        , (query "q4", preciseProb 0.98)
+        , (query "q5", preciseProb 0.0)
+        ]
+    }
+
+objectsOtherUniformChain :: IntegrationTest
+objectsOtherUniformChain = IntegrationTest
+    { label = "a chain of uniform other object distributions"
+    , model = unpack $ [text|
+                  ~a ~ uniformObjects(10).
+                  ~b ~ uniformOtherObject(~a).
+                  ~c ~ uniformOtherObject(~b).
+                  ~d ~ uniformOtherObject(~c).
+                  q1 <- ~d = #9.
+                  q2 <- ~a = #0, ~d = #0.
+                  q3 <- ~a = #0, ~b = #1, ~c = #0, ~d = #1.
+              |]
+    , expectedResults =
+        [ (query "q1", preciseProb $ 1/10)
+        , (query "q2", preciseProb $ 4/405)
+        , (query "q3", preciseProb $ 1/7290)
+        ]
+    }
+
+objectsOtherUniformMulti :: IntegrationTest
+objectsOtherUniformMulti = IntegrationTest
+    { label = "uniform other object distributions with multiple dependencies"
+    , model = unpack $ [text|
+                  ~parent ~ uniformObjects(3).
+                  ~a ~ uniformOtherObject(~parent).
+                  ~b ~ uniformOtherObject(~parent).
+                  ~c ~ uniformOtherObject(~parent).
+                  q1 <- ~a = #0, ~b = #0.
+                  q2 <- ~a = #0, ~b = #1.
+                  q3 <- ~a = #0, ~b = #0, ~c = #0.
+                  q4 <- ~a = #0, ~b = #1, ~c = #2.
+              |]
+    , expectedResults =
+        [ (query "q1", preciseProb $ 1/6)
+        , (query "q2", preciseProb $ 1/12)
+        , (query "q3", preciseProb $ 1/12)
+        , (query "q4", preciseProb 0)
         ]
     }

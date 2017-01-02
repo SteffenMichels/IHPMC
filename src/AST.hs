@@ -41,6 +41,7 @@ module AST
     , mapAccExprsInRuleBodyElement
     , predicateLabelToText
     , pFuncLabelToText
+    , pFuncDefToText
     , ruleBodyElementToText
     , exprToText
     ) where
@@ -78,16 +79,20 @@ pFuncLabelToText :: PFuncLabel -> Map Int Text -> Builder
 pFuncLabelToText (PFuncLabel idNr) = TB.fromText . Map.findWithDefault undefined idNr
 instance Hashable PFuncLabel
 
-data PFuncDef = Flip           Probability
-              | RealDist       (Rational -> Probability) (Probability -> Rational)
-              | StrDist        [(Probability, Text)]
-              | UniformObjDist Integer -- number of objects in domain
+data PFuncDef = Flip                Probability
+              | RealDist            (Rational -> Probability) (Probability -> Rational)
+              | StrDist             [(Probability, Text)]
+              | UniformObjDist      Integer -- number of objects in domain
+              | UniformOtherObjDist PFuncLabel [Expr]
 
-instance TextShow PFuncDef where
-    showb (Flip p)            = "flip(" <> showb p <> ")"
-    showb (RealDist _ _)      = "realDist"
-    showb (StrDist pairs)     = "{" <> showbLst pairs <> "}"
-    showb (UniformObjDist nr) = "uniformObjects(" <> showb nr <> ")"
+pFuncDefToText :: PFuncDef -> Map Int Text -> Builder
+pFuncDefToText (Flip p)            _ = "flip(" <> showb p <> ")"
+pFuncDefToText (RealDist _ _)      _ = "realDist"
+pFuncDefToText (StrDist pairs)     _ = "{" <> showbLst pairs <> "}"
+pFuncDefToText (UniformObjDist nr) _ = "uniformObjects(" <> showb nr <> ")"
+pFuncDefToText (UniformOtherObjDist otherPf args) ids2str =
+    "uniformOtherObject(~" <> pFuncLabelToText otherPf ids2str <>
+    "(" <> toTextLst args (`exprToText` ids2str) <> "))"
 
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 instance Hashable RuleBody
