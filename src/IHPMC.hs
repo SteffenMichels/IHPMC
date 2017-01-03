@@ -96,30 +96,38 @@ ihpmc query evidence finishPred reportingIO f = do
     ihpmcIterate :: HPT -> FState (Maybe HPT)
     ihpmcIterate hpt = case HPT.nextLeaf hpt of
         Nothing -> return Nothing
-        Just (HPT.HPTLeaf fs p, hpt') -> Just <$> case fs of
+        Just (HPT.HPTLeaf fs p, hpt') -> case fs of
             HPT.WithinEv q -> do
-                qEntry             <- Formula.augmentWithEntry q
-                let spPoint        =  splitPoint qEntry
-                (ql, _, qr, _, pl) <- splitFormula qEntry Nothing spPoint
-                Formula.dereference q
-                let pr             =  1.0 - pl
-                return $ HPT.addLeafWithinEvidence ql (pl * p)
-                       $ HPT.addLeafWithinEvidence qr (pr * p) hpt'
+                qEntry        <- Formula.augmentWithEntry q
+                let mbSpPoint =  splitPoint qEntry
+                case mbSpPoint of
+                    Nothing -> return Nothing
+                    Just spPoint -> do
+                        (ql, _, qr, _, pl) <- splitFormula qEntry Nothing spPoint
+                        Formula.dereference q
+                        let pr             =  1.0 - pl
+                        return $ Just
+                               $ HPT.addLeafWithinEvidence ql (pl * p)
+                               $ HPT.addLeafWithinEvidence qr (pr * p) hpt'
             HPT.MaybeWithinEv q e -> do
-                eEntry               <- Formula.augmentWithEntry e
-                let spPoint          =  splitPoint eEntry
-                (el, Just ql, er, Just qr, pl) <- splitFormula eEntry (Just q) spPoint
-                Formula.dereference e
-                when (Formula.deterministicNodeRef el /= Just False && Formula.deterministicNodeRef er /= Just False)
-                     (Formula.reference query) -- new lazy formula refers to initial query
-                let pr               =  1.0 - pl
-                hpt''                <- HPT.addLeaf ql el (pl * p) hpt'
-                HPT.addLeaf qr er (pr * p) hpt''
+                eEntry      <- Formula.augmentWithEntry e
+                let mbSpPoint =  splitPoint eEntry
+                case mbSpPoint of
+                    Nothing -> return Nothing
+                    Just spPoint -> do
+                        (el, Just ql, er, Just qr, pl) <- splitFormula eEntry (Just q) spPoint
+                        Formula.dereference e
+                        when (Formula.deterministicNodeRef el /= Just False && Formula.deterministicNodeRef er /= Just False)
+                             (Formula.reference query) -- new lazy formula refers to initial query
+                        let pr =  1.0 - pl
+                        hpt''  <- HPT.addLeaf ql el (pl * p) hpt'
+                        Just <$> HPT.addLeaf qr er (pr * p) hpt''
 
-splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints -> SplitPoint
-splitPoint f = spPoint
+splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints -> Maybe SplitPoint
+splitPoint f | null candidateSplitPoints = Nothing
+             | otherwise = let (spPoint, _) = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
+                           in  Just spPoint
     where
-    (spPoint, _)         = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
     candidateSplitPoints = Map.toList pts where HPT.CachedSplitPoints pts = Formula.entryCachedInfo f
 
 splitFormula :: Formula.RefWithNode HPT.CachedSplitPoints
@@ -270,6 +278,8 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
         where
         predRfs = GroundedAST.predProbabilisticFunctions prd
         nPfs = Set.size predRfs
+
+        scores :: Map SplitPoint Double
         scores = snd $ foldl'
                 (\(nSols, splitPs) (pfs, nSols', splitPs') -> if   any (\pf -> Map.findWithDefault nPfs pf nSols < length pfs) pfs
                                                               then (nSols, splitPs)
@@ -277,18 +287,14 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 )
                 (Map.empty, Map.empty)
                 (splitPoints <$> List.subsequences (Set.toList predRfs))
-        equalSplits = Map.fromList [(pf,equalSplit pf) | pf <- Set.toList predRfs]
-            where
-                equalSplit pf = icdf ((pUntilLower + pUntilUpper) / 2.0)
-                    where
-                    pUntilLower   = cdf' cdf True  curLower
-                    pUntilUpper   = cdf' cdf False curUpper
-                    Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
-                    GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
+
+        splitPoints :: [GroundedAST.PFunc GroundedAST.RealN]
+                    -> ([GroundedAST.PFunc GroundedAST.RealN], Map (GroundedAST.PFunc GroundedAST.RealN) Int, Map SplitPoint Double)
         splitPoints pfs
             | null pfs || null result = (pfs, Map.empty,                              result)
             | otherwise               = (pfs, Map.fromList [(pf, nPfs') | pf <- pfs], result)
             where
+            result :: Map SplitPoint Double
             result = Map.filterWithKey notOnBoundary $ foldl'
                 (Map.unionWith (+))
                 Map.empty
@@ -298,6 +304,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 | corner <- remRfsCorners
                 ]
 
+            notOnBoundary :: SplitPoint -> Double -> Bool
             notOnBoundary (ContinuousSplit pf p) _ = (lp ~> Interval.toPoint Lower lower) == Just True &&
                                                      (lp ~< Interval.toPoint Upper upper) == Just True
                 where
@@ -355,14 +362,23 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
 
             remainingRfs = Set.difference predRfs $ Set.fromList pfs
 
+        equalSplits :: Map (GroundedAST.PFunc GroundedAST.RealN) Rational
+        equalSplits = Map.fromList [(pf,equalSplit pf) | pf <- Set.toList predRfs]
+            where
+                equalSplit pf = icdf ((pUntilLower + pUntilUpper) / 2.0)
+                    where
+                    pUntilLower   = cdf' cdf True  curLower
+                    pUntilUpper   = cdf' cdf False curUpper
+                    Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
+                    GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
+
+        pDiff :: GroundedAST.PFunc GroundedAST.RealN -> Map GroundedAST.PFuncLabel Interval -> Probability
         pDiff pf choices = pUntilUpper - pUntilLower
             where
             pUntilLower = cdf' cdf True  curLower
             pUntilUpper = cdf' cdf False curUpper
             Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) choices
-            cdf = case GroundedAST.probabilisticFuncDef pf of
-                GroundedAST.RealDist cdf'' _ -> cdf''
-                _ -> error "IHPMC.heuristicBuildInPred.cdf"
+            GroundedAST.RealDist cdf _  = GroundedAST.probabilisticFuncDef pf
 
 heuristicBuildInPredObject :: Map GroundedAST.PFuncLabel Formula.ObjCondition
                            -> GroundedAST.TypedBuildInPred GroundedAST.Object

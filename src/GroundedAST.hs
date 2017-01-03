@@ -118,8 +118,6 @@ instance Ord (PFunc a) where
 instance Hashable (PFunc a) where
     hashWithSalt salt (PFunc label _) = Hashable.hashWithSalt salt label
 
-instance Show (PFunc a) where show (PFunc (PFuncLabel l) _) = show l
-
 pFuncToText :: PFunc a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 pFuncToText (PFunc l _) = pFuncLabelToText l
 
