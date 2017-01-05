@@ -426,6 +426,7 @@ toPropArg expr = do
         ExprReal (GroundedAST.ConstantExpr (GroundedAST.RealConstant cnst)) -> return $ AST.RealConstant cnst
         ExprInt  (GroundedAST.ConstantExpr (GroundedAST.IntConstant  cnst)) -> return $ AST.IntConstant  cnst
         ExprStr  (GroundedAST.ConstantExpr (GroundedAST.StrConstant  cnst)) -> return $ AST.StrConstant  cnst
+        ExprObj  (GroundedAST.ConstantExpr (GroundedAST.ObjConstant  cnst)) -> return $ AST.ObjConstant  cnst
         _                                                                   -> error "precondition"
     where
     toPropArgExpr :: AST.Expr -> Exceptional Exception PropExprWithType
