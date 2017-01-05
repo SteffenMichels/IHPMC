@@ -53,6 +53,7 @@ data HPT = HPT (MaxQueue HPTLeaf) ProbabilityQuadruple
 data HPTLeaf = HPTLeaf HPTLeafFormulas Probability
 data HPTLeafFormulas = MaybeWithinEv LazyNode Formula.NodeRef
                      | WithinEv      Formula.NodeRef
+
 type LazyNode = (Formula.NodeRef, Formula.Conditions)
 instance Eq HPTLeaf where
     HPTLeaf fx px == HPTLeaf fy py = score fx px == score fy py
@@ -107,9 +108,11 @@ bounds (HPT _ (ProbabilityQuadruple t f e u)) =
     Just $ ProbabilityBounds lo up
     where
     lo = t / (t + f + e + u)
-    up | up' < 1.0 = up'
-       | otherwise = 1.0
-    up' = (t + e + u) / (t + f + e)
+    up | upDen == 0.0 = 1.0
+       | up' <= 1.0   = up'
+       | otherwise    = 1.0
+    ~up' = (t + e + u) / upDen -- lazy to prevent division by zero
+    upDen = t + f + e
 
 -- (true prob, false prob (within evidence), within evidence, unknown prob)
 data ProbabilityQuadruple = ProbabilityQuadruple Probability Probability Probability Probability
