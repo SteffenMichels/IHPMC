@@ -23,6 +23,7 @@
 
 module Parser
     ( parsePclp
+    , rational
     , Exception(..)
     ) where
 import AST (AST)
@@ -76,7 +77,7 @@ colon      = Token.colon      lexer
 hash       = Token.lexeme     lexer $ string "#"
 rational   = Token.lexeme     lexer parseRat
     where
-    parseRat :: P Rational
+    parseRat :: Parsec String st Rational
     parseRat = do
         neg <- (string "-" >> return True) <|> return False
         rat <- try parseDecimal <|> parseFraction

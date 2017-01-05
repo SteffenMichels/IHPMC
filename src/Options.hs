@@ -36,6 +36,8 @@ import Text.Printf (printf)
 import TextShow
 import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as TB
+import qualified Parser
+import Text.Parsec (parse)
 
 data Options = Options
     { modelFile   :: String
@@ -75,7 +77,7 @@ instance ReadArg Int where
     readArg = maybeRead
 
 instance ReadArg Probability where
-    readArg = maybeRead
+    readArg str = ratToProb <$> toMaybe (fromEither (parse Parser.rational "argument" str))
 
 instance ReadArg String where
     readArg = Just

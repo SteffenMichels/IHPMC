@@ -27,6 +27,7 @@ module Probability
     , doubleToProb
     , probToDouble
     , intToProb
+    , ratToProb
     ) where
 import Control.Arrow (first)
 import TextShow
