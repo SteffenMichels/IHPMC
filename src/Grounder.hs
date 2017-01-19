@@ -135,9 +135,10 @@ data GroundingState = GroundingState
     { groundedRules     :: Map GroundedAST.PredicateLabel [GroundedAST.RuleBody]
     , groundedRfDefs    :: Map GroundedAST.PFuncLabel AST.PFuncDef
     , varCounter        :: Int
-    -- keep non-ground rule body elements and to ground elements as soon as all vars have a value
-    -- this pruning partial proofs if predicate is false
+    -- keep non-ground rule body elements and ground elements as soon as all vars have a value
     , rulesInProof      :: Map (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, Set GoalId)]
+    -- rules for which is it unknown whether they had to be selected for the proof
+    -- as soon as it is known that the rule should not have been selected, all children are pruned
     , rulesMaybeInProof :: [RuleMaybeInProof]
     , proofConstraints  :: Set Constraint
     , nextId            :: GoalId
@@ -212,10 +213,10 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
             (nextGoal, _) :< todoRest -> computeGroundingsGoal nextGoal False (fst <$> prefix >< todoRest)
             -- no goal has to be proven for sure
             Seq.EmptyL -> case Seq.viewl todo of
-                    -- we have to continue with goal of which we do not know yet whether it has to be proven
-                    nextGoal :< todoRest -> computeGroundingsGoal nextGoal True todoRest
-                    -- no goal has to be proven at all -> finish proof
-                    Seq.EmptyL           -> addGroundings
+                -- we have to continue with goal of which we do not know yet whether it has to be proven
+                nextGoal :< todoRest -> computeGroundingsGoal nextGoal True todoRest
+                -- no goal has to be proven at all -> finish proof
+                Seq.EmptyL           -> addGroundings
 
     -- | Continues computing groundings with the goal given.
     computeGroundingsGoal :: (AST.RuleBodyElement, Set GoalId)     -- the goal to continue with & set of parent IDs
@@ -301,10 +302,9 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 })
 
                 addRuleToMaybeProof :: [AST.RuleBodyElement] -> Set GoalId -> State GroundingState GoalId
-                addRuleToMaybeProof elements' parents' = do
-                    st <- get
+                addRuleToMaybeProof elements' parents' = state $ \st ->
                     let ident@(GoalId next) = nextId st
-                    put $ st { rulesMaybeInProof = RuleMaybeInProof
+                    in (ident, st { rulesMaybeInProof = RuleMaybeInProof
                                    { goalId        = ident
                                    , label         = label
                                    , args          = givenArgs
@@ -314,7 +314,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                                    } : rulesMaybeInProof st
                              , nextId = GoalId $ succ next
                              }
-                    return ident
+                       )
 
                 alreadyProven :: AST.RuleBodyElement -> GState Bool
                 alreadyProven (AST.UserPredicate label' givenArgs') = do
@@ -358,10 +358,10 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
 -- add groundigs after proof is found
 addGroundings :: GState ()
 addGroundings = do
-    st <- get
-    let constrs = proofConstraints st
+    constrs   <- gets proofConstraints
+    rsInProof <- gets rulesInProof
     if Set.null constrs then do
-        rules <- lift $ forM (Map.toList $ rulesInProof st) checkAllElementsGrounded
+        rules <- lift $ forM (Map.toList rsInProof) checkAllElementsGrounded
         -- from here on we can assume that no vars are left in rule heads
         forM_ rules addGroundingsHead
     else
@@ -650,9 +650,10 @@ applyValuation :: Map AST.VarName AST.Expr
                -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                -> GState Bool
 applyValuation valu pfDefs = do
-    st            <- get
-    mbRules       <- runMaybeT        $ foldlM applyValuRule       Map.empty $ Map.toList $ rulesInProof st
-    mbConstraints <- lift $ runMaybeT $ foldlM applyValuConstraint Set.empty $ Set.toList $ proofConstraints st
+    rsInProof     <- gets rulesInProof
+    pConstraints  <- gets proofConstraints
+    mbRules       <- runMaybeT        $ foldlM applyValuRule       Map.empty $ Map.toList rsInProof
+    mbConstraints <- lift $ runMaybeT $ foldlM applyValuConstraint Set.empty $ Set.toList pConstraints
     case (mbRules, mbConstraints) of
         (Just rules, Just constraints) -> do
             modify' (\st' -> st'{rulesInProof = rules, proofConstraints = constraints})
@@ -691,8 +692,8 @@ applyValuationMaybeInProof :: Map AST.VarName AST.Expr
                            -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                            -> GState (Maybe (Set GoalId))
 applyValuationMaybeInProof valu pfDefs = do
-    st            <- get
-    mbRules       <- runMaybeT $ foldlM applyValuRule ([], Set.empty) $ rulesMaybeInProof st
+    rsMbInProof <- gets rulesMaybeInProof
+    mbRules     <- runMaybeT $ foldlM applyValuRule ([], Set.empty) rsMbInProof
     case mbRules of
         Just (rules, toPrune) -> do
             modify' (\st' -> st'{rulesMaybeInProof = rules})
