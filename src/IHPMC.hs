@@ -49,6 +49,7 @@ import Data.Foldable (foldl')
 import Probability
 import Data.Text (Text)
 import Control.Arrow (second)
+import Data.List (partition)
 
 type FState = Formula.FState HPT.CachedSplitPoints
 
@@ -128,7 +129,10 @@ splitPoint f | null candidateSplitPoints = Nothing
              | otherwise = let (spPoint, _) = List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
                            in  Just spPoint
     where
-    candidateSplitPoints = Map.toList pts where HPT.CachedSplitPoints pts = Formula.entryCachedInfo f
+    candidateSplitPoints = Map.toList pts
+    pts = case Formula.entryCachedInfo f of
+        HPT.CachedSplitPointsPrimitive pts' -> pts'
+        HPT.CachedSplitPointsComposed  pts' -> pts'
 
 splitFormula :: Formula.RefWithNode HPT.CachedSplitPoints
              -> Maybe HPT.LazyNode
@@ -249,10 +253,10 @@ heuristicsCacheComputations = Formula.CacheComputations
     }
 
 heuristicDeterministic :: Bool -> HPT.CachedSplitPoints
-heuristicDeterministic = const $ CachedSplitPoints Map.empty
+heuristicDeterministic = const $ CachedSplitPointsPrimitive Map.empty
 
 heuristicBuildInPredBool :: GroundedAST.TypedBuildInPred Bool -> HPT.CachedSplitPoints
-heuristicBuildInPredBool prd = CachedSplitPoints $
+heuristicBuildInPredBool prd = CachedSplitPointsPrimitive $
     Set.fold (\pf pts -> Map.insert (BoolSplit pf) 1.0 pts) Map.empty $ GroundedAST.predProbabilisticFunctions prd
 
 heuristicBuildInPredString :: Map GroundedAST.PFuncLabel (Set Text)
@@ -265,16 +269,16 @@ heuristicBuildInPredString _ prd = case prd of
     _                                                                                      -> undefined
     where
     splitPointsStringPfConst :: GroundedAST.PFunc Text -> GroundedAST.ConstantExpr Text -> HPT.CachedSplitPoints
-    splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPoints $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
+    splitPointsStringPfConst pf (GroundedAST.StrConstant cnst) = CachedSplitPointsPrimitive $ Map.singleton (StringSplit pf $ Set.singleton cnst) 1.0
     splitPointsStringPfs _ _ = error "equality between two string-valued PFs not implemented"
 
 heuristicBuildInPredReal :: Map GroundedAST.PFuncLabel Interval
                          -> GroundedAST.TypedBuildInPred GroundedAST.RealN
                          -> HPT.CachedSplitPoints
 heuristicBuildInPredReal prevChoicesReal prd = case prd of
-    GroundedAST.Equality{} -> error "IHPMC: real equality not implemented"
-    GroundedAST.Constant _ -> CachedSplitPoints Map.empty
-    GroundedAST.Ineq op exprX exprY -> CachedSplitPoints scores
+    GroundedAST.Equality{}          -> error "IHPMC: real equality not implemented"
+    GroundedAST.Constant _          -> CachedSplitPointsPrimitive Map.empty
+    GroundedAST.Ineq op exprX exprY -> CachedSplitPointsPrimitive scores
         where
         predRfs = GroundedAST.predProbabilisticFunctions prd
         nPfs = Set.size predRfs
@@ -390,23 +394,33 @@ heuristicBuildInPredObject _ prd = case prd of
     _                                                                                      -> undefined
     where
     splitPointsObjPfConst :: GroundedAST.PFunc GroundedAST.Object -> GroundedAST.ConstantExpr GroundedAST.Object -> HPT.CachedSplitPoints
-    splitPointsObjPfConst pf (GroundedAST.ObjConstant cnst) = CachedSplitPoints $ Map.singleton (ObjectSplit pf cnst) 1.0
+    splitPointsObjPfConst pf (GroundedAST.ObjConstant cnst) = CachedSplitPointsPrimitive $ Map.singleton (ObjectSplit pf cnst) 1.0
     splitPointsObjPfs _ _ = error "equality between two object-valued PFs not implemented"
 
 heuristicComposed :: [HPT.CachedSplitPoints] -> HPT.CachedSplitPoints
-heuristicComposed points = HPT.CachedSplitPoints ((/ pi) <$> splitPts)
+heuristicComposed points
+    | null primPts = HPT.CachedSplitPointsComposed ((/ pi) <$> composition compPts)
+    | otherwise    = HPT.CachedSplitPointsComposed ((/ (fromIntegral $ Map.size $ composition compPts)) <$> composition primPts)
     where
-    HPT.CachedSplitPoints splitPts = foldl'
-                        ( \(HPT.CachedSplitPoints splitPoints) (HPT.CachedSplitPoints splitPoints') ->
-                          HPT.CachedSplitPoints $ combineSplitPoints splitPoints splitPoints'
+    (primPts, compPts) = partition isPrimitive points
+
+    composition :: [HPT.CachedSplitPoints] -> Map SplitPoint Double
+    composition = foldl'
+                        ( \splitPoints splitPoints' ->
+                          combineSplitPoints splitPoints $ ptsMap splitPoints'
                         )
-                        (HPT.CachedSplitPoints Map.empty)
-                        points
+                        Map.empty
 
     combineSplitPoints :: Map SplitPoint Double
                        -> Map SplitPoint Double
                        -> Map SplitPoint Double
     combineSplitPoints = Map.unionWith (+)
+
+    isPrimitive (HPT.CachedSplitPointsPrimitive _) = True
+    isPrimitive (HPT.CachedSplitPointsComposed _)  = False
+
+    ptsMap (HPT.CachedSplitPointsPrimitive m) = m
+    ptsMap (HPT.CachedSplitPointsComposed m)  = m
 
 cdf' :: (Rational -> Probability) -> Bool -> IntervalLimit -> Probability
 cdf' _ lower Inf      = if lower then 0.0 else 1.0
