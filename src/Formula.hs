@@ -127,7 +127,7 @@ insert label sign operator children = do
                     [onlyChild] -> return onlyChild
                     _ -> do
                         let pFuncs     = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
-                        let cachedInfo = cachedInfoComposed cacheComps (entryCachedInfo <$> children')
+                        let cachedInfo = cachedInfoComposed cacheComps (Set.size pFuncs) (entryCachedInfo <$> children')
                         let childRefs' = entryRef <$> children'
                         modify' (\f -> f{ nodes        = Map.insert
                                                              (ComposedId freshCounter)
@@ -649,7 +649,7 @@ deterministicNodeRef (RefDeterministic val) = Just val
 deterministicNodeRef _                      = Nothing
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed          :: [cachedInfo]                                                                               -> cachedInfo
+    { cachedInfoComposed          :: Int -> [cachedInfo]                                                                        -> cachedInfo
     , cachedInfoBuildInPredBool   ::                                            GroundedAST.TypedBuildInPred Bool               -> cachedInfo
     , cachedInfoBuildInPredString :: Map GroundedAST.PFuncLabel (Set Text)   -> GroundedAST.TypedBuildInPred Text               -> cachedInfo
     , cachedInfoBuildInPredReal   :: Map GroundedAST.PFuncLabel Interval     -> GroundedAST.TypedBuildInPred GroundedAST.RealN  -> cachedInfo

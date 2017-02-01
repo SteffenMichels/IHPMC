@@ -29,6 +29,7 @@ module HPT
     , HPTLeaf(..)
     , HPTLeafFormulas(..)
     , CachedSplitPoints(..)
+    , FNodeType(..)
     , SplitPoint(..)
     , LazyNode
     , initialHPT
@@ -65,8 +66,8 @@ score (MaybeWithinEv _ _) p = p
 score (WithinEv _)        p = 2 * p
 
 -- split points + scores
-data CachedSplitPoints = CachedSplitPointsPrimitive (Map SplitPoint Double)
-                       | CachedSplitPointsComposed  (Map SplitPoint Double)
+data CachedSplitPoints = CachedSplitPoints  FNodeType (Map SplitPoint Double) Int
+data FNodeType = Primitive | Composed
 data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
                 | StringSplit     (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
                 | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN)  Rational
