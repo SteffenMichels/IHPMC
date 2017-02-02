@@ -47,11 +47,13 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
-import qualified Data.Set as Set
-import qualified Data.HashSet as HashSet
+import qualified Data.Set as PQ -- set used as PQ here
+import Data.HashSet (Set)
+
+type PQ = PQ.Set
 
 -- Hybrid Probability Tree
-data HPT = HPT (Set.Set HPTLeaf) ProbabilityQuadruple (Map HPTLeafFormulas Probability)
+data HPT = HPT (PQ HPTLeaf) ProbabilityQuadruple (Map HPTLeafFormulas Probability)
 data HPTLeaf = HPTLeaf HPTLeafFormulas Probability deriving Eq
 data HPTLeafFormulas = MaybeWithinEv LazyNode Formula.NodeRef Int
                      | WithinEv      Formula.NodeRef Int
@@ -89,17 +91,17 @@ score (WithinEv {})      p = p
 data CachedSplitPoints = CachedSplitPoints FNodeType (Map SplitPoint Double) Int
 data FNodeType = Primitive | Composed
 data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
-                | StringSplit     (GroundedAST.PFunc Text)               (HashSet.Set Text) -- left branch: all string in this set, right branch: all remaining strings
+                | StringSplit     (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
                 | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN)  Rational
                 | ObjectSplit     (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object, right branch: excluding this object
                 deriving (Eq, Generic, Ord)
 instance Hashable SplitPoint
 
 initialHPT :: Formula.NodeRef -> Formula.NodeRef -> Formula.FState CachedSplitPoints HPT
-initialHPT q e = addLeaf (q, Formula.noConditions) e 1.0 $ HPT Set.empty (ProbabilityQuadruple 0.0 0.0 0.0 0.0) Map.empty
+initialHPT q e = addLeaf (q, Formula.noConditions) e 1.0 $ HPT PQ.empty (ProbabilityQuadruple 0.0 0.0 0.0 0.0) Map.empty
 
 nextLeaf :: HPT -> Maybe (HPTLeaf, HPT)
-nextLeaf (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case Set.maxView leaves of
+nextLeaf (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case PQ.maxView leaves of
     Nothing                             -> Nothing
     Just (leaf@(HPTLeaf fs p), leaves') -> Just (leaf, HPT leaves' quad $ Map.delete fs leafSet)
         where
@@ -128,10 +130,14 @@ addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = 
         (pq', leafSet') = insertIntoPQ (WithinEv q $ Hashable.hash q) p leaves leafSet
 
 
-insertIntoPQ :: HPTLeafFormulas -> Probability -> Set.Set HPTLeaf -> Map HPTLeafFormulas Probability -> (Set.Set HPTLeaf, Map HPTLeafFormulas Probability)
+insertIntoPQ :: HPTLeafFormulas
+             -> Probability
+             -> PQ HPTLeaf
+             -> Map HPTLeafFormulas Probability
+             -> (PQ HPTLeaf, Map HPTLeafFormulas Probability)
 insertIntoPQ fs p pq leafSet = case Map.lookup fs leafSet of
-    Just p' -> let p'' = p + p' in (Set.insert (HPTLeaf fs p'') $ Set.delete (HPTLeaf fs p') pq, Map.insert fs p'' leafSet)
-    Nothing -> (Set.insert (HPTLeaf fs p) pq, Map.insert fs p leafSet)
+    Just p' -> let p'' = p + p' in (PQ.insert (HPTLeaf fs p'') $ PQ.delete (HPTLeaf fs p') pq, Map.insert fs p'' leafSet)
+    Nothing -> (PQ.insert (HPTLeaf fs p) pq, Map.insert fs p leafSet)
 
 -- Nothing if evidence is inconsistent
 bounds :: HPT -> Maybe ProbabilityBounds

@@ -32,6 +32,7 @@ import Data.HashMap (Map)
 import qualified Data.HashMap as Map
 import Data.HashSet (Set)
 import qualified Data.HashSet as Set
+import qualified Data.Set as PQ -- set used as PQ here
 import Control.Monad.State.Strict
 import Data.Foldable (foldl', foldlM)
 import Data.Maybe (isJust, catMaybes)
@@ -47,10 +48,9 @@ import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
 import Data.Monoid ((<>))
 import TextShow
-import Data.PQueue.Prio.Min (MinPQueue)
-import qualified Data.PQueue.Prio.Min as PQ
 
-type GState = StateT GroundingState (Exceptional Exception)
+type PQ        = PQ.Set
+type GState    = StateT GroundingState (Exceptional Exception)
 data GoalDepth = Depth Integer | Infinite deriving Eq -- infininte = goal with cycle
 
 instance Ord GoalDepth where
@@ -195,7 +195,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
         queries'  <- forM queries  $ toPropQueryEvidence NonGroundQuery
         evidence' <- forM evidence $ toPropQueryEvidence NonGroundEvidence
         forM_ (queries ++ evidence) $
-            \el -> computeGroundings $ PQ.singleton (goalDepth el) (el, Set.empty)
+            \el -> computeGroundings $ PQ.singleton (goalDepth el, el, Set.empty)
         return (Set.fromList queries', Set.fromList evidence')
             where
             -- | Converts query or evidence elements into grounded elements.
@@ -208,36 +208,36 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
 
     -- | Computes all groundings given a current sequence of goal to still prove,
     -- together with for each goal a set of parent IDs, used for pruning proofs.
-    computeGroundings :: MinPQueue GoalDepth (AST.RuleBodyElement, Set GoalId) -> GState ()
+    computeGroundings :: PQ (GoalDepth, AST.RuleBodyElement, Set GoalId) -> GState ()
     computeGroundings todo = computeGroundings' todo [] Nothing
         where
-        computeGroundings' :: MinPQueue GoalDepth (AST.RuleBodyElement, Set GoalId)
-                           -> [(GoalDepth, (AST.RuleBodyElement, Set GoalId))]
-                           -> Maybe ((AST.RuleBodyElement, Set GoalId), MinPQueue GoalDepth (AST.RuleBodyElement, Set GoalId))
+        computeGroundings' :: PQ (GoalDepth, AST.RuleBodyElement, Set GoalId)
+                           -> [(GoalDepth, AST.RuleBodyElement, Set GoalId)]
+                           -> Maybe ((AST.RuleBodyElement, Set GoalId), PQ (GoalDepth, AST.RuleBodyElement, Set GoalId))
                            -> GState ()
-        computeGroundings' todo' maybeTodo mbFirstMaybeTodo = case PQ.minViewWithKey todo' of
+        computeGroundings' todo' maybeTodo mbFirstMaybeTodo = case PQ.minView todo' of
             Nothing -> case mbFirstMaybeTodo of
                 -- no goal left -> proof finished
                 Nothing -> addGroundings
                 -- we have to continue with goal of which we do not know yet whether it has to be proven
                 Just (goal, todo'') -> computeGroundingsGoal goal True todo''
-            Just (goalWithD@(_, goalWithPs@(goal, _)), todo'') -> do
+            Just (goalWithD@(_, goal, parents), todo'') -> do
                 alreadyP <- alreadyProven goal
                 inCurP   <- inCurProof    goal
                 case alreadyP ||* inCurP of
                     -- filter goal which does not have to be proven any more
                     True3 -> computeGroundings' todo'' maybeTodo mbFirstMaybeTodo
                     -- continue with proving goal
-                    False3 -> computeGroundingsGoal goalWithPs False $ foldl' (\td (d,g) -> PQ.insert d g td) todo'' maybeTodo
+                    False3 -> computeGroundingsGoal (goal, parents) False $ foldl' (\td (d, g, p) -> PQ.insert (d, g, p) td) todo'' maybeTodo
                     -- we don't know yet whether we have to proof this goal -> postpone
                     Unknown3 -> computeGroundings' todo'' (goalWithD : maybeTodo) $ case mbFirstMaybeTodo of
-                        Nothing -> Just (goalWithPs, todo'')
+                        Nothing -> Just ((goal, parents), todo'')
                         _       -> mbFirstMaybeTodo
 
     -- | Continues computing groundings with the goal given.
-    computeGroundingsGoal :: (AST.RuleBodyElement, Set GoalId)     -- the goal to continue with & set of parent IDs
-                          -> Bool                                  -- is it not known whether we still have to prove the goal yet?
-                          -> MinPQueue GoalDepth (AST.RuleBodyElement, Set GoalId) -- the remaining goals to prove
+    computeGroundingsGoal :: (AST.RuleBodyElement, Set GoalId)               -- the goal to continue with & set of parent IDs
+                          -> Bool                                            -- is it not known whether we still have to prove the goal yet?
+                          -> PQ (GoalDepth, AST.RuleBodyElement, Set GoalId) -- the remaining goals to prove
                           -> GState ()
     computeGroundingsGoal (goal, parents) maybeGoal remaining = case goal of
         AST.UserPredicate label givenArgs -> case Map.lookup (label, nArgs) rules of
@@ -272,7 +272,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                         case (consistent, mbToPrune) of
                             -- valuation is consistent with proofs (and maybe proofs)
                             (True, Just toPrune) -> do
-                                let remaining' = PQ.filter (\(_, parents'') -> Set.null $ Set.intersection toPrune parents'') remaining
+                                let remaining' = PQ.filter (\(_, _, parents'') -> Set.null $ Set.intersection toPrune parents'') remaining
                                 modify' ( \st ->
                                             let rip   = Map.filter (not . null) $
                                                     filter (\(_, _, _, ruleParents) -> Set.null $ Set.intersection toPrune ruleParents) <$>
@@ -283,7 +283,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                                             in st{rulesInProof = rip, rulesMaybeInProof = rmbip}
                                         )
                                 if Set.null $ Set.intersection parents' toPrune then do
-                                    let remaining'' = foldl' (\remain g -> PQ.insert (goalDepth g) (g, parents') remain) remaining' els'
+                                    let remaining'' = foldl' (\remain g -> PQ.insert (goalDepth g, g, parents') remain) remaining' els'
                                     continue remaining'' valu oldSt
                                 else -- prune proof (continue without elements of current rule)
                                     continue remaining' valu oldSt
@@ -292,7 +292,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                     Nothing -> put oldSt -- recover old state
                 where
                 -- | Continues finding proof with given remainig goals
-                continue :: MinPQueue GoalDepth (AST.RuleBodyElement, Set GoalId) -- old remaining goals to prove
+                continue :: PQ (GoalDepth, AST.RuleBodyElement, Set GoalId) -- old remaining goals to prove
                          -> Map AST.VarName AST.Expr              -- valuation to apply to old goals
                          -> GroundingState                        -- grounding state
                          -> StateT GroundingState (Exceptional Exception) ()
@@ -302,7 +302,10 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                     -- continue with rest (breadth-first)
                     computeGroundings remaining'''
                     -- recover previous state for next head rule, but keep groundings found
-                    modify' (\newSt -> oldSt {groundedRules = groundedRules newSt, groundedRfDefs = groundedRfDefs newSt, labelIdentifiers = labelIdentifiers newSt})
+                    modify' (\newSt -> oldSt { groundedRules    = groundedRules newSt
+                                             , groundedRfDefs   = groundedRfDefs newSt
+                                             , labelIdentifiers = labelIdentifiers newSt
+                                             })
 
                 addRuleToProof :: [AST.RuleBodyElement] -> State GroundingState ()
                 addRuleToProof elements' = modify' (\st -> st{rulesInProof = Map.insertWith
@@ -346,14 +349,19 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                 AST.Equality True expr (AST.Variable var) -> Just (var, expr)
                 _                                         -> Nothing
         where
-        applyVal :: MinPQueue GoalDepth (AST.RuleBodyElement, Set GoalId) -> Map AST.VarName AST.Expr -> GState (MinPQueue GoalDepth (AST.RuleBodyElement, Set GoalId))
-        applyVal goals valu = lift $ forM goals (\(r, parents') -> do
+        applyVal :: PQ (GoalDepth, AST.RuleBodyElement, Set GoalId)
+                 -> Map AST.VarName AST.Expr
+                 -> GState (PQ (GoalDepth, AST.RuleBodyElement, Set GoalId))
+        applyVal goals valu = lift $ foldM
+            (\goals' (d, r, parents') -> do
                 r' <- AST.mapExprsInRuleBodyElementM
                     r
                     (\a -> snd <$> applyValuArg valu a)
                     (return . snd . applyValuExpr valu)
-                return (r', parents')
+                return $ PQ.insert (d, r', parents') goals'
             )
+            PQ.empty
+            goals
 
     goalDepth :: AST.RuleBodyElement -> GoalDepth
     goalDepth goal = goalDepth' goal Set.empty
