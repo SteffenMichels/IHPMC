@@ -31,8 +31,8 @@ import qualified Data.HashMap as Map
 
 tests :: (String, [IntegrationTest])
 tests = ("grounding", [ queries, typesBip, typesArgs, typesOtherObjArg, strLits, preds, pfs, uniformOtherObjectPfs
-                      , varsInExpr, existVars, constraints, count, tablingProp, tablingFO, tablingPrune
-                      , network1, network2
+                      , varsInExpr, existVars, constraints, count, tablingProp, tablingFO, tablingPrune, tablingNoPrune
+                      , smokers, network1, network2
                       ]
         )
 
@@ -388,6 +388,35 @@ tablingPrune = IntegrationTest
               |]
     , expectedResults =
         [ (queryStr "a" ["a", "a"], preciseProb 0.0)
+        ]
+    }
+
+tablingNoPrune :: IntegrationTest
+tablingNoPrune = IntegrationTest
+    { label = "tabling (second goal of 'q' should not cause to prune entire proof)"
+    , model = unpack $ [text|
+                  q <- r(X), r(Y).
+                  r(a) <- ~v = true.
+                  ~v ~ flip(0.2).
+              |]
+    , expectedResults =
+        [ (query "q", preciseProb 0.2)
+        ]
+    }
+
+smokers :: IntegrationTest
+smokers = IntegrationTest
+    { label = "tabling (smokers)"
+    , model = unpack $ [text|
+                  ~stress(_) ~ flip(0.2).
+
+                  smokes(X) <- ~stress(X) = true.
+                  smokes(X) <- person(Y), smokes(Y).
+
+                  person(p1).person(p2).person(p3).
+              |]
+    , expectedResults =
+        [ (queryStr "smokes" ["p1"], preciseProb 0.488)
         ]
     }
 
