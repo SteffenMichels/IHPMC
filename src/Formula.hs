@@ -510,7 +510,8 @@ data Conditions = Conditions { boolConds   :: Map GroundedAST.PFuncLabel Bool
                              , realConds   :: Map GroundedAST.PFuncLabel Interval
                              , objConds    :: Map GroundedAST.PFuncLabel ObjCondition
                              }
-                             deriving (Eq, Ord)
+                             deriving (Eq, Ord, Generic)
+instance Hashable Conditions
 
 data ObjCondition = Object Integer | AnyExcept (Set Integer) deriving (Eq, Ord, Generic)
 instance Hashable ObjCondition
@@ -593,7 +594,9 @@ data NodeRef = RefComposed Bool ComposedId
              | RefBuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN)  (Map GroundedAST.PFuncLabel Interval)
              | RefBuildInPredicateObject (GroundedAST.TypedBuildInPred GroundedAST.Object) (Map GroundedAST.PFuncLabel ObjCondition)
              | RefDeterministic Bool
-             deriving Eq
+             deriving (Eq, Ord, Generic)
+
+instance Hashable NodeRef
 
 nodeRefToText :: NodeRef -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 nodeRefToText (RefComposed sign (ComposedId cid)) _ _ = if sign then "" else "-" <> showb cid

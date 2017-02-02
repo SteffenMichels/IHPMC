@@ -98,7 +98,7 @@ ihpmc query evidence finishPred reportingIO f = do
     ihpmcIterate hpt = case HPT.nextLeaf hpt of
         Nothing -> return Nothing
         Just (HPT.HPTLeaf fs p, hpt') -> case fs of
-            HPT.WithinEv q -> do
+            HPT.WithinEv q _ -> do
                 qEntry        <- Formula.augmentWithEntry q
                 let mbSpPoint =  splitPoint qEntry
                 case mbSpPoint of
@@ -110,7 +110,7 @@ ihpmc query evidence finishPred reportingIO f = do
                         return $ Just
                                $ HPT.addLeafWithinEvidence ql (pl * p)
                                $ HPT.addLeafWithinEvidence qr (pr * p) hpt'
-            HPT.MaybeWithinEv q e -> do
+            HPT.MaybeWithinEv q e _ -> do
                 eEntry      <- Formula.augmentWithEntry e
                 let mbSpPoint =  splitPoint eEntry
                 case mbSpPoint of

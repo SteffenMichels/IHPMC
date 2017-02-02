@@ -29,8 +29,8 @@ module HPT
     , HPTLeaf(..)
     , HPTLeafFormulas(..)
     , CachedSplitPoints(..)
-    , FNodeType(..)
     , SplitPoint(..)
+    , FNodeType(..)
     , LazyNode
     , initialHPT
     , bounds
@@ -40,73 +40,103 @@ module HPT
     ) where
 import qualified Formula
 import Probability
-import Data.PQueue.Max (MaxQueue)
-import qualified Data.PQueue.Max as PQ
 import qualified GroundedAST
 import Data.HashMap (Map)
+import qualified Data.HashMap as Map
 import Data.Text (Text)
-import Data.HashSet (Set)
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
+import qualified Data.Hashable as Hashable
+import qualified Data.Set as Set
+import qualified Data.HashSet as HashSet
 
 -- Hybrid Probability Tree
-data HPT = HPT (MaxQueue HPTLeaf) ProbabilityQuadruple
-data HPTLeaf = HPTLeaf HPTLeafFormulas Probability
-data HPTLeafFormulas = MaybeWithinEv LazyNode Formula.NodeRef
-                     | WithinEv      Formula.NodeRef
+data HPT = HPT (Set.Set HPTLeaf) ProbabilityQuadruple (Map HPTLeafFormulas Probability)
+data HPTLeaf = HPTLeaf HPTLeafFormulas Probability deriving Eq
+data HPTLeafFormulas = MaybeWithinEv LazyNode Formula.NodeRef Int
+                     | WithinEv      Formula.NodeRef Int
+                     deriving (Eq, Generic)
+instance Ord HPTLeafFormulas where
+    compare WithinEv{} MaybeWithinEv{} = LT
+    compare (WithinEv qx hx) (WithinEv qy hy) = case compare hx hy of
+        EQ  -> compare qx qy
+        res -> res
+    compare (MaybeWithinEv qx ex hx) (MaybeWithinEv qy ey hy) = case compare hx hy of
+        EQ  -> case compare ex ey of
+            EQ  -> compare qx qy -- comparing lazy queries is most expensive
+            res -> res
+        res -> res
+    compare MaybeWithinEv{} WithinEv{} = GT
+
+instance Hashable HPTLeafFormulas where
+    hashWithSalt salt (MaybeWithinEv _ _ h) = Hashable.hashWithSalt salt h
+    hashWithSalt salt (WithinEv _ h)        = Hashable.hashWithSalt salt h
 
 type LazyNode = (Formula.NodeRef, Formula.Conditions)
-instance Eq HPTLeaf where
-    HPTLeaf fx px == HPTLeaf fy py = score fx px == score fy py
 instance Ord HPTLeaf where
-    HPTLeaf fx px <= HPTLeaf fy py = score fx px <= score fy py
+    HPTLeaf fx px <= HPTLeaf fy py
+        | sx == sy  = fx <= fy
+        | otherwise = sx <= sy
+        where
+        sx = score fx px
+        sy = score fy py
 
 score :: HPTLeafFormulas -> Probability -> Probability
-score (MaybeWithinEv _ _) p = p
-score (WithinEv _)        p = 2 * p
+score (MaybeWithinEv {}) p = 2 * p
+score (WithinEv {})      p = p
 
 -- split points + scores
-data CachedSplitPoints = CachedSplitPoints  FNodeType (Map SplitPoint Double) Int
+data CachedSplitPoints = CachedSplitPoints FNodeType (Map SplitPoint Double) Int
 data FNodeType = Primitive | Composed
 data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
-                | StringSplit     (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
+                | StringSplit     (GroundedAST.PFunc Text)               (HashSet.Set Text) -- left branch: all string in this set, right branch: all remaining strings
                 | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN)  Rational
                 | ObjectSplit     (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object, right branch: excluding this object
                 deriving (Eq, Generic, Ord)
 instance Hashable SplitPoint
 
 initialHPT :: Formula.NodeRef -> Formula.NodeRef -> Formula.FState CachedSplitPoints HPT
-initialHPT q e = addLeaf (q, Formula.noConditions) e 1.0 $ HPT PQ.empty $ ProbabilityQuadruple 0.0 0.0 0.0 0.0
+initialHPT q e = addLeaf (q, Formula.noConditions) e 1.0 $ HPT Set.empty (ProbabilityQuadruple 0.0 0.0 0.0 0.0) Map.empty
 
 nextLeaf :: HPT -> Maybe (HPTLeaf, HPT)
-nextLeaf (HPT leaves (ProbabilityQuadruple t f e u)) = case PQ.maxView leaves of
+nextLeaf (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case Set.maxView leaves of
     Nothing                             -> Nothing
-    Just (leaf@(HPTLeaf fs p), leaves') -> Just (leaf, HPT leaves' quad)
+    Just (leaf@(HPTLeaf fs p), leaves') -> Just (leaf, HPT leaves' quad $ Map.delete fs leafSet)
         where
         quad = case fs of
-            MaybeWithinEv _ _ -> ProbabilityQuadruple t f e (u - p)
-            WithinEv _        -> ProbabilityQuadruple t f (e - p) u
+            MaybeWithinEv{} -> ProbabilityQuadruple t f e (u - p)
+            WithinEv{}      -> ProbabilityQuadruple t f (e - p) u
 
 addLeaf :: LazyNode -> Formula.NodeRef -> Probability -> HPT -> Formula.FState CachedSplitPoints HPT
-addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e u)) = case Formula.deterministicNodeRef ev of
+addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case Formula.deterministicNodeRef ev of
     Just True -> do
         q'  <- Formula.augmentWithEntry q
         q'' <- Formula.condition q' qConds
         Formula.dereference q
         return $ addLeafWithinEvidence (Formula.entryRef q'') p hpt
     Just False -> return hpt
-    Nothing    -> return $ HPT (PQ.insert (HPTLeaf (MaybeWithinEv qWithConds ev) p) leaves) (ProbabilityQuadruple t f e (u + p))
+    Nothing    -> return $ HPT pq' (ProbabilityQuadruple t f e (u + p)) leafSet'
+        where
+        (pq', leafSet') = insertIntoPQ (MaybeWithinEv qWithConds ev $ Hashable.hashWithSalt (Hashable.hash qWithConds) ev) p leaves leafSet
 
 addLeafWithinEvidence :: Formula.NodeRef -> Probability -> HPT -> HPT
-addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u)) = case Formula.deterministicNodeRef q of
-    Just True  -> HPT leaves (ProbabilityQuadruple (t + p) f e u)
-    Just False -> HPT leaves (ProbabilityQuadruple t (f + p) e u)
-    Nothing    -> HPT (PQ.insert (HPTLeaf (WithinEv q) p) leaves) (ProbabilityQuadruple t f (e + p) u)
+addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case Formula.deterministicNodeRef q of
+    Just True  -> HPT leaves (ProbabilityQuadruple (t + p) f e u) leafSet
+    Just False -> HPT leaves (ProbabilityQuadruple t (f + p) e u) leafSet
+    Nothing    -> HPT pq' (ProbabilityQuadruple t f (e + p) u) leafSet'
+        where
+        (pq', leafSet') = insertIntoPQ (WithinEv q $ Hashable.hash q) p leaves leafSet
+
+
+insertIntoPQ :: HPTLeafFormulas -> Probability -> Set.Set HPTLeaf -> Map HPTLeafFormulas Probability -> (Set.Set HPTLeaf, Map HPTLeafFormulas Probability)
+insertIntoPQ fs p pq leafSet = case Map.lookup fs leafSet of
+    Just p' -> let p'' = p + p' in (Set.insert (HPTLeaf fs p'') $ Set.delete (HPTLeaf fs p') pq, Map.insert fs p'' leafSet)
+    Nothing -> (Set.insert (HPTLeaf fs p) pq, Map.insert fs p leafSet)
 
 -- Nothing if evidence is inconsistent
 bounds :: HPT -> Maybe ProbabilityBounds
-bounds (HPT _ (ProbabilityQuadruple 0.0 0.0 0.0 0.0)) = Nothing
-bounds (HPT _ (ProbabilityQuadruple t f e u)) =
+bounds (HPT _ (ProbabilityQuadruple 0.0 0.0 0.0 0.0) _) = Nothing
+bounds (HPT _ (ProbabilityQuadruple t f e u) _) =
     Just $ ProbabilityBounds lo up
     where
     lo = t / (t + f + e + u)
