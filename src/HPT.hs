@@ -49,6 +49,7 @@ import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
 import qualified Data.Set as PQ -- set used as PQ here
 import Data.HashSet (Set)
+import Control.Monad (when)
 
 type PQ = PQ.Set
 
@@ -115,29 +116,34 @@ addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e 
         q'  <- Formula.augmentWithEntry q
         q'' <- Formula.condition q' qConds
         Formula.dereference q
-        return $ addLeafWithinEvidence (Formula.entryRef q'') p hpt
+        addLeafWithinEvidence (Formula.entryRef q'') p hpt
     Just False -> return hpt
-    Nothing    -> return $ HPT pq' (ProbabilityQuadruple t f e (u + p)) leafSet'
+    Nothing    -> do
+        when merged $ Formula.dereference q >> Formula.dereference ev
+        return $ HPT pq' (ProbabilityQuadruple t f e (u + p)) leafSet'
         where
-        (pq', leafSet') = insertIntoPQ (MaybeWithinEv qWithConds ev $ Hashable.hashWithSalt (Hashable.hash qWithConds) ev) p leaves leafSet
+        (pq', leafSet', merged) = insertIntoPQ (MaybeWithinEv qWithConds ev $ Hashable.hashWithSalt (Hashable.hash qWithConds) ev) p leaves leafSet
 
-addLeafWithinEvidence :: Formula.NodeRef -> Probability -> HPT -> HPT
+addLeafWithinEvidence :: Formula.NodeRef -> Probability -> HPT -> Formula.FState CachedSplitPoints HPT
 addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case Formula.deterministicNodeRef q of
-    Just True  -> HPT leaves (ProbabilityQuadruple (t + p) f e u) leafSet
-    Just False -> HPT leaves (ProbabilityQuadruple t (f + p) e u) leafSet
-    Nothing    -> HPT pq' (ProbabilityQuadruple t f (e + p) u) leafSet'
+    Just True  -> return $ HPT leaves (ProbabilityQuadruple (t + p) f e u) leafSet
+    Just False -> return $ HPT leaves (ProbabilityQuadruple t (f + p) e u) leafSet
+    Nothing    -> do
+        when merged $ Formula.dereference q
+        return $ HPT pq' (ProbabilityQuadruple t f (e + p) u) leafSet'
         where
-        (pq', leafSet') = insertIntoPQ (WithinEv q $ Hashable.hash q) p leaves leafSet
+        (pq', leafSet', merged) = insertIntoPQ (WithinEv q $ Hashable.hash q) p leaves leafSet
 
 
 insertIntoPQ :: HPTLeafFormulas
              -> Probability
              -> PQ HPTLeaf
              -> Map HPTLeafFormulas Probability
-             -> (PQ HPTLeaf, Map HPTLeafFormulas Probability)
+             -> (PQ HPTLeaf, Map HPTLeafFormulas Probability, Bool)
 insertIntoPQ fs p pq leafSet = case Map.lookup fs leafSet of
-    Just p' -> let p'' = p + p' in (PQ.insert (HPTLeaf fs p'') $ PQ.delete (HPTLeaf fs p') pq, Map.insert fs p'' leafSet)
-    Nothing -> (PQ.insert (HPTLeaf fs p) pq, Map.insert fs p leafSet)
+    Just p' -> let p'' = p + p'
+               in  (PQ.insert (HPTLeaf fs p'') $ PQ.delete (HPTLeaf fs p') pq, Map.insert fs p'' leafSet, True)
+    Nothing -> (PQ.insert (HPTLeaf fs p) pq, Map.insert fs p leafSet, False)
 
 -- Nothing if evidence is inconsistent
 bounds :: HPT -> Maybe ProbabilityBounds
@@ -149,7 +155,7 @@ bounds (HPT _ (ProbabilityQuadruple t f e u) _) =
     up | upDen == 0.0 = 1.0
        | up' <= 1.0   = up'
        | otherwise    = 1.0
-    ~up' = (t + e + u) / upDen -- lazy to prevent division by zero
+    ~up'  = (t + e + u) / upDen -- lazy to prevent division by zero
     upDen = t + f + e
 
 -- (true prob, false prob (within evidence), within evidence, unknown prob)

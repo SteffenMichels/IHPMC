@@ -106,10 +106,10 @@ ihpmc query evidence finishPred reportingIO f = do
                     Just spPoint -> do
                         (ql, _, qr, _, pl) <- splitFormula qEntry Nothing spPoint
                         Formula.dereference q
-                        let pr             =  1.0 - pl
-                        return $ Just
-                               $ HPT.addLeafWithinEvidence ql (pl * p)
-                               $ HPT.addLeafWithinEvidence qr (pr * p) hpt'
+                        let pr =  1.0 - pl
+                        hpt''  <- HPT.addLeafWithinEvidence ql (pl * p) hpt'
+                        hpt''' <- HPT.addLeafWithinEvidence qr (pr * p) hpt''
+                        return $ Just hpt'''
             HPT.MaybeWithinEv q e _ -> do
                 eEntry      <- Formula.augmentWithEntry e
                 let mbSpPoint =  splitPoint eEntry
