@@ -116,28 +116,31 @@ insert label sign operator children = do
     case mbCId of
         Just cid -> augmentWithEntryRef $ RefComposed sign cid
         Nothing -> do
-            Formula{cacheComps, freshCounter} <- get
+            cComps <- gets cacheComps
             if RefDeterministic singleDeterminismValue `elem` childRefs then do
                 forM_ childRefs dereference
-                return $ deterministicRefWithNode singleDeterminismValue $ cachedInfoDeterministic cacheComps singleDeterminismValue
+                return $ deterministicRefWithNode singleDeterminismValue $ cachedInfoDeterministic cComps singleDeterminismValue
             else do
                 children' <- List.concat <$> mapM simplifyChild children
                 case children' of
-                    [] -> return $ deterministicRefWithNode filterValue $ cachedInfoDeterministic cacheComps filterValue
+                    [] -> return $ deterministicRefWithNode filterValue $ cachedInfoDeterministic cComps filterValue
                     [onlyChild] -> return onlyChild
                     _ -> do
                         let pFuncs     = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
-                        let cachedInfo = cachedInfoComposed cacheComps (Set.size pFuncs) (entryCachedInfo <$> children')
+                        let cachedInfo = cachedInfoComposed cComps (Set.size pFuncs) (entryCachedInfo <$> children')
                         let childRefs' = entryRef <$> children'
-                        modify' (\f -> f{ nodes        = Map.insert
-                                                             (ComposedId freshCounter)
-                                                             (1, FormulaEntry label operator childRefs' pFuncs cachedInfo)
-                                                             (nodes f)
-                                        , freshCounter = succ freshCounter
-                                        , labels2ids   = Map.insert label (ComposedId freshCounter) $ labels2ids f
-                                        }
+                        cid <- state (\f@Formula{freshCounter} ->
+                                ( freshCounter,
+                                  f{ nodes        = Map.insert
+                                                     (ComposedId freshCounter)
+                                                     (1, FormulaEntry label operator childRefs' pFuncs cachedInfo)
+                                                     (nodes f)
+                                   , freshCounter = succ freshCounter
+                                   , labels2ids   = Map.insert label (ComposedId freshCounter) $ labels2ids f
+                                   }
                                 )
-                        return RefWithNode { entryRef        = RefComposed sign $ ComposedId freshCounter
+                            )
+                        return RefWithNode { entryRef        = RefComposed sign $ ComposedId cid
                                            , entryNode       = Composed operator childRefs'
                                            , entryLabel      = Just label
                                            , entryPFuncs     = pFuncs
@@ -416,16 +419,17 @@ reference _ = return ()
 
 dereference :: NodeRef -> FState cachedInfo ()
 dereference (RefComposed _ cid) = do
-        (delete, label, children) <- state (\f ->
+        (delete, children) <- state (\f ->
                 let (Just (refCount, FormulaEntry label _ children _ _), nodes') = Map.updateLookupWithKey
                         (\_ (rc, entry) -> if rc == 1 then Nothing else Just (rc - 1, entry))
                         cid
                         (nodes f)
-                in ((refCount == 1, label, children), f{nodes = nodes'})
+                    f' = if refCount == 1
+                         then f{nodes = nodes', labels2ids = Map.delete label $ labels2ids f}
+                         else f{nodes = nodes'}
+                in ((refCount == 1, children), f')
             )
-        when delete $ do
-            modify' (\st -> st{labels2ids = Map.delete label $ labels2ids st})
-            forM_ children dereference
+        when delete $ forM_ children dereference
 dereference _ = return ()
 
 negate :: NodeRef -> NodeRef
