@@ -497,7 +497,17 @@ data ComposedLabel = ComposedLabel
     PredicateLabel -- label
     Conditions     -- conditions
     Int            -- stored hash to avoid recomputation
-    deriving (Eq, Ord)
+
+-- more efficient than derived Eq, Ord
+instance Eq ComposedLabel where
+    ComposedLabel lx cx hx == ComposedLabel ly cy hy = hx == hy && lx == ly && cx == cy
+
+instance Ord ComposedLabel where
+    compare (ComposedLabel lx cx hx) (ComposedLabel ly cy hy) = case compare hx hy of
+        EQ -> case compare lx ly of
+            EQ -> compare cx cy
+            res -> res
+        res -> res
 
 instance Hashable ComposedLabel where
     hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
