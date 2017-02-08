@@ -87,7 +87,7 @@ checkResults src expRes = do
             res <- lift $ runExceptionalT $ do
                 let ast' = ast{AST.queries = [query']}
                 (groundedAst, _) <- returnExceptional $ mapException ((,Map.empty) . GrounderException) $ Grounder.ground ast'
-                let (([(_, qRef)], _), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
+                let ([(_, qRef)], _, f, _) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
                 (_, _, bounds, _) <- mapExceptionT ((,Map.empty) . IOException) $ IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing) f
                 return bounds
             return (query', isExp (mapException fst res) strs2id, res)
