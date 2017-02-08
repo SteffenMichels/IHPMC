@@ -31,6 +31,8 @@ module Formula
     , RefWithNode(entryRef, entryCachedInfo)
     , CacheComputations(..)
     , ComposedId
+    , PredicateId(..)
+    , PredicateLabel(..)
     , Conditions(..)
     , noConditions
     , ObjCondition(..)
@@ -41,9 +43,8 @@ module Formula
     , augmentWithEntryRef
     , labelId
     , exportAsDot
+    , evidenceComposedLabel
     , uncondComposedLabel
-    , uncondComposedLabelExcluded
-    , uncondComposedLabelNr
     , condition
     , reference
     , dereference
@@ -440,8 +441,13 @@ negate (RefBuildInPredicateReal   prd rConds) = RefBuildInPredicateReal   (Groun
 negate (RefBuildInPredicateObject prd oConds) = RefBuildInPredicateObject (GroundedAST.negatePred prd) oConds
 negate (RefDeterministic val)                 = RefDeterministic $ not val
 
-exportAsDot :: FilePath -> Formula cachedInfo -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> ExceptionalT IOException IO ()
-exportAsDot path Formula{nodes} ids2str ids2label = do
+exportAsDot :: FilePath
+            -> Formula cachedInfo
+            -> Map Int Text
+            -> Map Int (Int, [AST.ConstantExpr])
+            -> Map Int PredicateLabel
+            -> ExceptionalT IOException IO ()
+exportAsDot path Formula{nodes} ids2str ids2label ids2predlbl = do
     file <- doIO (openFile path WriteMode)
     doIO (hPutStrLn file "digraph Formula {")
     forM_ (Map.toList nodes) (printNode file)
@@ -455,7 +461,7 @@ exportAsDot path Formula{nodes} ids2str ids2label = do
                        "[label=\"" <>
                        showb i <>
                        ": " <>
-                       TB.fromLazyText (LT.replace "\"" "\\\"" $ TB.toLazyText $ composedLabelToText label ids2str ids2label) <>
+                       TB.fromLazyText (LT.replace "\"" "\\\"" $ TB.toLazyText $ composedLabelToText label ids2str ids2label ids2predlbl) <>
                        "\\n" <>
                        descr <>
                        "\"];"
@@ -494,29 +500,25 @@ data Formula cachedInfo = Formula
     , cacheComps         :: CacheComputations cachedInfo                                                                              -- how cached information attached to formulas is computed
     }
 
-newtype ComposedId = ComposedId Int deriving (Ord, Eq, Generic)
-instance Hashable ComposedId
+newtype ComposedId = ComposedId Int deriving (Ord, Eq)
+
+instance Hashable ComposedId where
+    hashWithSalt salt (ComposedId cid) = salt + cid
 
 data ComposedLabel = ComposedLabel
-    PredicateLabel -- label
-    Conditions     -- conditions
-    Int            -- stored hash to avoid recomputation
-
--- more efficient than derived Eq, Ord
-instance Eq ComposedLabel where
-    ComposedLabel lx cx hx == ComposedLabel ly cy hy = hx == hy && lx == ly && cx == cy
-
-instance Ord ComposedLabel where
-    compare (ComposedLabel lx cx hx) (ComposedLabel ly cy hy) = case compare hx hy of
-        EQ -> case compare lx ly of
-            EQ -> compare cx cy
-            res -> res
-        res -> res
+    PredicateId -- id
+    Conditions  -- conditions
+    Int         -- stored hash to avoid recomputation
+    deriving (Eq, Ord)
 
 instance Hashable ComposedLabel where
-    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
+    hashWithSalt salt (ComposedLabel _ _ hash) = salt + hash
 
-data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel) (Maybe Int) deriving (Eq, Ord)
+data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel) (Maybe Int) deriving (Eq, Ord, Generic)
+instance Hashable PredicateLabel
+
+newtype PredicateId = PredicateId Int deriving (Eq, Ord, Generic)
+instance Hashable PredicateId
 
 -- conditioned formulas
 data Conditions = Conditions { boolConds   :: Map GroundedAST.PFuncLabel Bool
@@ -533,8 +535,8 @@ instance Hashable ObjCondition
 noConditions :: Conditions
 noConditions = Conditions Map.empty Map.empty Map.empty Map.empty
 
-composedLabelToText :: ComposedLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
-composedLabelToText (ComposedLabel (PredicateLabel label excluded mbNr) Conditions{boolConds, stringConds, realConds} _) ids2str ids2label =
+composedLabelToText :: ComposedLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Map Int PredicateLabel -> Builder
+composedLabelToText (ComposedLabel (PredicateId cid) Conditions{boolConds, stringConds, realConds} _) ids2str ids2label ids2predlbl =
     GroundedAST.predicateLabelToText label ids2str ids2label <>
     "-" <>
     toTextLst (Set.toList excluded) (\x -> GroundedAST.predicateLabelToText x ids2str ids2label) <>
@@ -546,18 +548,15 @@ composedLabelToText (ComposedLabel (PredicateLabel label excluded mbNr) Conditio
         ((\x -> showCondReal   x ids2str ids2label) <$> Map.toList realConds)
     )
     where
+        Just (PredicateLabel label excluded mbNr) = Map.lookup cid ids2predlbl
         showCondBool (pf, val) = GroundedAST.pFuncLabelToText pf ids2str ids2label <> "=" <> showb val
 
-uncondComposedLabel :: GroundedAST.PredicateLabel -> ComposedLabel
-uncondComposedLabel label = ComposedLabel (PredicateLabel label Set.empty Nothing) noConditions $ Hashable.hash label
+-- '-1 is unused predicate label, reserved for evidence
+evidenceComposedLabel :: ComposedLabel
+evidenceComposedLabel = ComposedLabel (PredicateId (-1)) noConditions 0
 
-uncondComposedLabelExcluded :: GroundedAST.PredicateLabel -> Set GroundedAST.PredicateLabel -> ComposedLabel
-uncondComposedLabelExcluded label excluded =
-    ComposedLabel (PredicateLabel label excluded Nothing) noConditions $ Hashable.hashWithSalt (Hashable.hash label) excluded
-
-uncondComposedLabelNr :: GroundedAST.PredicateLabel -> Set GroundedAST.PredicateLabel -> Int -> ComposedLabel
-uncondComposedLabelNr label excluded nr =
-    ComposedLabel (PredicateLabel label excluded (Just nr)) noConditions $ Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hash label) nr) excluded
+uncondComposedLabel :: PredicateId -> ComposedLabel
+uncondComposedLabel pid = ComposedLabel pid noConditions 0
 
 condComposedLabelBool :: GroundedAST.PFuncLabel -> Bool -> ComposedLabel -> ComposedLabel
 condComposedLabelBool pf val (ComposedLabel label conds hash) = ComposedLabel label conds{boolConds = bConds} hash'

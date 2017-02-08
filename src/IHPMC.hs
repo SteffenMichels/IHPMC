@@ -66,7 +66,7 @@ ihpmc query evidence finishPred reportingIO f = do
             evidenceConj <- state $ runState $ do
                 evidence' <- forM evidence Formula.augmentWithEntry
                 Formula.insert
-                    (Formula.uncondComposedLabel $ GroundedAST.PredicateLabel (-1)) -- '-1 is unused predicate label, reserved for evidence
+                    Formula.evidenceComposedLabel
                     True
                     Formula.And
                     evidence'

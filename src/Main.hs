@@ -90,8 +90,9 @@ main' = do
     let ids2str = IdNrMap.fromIdNrMap identIds
     (groundedAst, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ Grounder.ground ast
     let ids2label = IdNrMap.fromIdNrMap labelIds
-    let ((queries, evidence), f) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-    whenJust formExpPath $ \path -> mapExceptionT ((,ids2str, ids2label) . IOException) $ Formula.exportAsDot path f ids2str ids2label
+    let (queries, evidence, f, predIds) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
+    let ids2predlbl = IdNrMap.fromIdNrMap predIds
+    whenJust formExpPath $ \path -> mapExceptionT ((,ids2str, ids2label) . IOException) $ Formula.exportAsDot path f ids2str ids2label ids2predlbl
     let stopPred n (ProbabilityBounds l u) t =  maybe False (<= n)       nIterations
                                              || maybe False (>= (u-l)/2) errBound
                                              || maybe False (<= t)       timeout
