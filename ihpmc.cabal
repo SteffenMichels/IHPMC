@@ -126,4 +126,4 @@ test-suite integration
         Exception
         Probability
         Util
-    ghc-options: -Werror -Wall -ferror-spans
+    ghc-options: -Werror -Wall -O1 -ferror-spans
