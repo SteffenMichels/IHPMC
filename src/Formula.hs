@@ -421,14 +421,12 @@ reference _ = return ()
 dereference :: NodeRef -> FState cachedInfo ()
 dereference (RefComposed _ cid) = do
         (delete, children) <- state (\f ->
-                let (Just (refCount, FormulaEntry label _ children _ _), nodes') = Map.updateLookupWithKey
-                        (\_ (rc, entry) -> if rc == 1 then Nothing else Just (rc - 1, entry))
-                        cid
-                        (nodes f)
-                    f' = if refCount == 1
-                         then f{nodes = nodes', labels2ids = Map.delete label $ labels2ids f}
-                         else f{nodes = nodes'}
-                in ((refCount == 1, children), f')
+                let Just (refCount, FormulaEntry label _ children _ _) = Map.lookup cid (nodes f)
+                    doDelete = refCount == 1
+                    f' = if doDelete
+                         then f{nodes = Map.delete cid $ nodes f, labels2ids = Map.delete label $ labels2ids f}
+                         else f{nodes = Map.adjust (\(rc, entry) -> (rc - 1, entry)) cid $ nodes f}
+                in ((doDelete, children), f')
             )
         when delete $ forM_ children dereference
 dereference _ = return ()
