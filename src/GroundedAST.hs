@@ -21,7 +21,7 @@
 
 {-# LANGUAGE CPP #-}
 #if __GLASGOW_HASKELL__ >= 800
-{-# LANGUAGE StrictData #-}
+{-# LANGUAGE Strict#-}
 #endif
 
 module GroundedAST ( GroundedAST(..)

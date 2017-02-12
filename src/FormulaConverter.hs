@@ -19,6 +19,11 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 800
+{-# LANGUAGE Strict #-}
+#endif
+
 module FormulaConverter ( convert
                         ) where
 import GroundedAST (GroundedAST(..))
@@ -31,7 +36,7 @@ import Data.HashMap (Map)
 import qualified Data.HashMap as Map
 import Control.Monad.State.Strict
 import Data.Maybe (isJust)
-import Data.Foldable (foldrM)
+import Data.Foldable (foldlM)
 import Util
 import IdNrMap (IdNrMap)
 import qualified IdNrMap
@@ -86,8 +91,8 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
                         0 -> lift $ Formula.augmentWithEntry $ Formula.refDeterministic True
                         1 -> headFormula (getFirst elements) excludedGoals''
                         _ -> do
-                            fChildren <- foldrM (\el fChildren -> do newChild <- headFormula el excludedGoals''
-                                                                     return $ newChild : fChildren
+                            fChildren <- foldlM (\fChildren el -> do newChild <- headFormula el excludedGoals''
+                                                                     return $! newChild : fChildren
                                                 ) [] $ Set.toList elements
                             let plabel' = Formula.PredicateLabel label excludedGoals' (Just counter)
                             flabel <- Formula.uncondComposedLabel . Formula.PredicateId <$> state (IdNrMap.getIdNr plabel')
