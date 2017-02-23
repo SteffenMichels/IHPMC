@@ -91,10 +91,11 @@ score (WithinEv {})      p = p
 -- split points + scores
 data CachedSplitPoints = CachedSplitPoints FNodeType (Map SplitPoint Double) Int
 data FNodeType = Primitive | Composed
-data SplitPoint = BoolSplit       (GroundedAST.PFunc Bool)
-                | StringSplit     (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
-                | ContinuousSplit (GroundedAST.PFunc GroundedAST.RealN)  Rational
-                | ObjectSplit     (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object, right branch: excluding this object
+data SplitPoint = BoolSplit         (GroundedAST.PFunc Bool)
+                | StringSplit       (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
+                | ContinuousSplit   (GroundedAST.PFunc GroundedAST.RealN)  Rational
+                | ObjectSplit       (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object, right branch: excluding this object
+                | ObjectIntervSplit (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object
                 deriving (Eq, Generic, Ord)
 instance Hashable SplitPoint
 

@@ -31,6 +31,7 @@ module GroundedAST ( GroundedAST(..)
                    , PFunc
                    , probabilisticFuncLabel
                    , probabilisticFuncDef
+                   , objectPfNrObjects
                    , makePFuncBool
                    , makePFuncReal
                    , makePFuncString
@@ -127,6 +128,11 @@ data PFuncDef a where
     StrDist             :: [(Probability, Text)]                                  -> PFuncDef Text
     UniformObjDist      :: Integer                                                -> PFuncDef Object
     UniformOtherObjDist :: PFunc Object                                           -> PFuncDef Object
+
+objectPfNrObjects :: PFunc Object -> Integer
+objectPfNrObjects pf = case GroundedAST.probabilisticFuncDef pf of
+    GroundedAST.UniformObjDist n        -> n
+    GroundedAST.UniformOtherObjDist pf' -> objectPfNrObjects pf'
 
 probabilisticFuncLabel :: PFunc a -> PFuncLabel
 probabilisticFuncLabel (PFunc label _) = label

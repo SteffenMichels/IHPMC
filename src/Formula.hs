@@ -389,19 +389,36 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                     pFuncs
 
                 condPred :: GroundedAST.TypedBuildInPred GroundedAST.Object
-                condPred = case (possibleLeft, possibleRight) of
-                    (Object    l, Object    r)                  -> GroundedAST.Constant $ (l == r) == eq
-                    (Object    l, AnyExcept r) | Set.member l r -> GroundedAST.Constant $ not eq
-                    (AnyExcept l, Object    r) | Set.member r l -> GroundedAST.Constant $ not eq
-                    _                                           -> prd
+                condPred
+                    | lFrom == lUpto && rFrom == rUpto = GroundedAST.Constant $ (lFrom == rFrom) == eq
+                    | otherwise = case intervIntersection lFrom lUpto rFrom rUpto of
+                        Nothing -> GroundedAST.Constant $ not eq -- disjoint intervals
+                        Just (from, upto)
+                            -- optimisation: no need to go through all values in case of no excluded values
+                            | Set.null lExcl && Set.null rExcl -> prd
+                            -- all possible values excluded
+                            | all (\o -> Set.member o lExcl || Set.member o rExcl) [from..upto] ->
+                                GroundedAST.Constant $ not eq
+                            | otherwise -> prd
                     where
-                    possibleLeft  = possibleObjects exprL
-                    possibleRight = possibleObjects exprR
+                    (lFrom, lUpto, lExcl) = possibleObjects exprL
+                    (rFrom, rUpto, rExcl) = possibleObjects exprR
 
-                possibleObjects :: GroundedAST.Expr GroundedAST.Object -> ObjCondition
-                possibleObjects (GroundedAST.ConstantExpr (GroundedAST.ObjConstant cnst)) = Object cnst
-                possibleObjects (GroundedAST.PFuncExpr pf') =
-                    Map.findWithDefault (AnyExcept Set.empty) (GroundedAST.probabilisticFuncLabel pf') oConds'
+                    intervIntersection lFrom' lUpto' rFrom' rUpto'
+                        | from <= upto = Just (from, upto)
+                        | otherwise    = Nothing
+                        where
+                        from = max lFrom' rFrom'
+                        upto = min lUpto' rUpto'
+
+                possibleObjects :: GroundedAST.Expr GroundedAST.Object -> (Integer, Integer, Set Integer)
+                possibleObjects (GroundedAST.ConstantExpr (GroundedAST.ObjConstant cnst)) = (cnst, cnst, Set.empty)
+                possibleObjects (GroundedAST.PFuncExpr pf') = case Map.lookup (GroundedAST.probabilisticFuncLabel pf') oConds' of
+                    Nothing                                   -> (0, GroundedAST.objectPfNrObjects pf' - 1, Set.empty)
+                    Just (Object o)                           -> (o , o, Set.empty)
+                    Just (AnyExcept excl)                     -> (0, GroundedAST.objectPfNrObjects pf' - 1, excl)
+                    Just (InInterval from upto)               -> (from, upto, Set.empty)
+                    Just (AnyExceptInInterval excl from upto) -> (from, upto, excl)
                 possibleObjects _ = undefined
             _ -> undefined
         where
@@ -527,7 +544,11 @@ data Conditions = Conditions { boolConds   :: Map GroundedAST.PFuncLabel Bool
                              deriving (Eq, Ord, Generic)
 instance Hashable Conditions
 
-data ObjCondition = Object Integer | AnyExcept (Set Integer) deriving (Eq, Ord, Generic)
+data ObjCondition = Object Integer
+                  | AnyExcept (Set Integer)
+                  | InInterval Integer Integer -- interval including end points
+                  | AnyExceptInInterval (Set Integer) Integer Integer
+                  deriving (Eq, Ord, Generic, Show)
 instance Hashable ObjCondition
 
 noConditions :: Conditions
@@ -636,11 +657,13 @@ showCondReal (pf, Interval.Interval l r) ids2str ids2label =
 
 showCondObject :: (GroundedAST.PFuncLabel, ObjCondition) -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 showCondObject (pf, cond) ids2str ids2label =
-    GroundedAST.pFuncLabelToText pf ids2str ids2label <> " " <> opStr <> " {" <> TB.fromLazyText (TB.toLazyText $ showbLst $ Set.toList condSet) <> "}"
+    GroundedAST.pFuncLabelToText pf ids2str ids2label <> " " <> condStr
     where
-    (opStr, condSet) = case cond of
-        Object    s -> ("in",     Set.singleton s)
-        AnyExcept s -> ("not in", s)
+    condStr = case cond of
+        Object    s                     -> "in {" <> showb s <> "}"
+        AnyExcept s                     -> "not in {" <> showbLst (Set.toList s) <> "}"
+        InInterval from upto            -> "in [" <> showb from <> ", " <> showb upto <> "]"
+        AnyExceptInInterval s from upto -> "in [" <> showb from <> ", " <> showb upto <> "] \\ {" <> showbLst (Set.toList s) <> "}"
 
 refDeterministic :: Bool -> NodeRef
 refDeterministic = RefDeterministic
