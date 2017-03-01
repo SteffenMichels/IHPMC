@@ -39,7 +39,6 @@ import Data.HashMap (Map)
 import qualified Data.HashMap as Map
 import qualified IdNrMap
 import qualified AST
-import Data.Text.Lazy.Builder (Builder)
 import TextShow
 import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))

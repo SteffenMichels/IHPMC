@@ -71,7 +71,6 @@ import Data.Foldable (foldl')
 import Util
 import Data.Text (Text)
 import qualified Data.Text.Lazy as LT
-import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as TB
 import TextShow
 import qualified Data.Text.Lazy.IO as LTIO
