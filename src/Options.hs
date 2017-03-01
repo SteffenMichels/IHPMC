@@ -34,7 +34,6 @@ import System.Console.ArgParser.Params
 import Util
 import Text.Printf (printf)
 import TextShow
-import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as TB
 import qualified Parser
 import Text.Parsec (parse)

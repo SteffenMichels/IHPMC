@@ -40,7 +40,6 @@ import qualified Data.HashMap as Map
 import qualified IdNrMap
 import qualified AST
 import Data.Text.Lazy.Builder (Builder)
-import qualified Data.Text.Lazy.Builder as TB
 import TextShow
 import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))
@@ -65,7 +64,7 @@ main :: IO ()
 main = do
     result <- runExceptionalT main'
     case result of
-        Exception (e, ids2str, ids2label) -> LTIO.putStrLn (TB.toLazyText $ exceptionToText e ids2str ids2label) >> exitFailure
+        Exception (e, ids2str, ids2label) -> LTIO.putStrLn (toLazyText $ exceptionToText e ids2str ids2label) >> exitFailure
         Success _                         -> return ()
 
 main' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
@@ -111,7 +110,7 @@ main' = do
         f
         queries
         where
-        printResult qLabel n t mbBounds ids2str ids2label = doIO $ LTIO.putStrLn $ TB.toLazyText $
+        printResult qLabel n t mbBounds ids2str ids2label = doIO $ LTIO.putStrLn $ toLazyText $
             GroundedAST.ruleBodyElementToText qLabel ids2str ids2label <>
             " (iteration " <> showb n <>
             ", after " <> showb t <> "ms): " <>
@@ -125,7 +124,7 @@ doIOException :: IO a -> ExceptionalT (Exception, Map Int Text, Map Int (Int, [A
 doIOException io = mapExceptionT ((,Map.empty, Map.empty) . IOException) $ doIO io
 
 printIfSet :: (a -> Builder) -> Maybe a -> ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
-printIfSet fstr = maybe (return ()) $ doIOException . LTIO.putStrLn . TB.toLazyText . fstr
+printIfSet fstr = maybe (return ()) $ doIOException . LTIO.putStrLn . toLazyText . fstr
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust Nothing _   = return ()

@@ -34,7 +34,6 @@ module Exception
     ) where
 import qualified System.IO.Error as IOError
 import Control.Monad.Exception.Synchronous
-import Data.Text.Lazy.Builder (Builder)
 import TextShow
 
 newtype IOException = IOException Builder

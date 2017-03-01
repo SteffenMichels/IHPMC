@@ -80,7 +80,7 @@ import Util
 import Probability
 import TextShow
 import Data.Text (Text)
-import Data.Monoid ((<>), mconcat)
+import Data.Monoid ((<>))
 import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy as LT
 

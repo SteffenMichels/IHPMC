@@ -60,7 +60,6 @@ import Probability
 import Util
 import Control.Arrow (second)
 import Data.Traversable (forM, mapAccumL)
-import Data.Text.Lazy.Builder (Builder)
 import Data.Text (Text)
 import qualified Data.Text.Lazy as LT
 import TextShow

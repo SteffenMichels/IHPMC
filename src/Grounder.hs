@@ -45,7 +45,6 @@ import Data.Boolean (Boolean(..))
 import IdNrMap (IdNrMap)
 import qualified IdNrMap
 import Data.Text (Text)
-import Data.Text.Lazy.Builder (Builder)
 import Data.Monoid ((<>))
 import TextShow
 
