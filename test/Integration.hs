@@ -40,7 +40,6 @@ import Data.HashMap (Map)
 import qualified Data.HashMap as Map
 import qualified IdNrMap
 import Data.Text (Text)
-import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy as LT
 import Data.Monoid ((<>))
