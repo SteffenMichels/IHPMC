@@ -61,7 +61,6 @@ import Util
 import Control.Arrow (second)
 import Data.Traversable (forM, mapAccumL)
 import Data.Text.Lazy.Builder (Builder)
-import qualified Data.Text.Lazy.Builder as TB
 import Data.Text (Text)
 import qualified Data.Text.Lazy as LT
 import TextShow
@@ -76,12 +75,12 @@ data AST = AST
 
 newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
 predicateLabelToText :: PredicateLabel -> Map Int Text -> Builder
-predicateLabelToText (PredicateLabel idNr) = TB.fromText . Map.findWithDefault undefined idNr
+predicateLabelToText (PredicateLabel idNr) = fromText . Map.findWithDefault undefined idNr
 instance Hashable PredicateLabel
 
 newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
 pFuncLabelToText :: PFuncLabel -> Map Int Text -> Builder
-pFuncLabelToText (PFuncLabel idNr) = TB.fromText . Map.findWithDefault undefined idNr
+pFuncLabelToText (PFuncLabel idNr) = fromText . Map.findWithDefault undefined idNr
 instance Hashable PFuncLabel
 
 data PFuncDef = Flip                Probability
@@ -124,7 +123,7 @@ data VarName = VarName Text
              deriving (Eq, Generic, Ord)
 instance TextShow VarName
     where
-    showb (VarName str) = TB.fromText str
+    showb (VarName str) = fromText str
     showb (TempVar i)   = showb i
 instance Hashable VarName
 
@@ -170,9 +169,9 @@ data ConstantExpr = BoolConstant Bool
 
 instance TextShow ConstantExpr
     where
-    showb (BoolConstant cnst) = TB.fromLazyText $ LT.map toLower $ TB.toLazyText $ showb cnst
+    showb (BoolConstant cnst) = fromLazyText $ LT.map toLower $ toLazyText $ showb cnst
     showb (RealConstant cnst) = showb (fromRat cnst::Float)
-    showb (StrConstant  cnst) = "\"" <> TB.fromText cnst <> "\""
+    showb (StrConstant  cnst) = "\"" <> fromText cnst <> "\""
     showb (IntConstant  cnst) = showb cnst
     showb (ObjConstant  cnst) = "#" <> showb cnst
 instance Hashable ConstantExpr

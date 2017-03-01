@@ -42,7 +42,7 @@ executable ihpmc_float
         Exception
         Probability
         Util
-    ghc-options: -Werror -rtsopts -Wall -O2 -ferror-spans
+    ghc-options: -rtsopts -Wall -O2 -ferror-spans
 
 executable ihpmc_exact
     main-is: Main.hs
@@ -80,7 +80,7 @@ executable ihpmc_exact
         Exception
         Probability
         Util
-    ghc-options: -Werror -rtsopts -Wall -O2 -ferror-spans
+    ghc-options: -rtsopts -Wall -O2 -ferror-spans
 
 test-suite integration
     type: detailed-0.9
@@ -127,4 +127,4 @@ test-suite integration
         Exception
         Probability
         Util
-    ghc-options: -Werror -Wall -O1 -ferror-spans
+    ghc-options: -Wall -O1 -ferror-spans
