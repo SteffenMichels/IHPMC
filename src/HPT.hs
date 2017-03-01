@@ -30,6 +30,8 @@ module HPT
     , HPTLeafFormulas(..)
     , CachedSplitPoints(..)
     , SplitPoint(..)
+    , Proof(..)
+    , Choice(..)
     , FNodeType(..)
     , LazyNode
     , initialHPT
@@ -78,19 +80,12 @@ instance Hashable HPTLeafFormulas where
 type LazyNode = (Formula.NodeRef, Formula.Conditions)
 instance Ord HPTLeaf where
     HPTLeaf fx px <= HPTLeaf fy py
-        | sx == sy  = fx <= fy
-        | otherwise = sx <= sy
-        where
-        sx = score fx px
-        sy = score fy py
+        | px == py  = fx <= fy
+        | otherwise = px <= py
 
-score :: HPTLeafFormulas -> Probability -> Probability
-score (MaybeWithinEv {}) p = 2 * p
-score (WithinEv {})      p = p
-
--- split points + scores
-data CachedSplitPoints = CachedSplitPoints FNodeType (Map SplitPoint Double) Int
-data FNodeType = Primitive | Composed
+-- CachedSplitPoints "true proofs" "false proofs" "all point [+ scores]"
+data CachedSplitPoints = CachedSplitPoints (Set Proof) (Set Proof) FNodeType
+data FNodeType = Primitive (Set SplitPoint) | Composed (Map SplitPoint Int)
 data SplitPoint = BoolSplit         (GroundedAST.PFunc Bool)
                 | StringSplit       (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
                 | ContinuousSplit   (GroundedAST.PFunc GroundedAST.RealN)  Rational
@@ -98,6 +93,11 @@ data SplitPoint = BoolSplit         (GroundedAST.PFunc Bool)
                 | ObjectIntervSplit (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object
                 deriving (Eq, Generic, Ord)
 instance Hashable SplitPoint
+
+newtype Proof = Proof (Map SplitPoint Choice) deriving (Eq, Ord, Generic)
+instance Hashable Proof
+data Choice = Left | Right deriving (Eq, Ord, Generic)
+instance Hashable Choice
 
 initialHPT :: Formula.NodeRef -> Formula.NodeRef -> Formula.FState CachedSplitPoints HPT
 initialHPT q e = addLeaf (q, Formula.noConditions) e 1.0 $ HPT PQ.empty (ProbabilityQuadruple 0.0 0.0 0.0 0.0) Map.empty

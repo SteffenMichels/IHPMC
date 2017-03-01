@@ -43,6 +43,7 @@ module GroundedAST ( GroundedAST(..)
                    , PFuncDef(..)
                    , Addition
                    , Ineq
+                   , AST.IneqOp(..)
                    , RealN
                    , Object
                    , RuleBody(..)
