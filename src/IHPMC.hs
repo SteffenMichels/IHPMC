@@ -711,38 +711,6 @@ heuristicComposed op nPfs points = HPT.CachedSplitPoints
     proofSum :: [Set HPT.Proof] -> Set HPT.Proof
     proofSum = Set.unions
 
---    proofProduct :: [Set HPT.Proof] -> Set HPT.Proof
---    proofProduct [] = Set.empty
---    proofProduct ps = fst $ proofProduct' ps (HPT.Proof Map.empty) 0
---        where
---        proofProduct' :: [Set HPT.Proof] -> HPT.Proof -> Int -> (Set HPT.Proof, Int)
---        proofProduct' [] curProof@(HPT.Proof p) minLength =
---            let proofLength = Map.size p
---            in  (Set.singleton curProof, if minLength == 0 then proofLength else min minLength proofLength)
---        proofProduct' (nextPs : restPs) curProof minLength = Set.fold
---            ( \p (proofs, minLength') -> case combineProofs p curProof of
---                Just combProof | Map.size combProof <= heuristicsMaxProofLength ->
---                    let (proofs', minLength'') = proofProduct' restPs (HPT.Proof combProof) minLength'
---                    in (Set.union proofs proofs', minLength'')
---                _ -> (proofs, minLength')
---            )
---            (Set.empty, minLength)
---            nextPs
---
---        combineProofs :: HPT.Proof -> HPT.Proof -> Maybe (Map SplitPoint HPT.Choice)
---        combineProofs (HPT.Proof x) (HPT.Proof y) = Map.foldWithKey addProofElement (Just x) y
---
---        addProofElement :: HPT.SplitPoint
---                        -> HPT.Choice
---                        -> Maybe (Map SplitPoint HPT.Choice)
---                        -> Maybe (Map SplitPoint HPT.Choice)
---        addProofElement pt choice mbP = do
---            p <- mbP
---            -- TODO: this check of proof consistency is only correct for bools
---            case Map.lookup pt p of
---                Nothing                          -> return $ Map.insert pt choice p
---                Just choice' | choice == choice' -> return p
---                _                                -> mzero
     proofProduct :: [Set HPT.Proof] -> Set HPT.Proof
     proofProduct [] = undefined
     proofProduct (fstP:restPs) = foldl' (\ps ps' ->
@@ -773,7 +741,7 @@ heuristicComposed op nPfs points = HPT.CachedSplitPoints
                 _                                -> mzero
     composition :: [HPT.CachedSplitPoints] -> Map HPT.SplitPoint Int
     composition pts = foldl'
-        (\pts' pt-> Set.fold (\pt' -> Map.insert pt' $ - fromIntegral nPfs) pts' $ primPts pt)
+        (\pts' pt-> Set.fold (\pt' -> Map.insert pt' nPfs) pts' $ primPts pt)
         ( foldl'
             (\splitPoints splitPoints' -> Map.unionWith (+) splitPoints $ ptsMap splitPoints')
             Map.empty
