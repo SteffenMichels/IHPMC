@@ -19,11 +19,6 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-{-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ >= 800
-{-# LANGUAGE Strict #-}
-#endif
-
 module IHPMC
     ( ihpmc
     , heuristicsCacheComputations
@@ -97,22 +92,22 @@ ihpmc query evidence finishPred reportingIO f = do
     ihpmcIterate :: HPT -> FState (Maybe HPT)
     ihpmcIterate hpt = case HPT.nextLeaf hpt of
         Nothing -> return Nothing
-        Just (HPT.HPTLeaf fs p, hpt') -> case fs of
+        Just (HPT.HPTLeaf fs p cachedProofs, hpt') -> case fs of
             HPT.WithinEv q _ -> do
                 qEntry        <- Formula.augmentWithEntry q
-                let mbSpPoint =  splitPoint qEntry
+                let (mbSpPoint, cProofsL, cProofsR) =  splitPoint qEntry cachedProofs
                 case mbSpPoint of
                     Nothing -> return Nothing
                     Just spPoint -> do
                         (ql, _, qr, _, pl) <- splitFormula qEntry Nothing spPoint
                         Formula.dereference q
                         let pr =  1.0 - pl
-                        hpt''  <- HPT.addLeafWithinEvidence ql (pl * p) hpt'
-                        hpt''' <- HPT.addLeafWithinEvidence qr (pr * p) hpt''
+                        hpt''  <- HPT.addLeafWithinEvidence ql (pl * p) cProofsL hpt'
+                        hpt''' <- HPT.addLeafWithinEvidence qr (pr * p) cProofsR hpt''
                         return $ Just hpt'''
             HPT.MaybeWithinEv q e _ -> do
                 eEntry      <- Formula.augmentWithEntry e
-                let mbSpPoint =  splitPoint eEntry
+                let (mbSpPoint, cProofsL, cProofsR) =  splitPoint eEntry cachedProofs
                 case mbSpPoint of
                     Nothing -> return Nothing
                     Just spPoint -> do
@@ -121,29 +116,76 @@ ihpmc query evidence finishPred reportingIO f = do
                         when (Formula.deterministicNodeRef el /= Just False && Formula.deterministicNodeRef er /= Just False)
                              (Formula.reference query) -- new lazy formula refers to initial query
                         let pr =  1.0 - pl
-                        hpt'' <- HPT.addLeaf ql el (pl * p) hpt'
-                        Just <$> HPT.addLeaf qr er (pr * p) hpt''
+                        hpt'' <- HPT.addLeaf ql el (pl * p) cProofsL hpt'
+                        Just <$> HPT.addLeaf qr er (pr * p) cProofsR hpt''
 
-splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints -> Maybe HPT.SplitPoint
-splitPoint f | null candidateSplitPoints = Nothing
-             | otherwise = let (spPoint, _) = List.maximumBy (\(_,x) (_,y) -> compare x y) (computeScores <$> candidateSplitPoints)
-                           in  Just spPoint
+data ProofCounters = ProofCounters (Map Int Int) Int deriving Eq-- last arg: max length of proof
+
+instance Ord ProofCounters where
+    compare (ProofCounters countsX maxLengthX) (ProofCounters countsY maxLengthY) = compare' 1
+        where
+        compare' i
+            | i > maxLengthX || i > maxLengthY = compare maxLengthX maxLengthY
+            | otherwise = case compare (Map.findWithDefault 0 i countsX) (Map.findWithDefault 0 i countsY) of
+                EQ  -> compare' $ succ i
+                res -> res
+
+splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints -> Set HPT.Proof -> (Maybe HPT.SplitPoint, Set HPT.Proof, Set HPT.Proof)
+splitPoint f cachedProofs
+    | null candidateSplitPoints = (Nothing, Set.empty, Set.empty)
+    | Set.null cachedProofs = let newProofs = Set.union proofsT proofsF
+                              in if Set.null newProofs
+                                 then ( Just $ fst $ List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
+                                      , Set.empty
+                                      , Set.empty
+                                      )
+                                 else splitWithProofs newProofs
+    | otherwise             = splitWithProofs cachedProofs
     where
     HPT.CachedSplitPoints proofsT proofsF spType = Formula.entryCachedInfo f
     candidateSplitPoints = case spType of
         HPT.Composed pts  -> Map.toList pts
         HPT.Primitive pts -> (, 0) <$> Set.toList pts
 
-    computeScores :: (HPT.SplitPoint, Int)
-                  -> (HPT.SplitPoint, ([Int], Int))
-    computeScores (pt, score) =
-        ( pt
-        , ( [ Set.size $
-                  Set.filter (\(HPT.Proof proof) -> Map.size proof == l && Map.member pt proof) $ Set.union proofsT proofsF
-            | l <- [1..heuristicsMaxProofLength]
-            ]
-          , score
-          )
+    splitWithProofs :: Set HPT.Proof -> (Maybe HPT.SplitPoint, Set HPT.Proof, Set HPT.Proof)
+    splitWithProofs proofs = (Just splitPt, condCachedProofs splitPt HPT.Left proofs, condCachedProofs splitPt HPT.Right proofs)
+        where
+        splitPt = fst $ List.maximumBy (\(_,x) (_,y) -> compare x y) (attachScores <$> candidateSplitPoints)
+
+        attachScores :: (HPT.SplitPoint, Int)
+                     -> (HPT.SplitPoint, (ProofCounters, Int))
+        attachScores (pt, score) =
+            ( pt
+            , ( Map.findWithDefault (ProofCounters Map.empty 0) pt proofCounters
+              , score
+              )
+            )
+
+        proofCounters :: Map HPT.SplitPoint ProofCounters
+        proofCounters = Set.fold
+            ( \(HPT.Proof p) counts-> let lengthProof = Map.size p in Map.foldWithKey
+                ( \pt _ counts' -> Map.insert
+                    pt
+                    ( case Map.lookup pt counts' of
+                        Nothing -> ProofCounters (Map.singleton lengthProof 1) lengthProof
+                        Just (ProofCounters cs maxLenProofs) ->
+                            ProofCounters (Map.alter (Just . maybe 1 succ) lengthProof cs) $ max lengthProof maxLenProofs
+                    )
+                    counts'
+                )
+                counts
+                p
+            )
+            Map.empty
+            proofs
+
+    condCachedProofs :: HPT.SplitPoint -> HPT.Choice -> Set HPT.Proof -> Set HPT.Proof
+    condCachedProofs splitPt choice = Set.filter (\(HPT.Proof p) -> not $ Map.null p) . Set.map
+        ( \proof@(HPT.Proof pMap) -> case Map.lookup splitPt pMap of
+            Nothing -> proof
+            Just choice'
+                | choice == choice' -> HPT.Proof $ Map.delete splitPt pMap
+                | otherwise         -> HPT.Proof Map.empty
         )
 
 splitFormula :: Formula.RefWithNode HPT.CachedSplitPoints
@@ -331,9 +373,6 @@ addCondObj :: GroundedAST.PFunc a -> Formula.ObjCondition -> Formula.Conditions 
 addCondObj pf val conds = conds{Formula.objConds = Map.insert pfLabel val $ Formula.objConds conds}
     where
     pfLabel = GroundedAST.probabilisticFuncLabel pf
-
-heuristicsMaxProofLength :: Int
-heuristicsMaxProofLength = 3
 
 heuristicsCacheComputations :: Formula.CacheComputations HPT.CachedSplitPoints
 heuristicsCacheComputations = Formula.CacheComputations
@@ -702,11 +741,10 @@ heuristicComposed op nPfs points = HPT.CachedSplitPoints
     allProofsT = (\(HPT.CachedSplitPoints psT _ _) -> psT) <$> points
     allProofsF = (\(HPT.CachedSplitPoints _ psF _) -> psF) <$> points
 
-    onlyMinLengthProofs = id
---    onlyMinLengthProofs proofs | Set.null proofs = proofs
---                               | otherwise = Set.filter (\(HPT.Proof p) -> Map.size p == minLength) proofs
---        where
---        ~minLength = minimum [Map.size p | HPT.Proof p <- Set.toList proofs]
+    onlyMinLengthProofs proofs | Set.null proofs = proofs
+                               | otherwise = Set.filter (\(HPT.Proof p) -> Map.size p <= minLength) proofs
+        where
+        ~minLength = minimum [Map.size p | HPT.Proof p <- Set.toList proofs]
 
     proofSum :: [Set HPT.Proof] -> Set HPT.Proof
     proofSum = Set.unions
@@ -720,8 +758,8 @@ heuristicComposed op nPfs points = HPT.CachedSplitPoints
         combineProofWithSet :: HPT.Proof -> Set HPT.Proof -> Set HPT.Proof
         combineProofWithSet p = Set.fold
             ( \p' ps' -> case combineProofs p p' of
-                  Just p'' | Map.size p'' <= heuristicsMaxProofLength -> Set.insert (HPT.Proof p'') ps'
-                  _                                                   -> ps'
+                  Just p'' -> Set.insert (HPT.Proof p'') ps'
+                  _        -> ps'
             )
             Set.empty
 
@@ -741,7 +779,7 @@ heuristicComposed op nPfs points = HPT.CachedSplitPoints
                 _                                -> mzero
     composition :: [HPT.CachedSplitPoints] -> Map HPT.SplitPoint Int
     composition pts = foldl'
-        (\pts' pt-> Set.fold (\pt' -> Map.insert pt' nPfs) pts' $ primPts pt)
+        (\pts' pt-> Set.fold (`Map.insert` nPfs) pts' $ primPts pt)
         ( foldl'
             (\splitPoints splitPoints' -> Map.unionWith (+) splitPoints $ ptsMap splitPoints')
             Map.empty
