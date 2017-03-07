@@ -758,8 +758,8 @@ heuristicComposed op nPfs points = HPT.CachedSplitPoints
         combineProofWithSet :: HPT.Proof -> Set HPT.Proof -> Set HPT.Proof
         combineProofWithSet p = Set.fold
             ( \p' ps' -> case combineProofs p p' of
-                  Just p'' -> Set.insert (HPT.Proof p'') ps'
-                  _        -> ps'
+                  Just p'' | Map.size p'' <= 7 -> Set.insert (HPT.Proof p'') ps'
+                  _                            -> ps'
             )
             Set.empty
 
