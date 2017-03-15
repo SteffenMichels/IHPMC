@@ -165,12 +165,12 @@ instance Hashable GoalId
 -- | Converts an AST go a grounded AST.
 -- Additionally, produces ID numbers for each constant expression, ocurring in the grounding.
 ground :: AST -> Exceptional Exception (GroundedAST, IdNrMap (Int, [AST.ConstantExpr]))
-ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.pFuncDefs=pfDefs} = evalStateT
+ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules', AST.pFuncDefs=pfDefs} = evalStateT
     (do
         (queries', evidence') <- computeResultState
         gRules <- gets groundedRules
         pIds   <- gets labelIdentifiers
-        return ( GroundedAST { rules = Map.map Set.fromList gRules
+        return ( GroundedAST { rules    = Map.map Set.fromList gRules
                              , queries  = queries'
                              , evidence = evidence'
                              }
@@ -187,6 +187,8 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.
                   , labelIdentifiers  = IdNrMap.empty
                   }
     where
+    rules = substitutePfsWithPfArgs rules'
+
     -- | Computes a state which contains all ground rules.
     -- Returns all queries and evidence as grounded elements.
     computeResultState :: GState (Set GroundedAST.RuleBodyElement, Set GroundedAST.RuleBodyElement)
@@ -872,3 +874,27 @@ constraintHolds (EqConstraint exprX exprY) =  do
         (AST.IntConstant  x, AST.IntConstant  y) -> return $ x == y
         (AST.StrConstant  x, AST.StrConstant  y) -> return $ x == y
         _                                        -> throw $ TypeError (toPropExprConst cnstX) (toPropExprConst cnstY)
+
+substitutePfsWithPfArgs :: Map (AST.PredicateLabel, Int) [([AST.HeadArgument], AST.RuleBody)]
+                        -> Map (AST.PredicateLabel, Int) [([AST.HeadArgument], AST.RuleBody)]
+substitutePfsWithPfArgs rules = undefined
+    where
+    pfsWithPfArgs :: Set (AST.PFuncLabel, Int)
+    pfsWithPfArgs = foldl'
+        ( foldl' ( \rules' (_, AST.RuleBody body) ->
+                     foldl' pfsWithPfArgs' rules' body
+                 )
+        )
+        Set.empty
+        (Map.elems rules)
+
+    pfsWithPfArgs' rules' (AST.UserPredicate _ _) = rules'
+    pfsWithPfArgs' rules' (AST.BuildInPredicate bip) = case bip of
+        AST.Equality _ exprX exprY -> AST.foldExpr pfsWithPfArgs'' (AST.foldExpr pfsWithPfArgs'' rules' exprX) exprY
+        AST.Ineq     _ exprX exprY -> AST.foldExpr pfsWithPfArgs'' (AST.foldExpr pfsWithPfArgs'' rules' exprX) exprY
+
+    pfsWithPfArgs'' :: Set (AST.PFuncLabel, Int) -> AST.Expr -> Set (AST.PFuncLabel, Int)
+    pfsWithPfArgs'' rules' (AST.PFunc label args)
+        | any (AST.foldExpr (\b e -> b || AST.exprIsPFunc e) False) args = Set.insert (label, length args) rules'
+        | otherwise                                                      = rules'
+    pfsWithPfArgs'' rules' _ = rules'

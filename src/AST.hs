@@ -44,11 +44,13 @@ module AST
     , mapExprsInRuleBodyElementM
     , mapAccExpr
     , mapAccExprsInRuleBodyElement
+    , foldExpr
     , predicateLabelToText
     , pFuncLabelToText
     , pFuncDefToText
     , ruleBodyElementToText
     , exprToText
+    , exprIsPFunc
     ) where
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
@@ -64,6 +66,7 @@ import Data.Text (Text)
 import qualified Data.Text.Lazy as LT
 import TextShow
 import Data.Monoid ((<>))
+import Data.Foldable (foldl')
 
 data AST = AST
     { pFuncDefs :: Map (PFuncLabel, Int)     [([HeadArgument], PFuncDef)] -- first matching def applies
@@ -195,6 +198,10 @@ varsInExpr (ConstantExpr _)  = False
 varsInExpr (PFunc _ args)    = any varsInExpr args
 varsInExpr (Sum exprX exprY) = varsInExpr exprX || varsInExpr exprY
 
+exprIsPFunc :: AST.Expr -> Bool
+exprIsPFunc (AST.PFunc _ _) = True
+exprIsPFunc _               = False
+
 -- traverses top-down
 mapExprsInRuleBodyElement :: (AST.Expr -> AST.Expr) -> AST.RuleBodyElement -> AST.RuleBodyElement
 mapExprsInRuleBodyElement f el = snd $ mapAccExprsInRuleBodyElement (\a e -> (a, f e)) () el
@@ -250,3 +257,11 @@ mapAccExpr f acc expr = case expr' of
     _ -> (acc', expr')
     where
     (acc', expr') = f acc expr
+
+foldExpr :: (a -> AST.Expr -> a) -> a -> AST.Expr -> a
+foldExpr f acc expr = case expr of
+    AST.Sum exprX exprY  -> foldExpr f (foldExpr f acc' exprX) exprY
+    AST.PFunc label args -> foldl' (foldExpr f) acc' args
+    _                    -> acc'
+    where
+    acc' = f acc expr
