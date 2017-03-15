@@ -1,4 +1,4 @@
-#Interative Hybrid Probabilistic Model Counting [![Build Status](https://travis-ci.org/SteffenMichels/IHPMC.svg?branch=master)](https://travis-ci.org/SteffenMichels/IHPMC)
+# Interative Hybrid Probabilistic Model Counting [![Build Status](https://travis-ci.org/SteffenMichels/IHPMC.svg?branch=master)](https://travis-ci.org/SteffenMichels/IHPMC)
 
 [Interative Hybrid Probabilistic Model Counting (IHPMC)](http://www.steffen-michels.de/ihpmc/) is a probabilistic inference algorithm developed at the [Institute for Computing and Information Sciences](http://www.ru.nl/icis/) of the [Radboud University Nijmegen](http://www.ru.nl/) by Steffen Michels. The algorithm offers inference for hybrid models with bounded error. This is a unique selling point compared to other methods, for example based on sampling, which do, if at all, only provide weak guarantees on the error. This is achieved by iteratively evaluating a hybrid probability tree and computing bounds on probabilities. Details can be found in the publication:
 
@@ -9,7 +9,7 @@ Steffen Michels, Arjen Hommersom, Peter J. F. Lucas <br />
 The input language is similar to [Probabilistic Constraint Logic Programming (PCLP)](http://www.steffen-michels.de/pclp), but does only support precise distributions.
 
 
-##Installation
+## Installation
 
 The inference tool based on IHPMC is written in Haskell and there is a Cabal package file. You can install the package with:
 
@@ -19,7 +19,7 @@ There are also binary packages available:
  * [IHPMC Linux x64](http://www.steffen-michels.de/ihpmc/ihpmc_linux_x64.tar.gz)
  * [IHPMC Windows x64](http://www.steffen-michels.de/ihpmc/ihpmc_windows_x64.zip)
 
-##Usage
+## Usage
 
 The algorithm comes with two version "ihpmc_float" and "ihpmc_exact". The former uses floating point arithmetic and the latter exact rational number arithmetic to compute probabilities. Floating point arithmetic is usually the better choice. It is more efficient, but can result in rounding errors. However, those rounding errors usually only become problematic, when conditioning on events with very small probability. Note, that even when using "ihpmc_exact" rounding error occur when computing CDF values for continuous distributions.
 
