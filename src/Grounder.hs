@@ -23,6 +23,7 @@ module Grounder
     ( ground
     , Exception(..)
     , exceptionToText
+    , substitutePfsWithPfArgs -- TODO: remove
     ) where
 import AST (AST)
 import qualified AST
@@ -165,7 +166,7 @@ instance Hashable GoalId
 -- | Converts an AST go a grounded AST.
 -- Additionally, produces ID numbers for each constant expression, ocurring in the grounding.
 ground :: AST -> Exceptional Exception (GroundedAST, IdNrMap (Int, [AST.ConstantExpr]))
-ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules', AST.pFuncDefs=pfDefs} = evalStateT
+ground ast = evalStateT
     (do
         (queries', evidence') <- computeResultState
         gRules <- gets groundedRules
@@ -187,7 +188,7 @@ ground AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules', AST
                   , labelIdentifiers  = IdNrMap.empty
                   }
     where
-    rules = substitutePfsWithPfArgs rules'
+    AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.pFuncDefs=pfDefs} = substitutePfsWithPfArgs ast
 
     -- | Computes a state which contains all ground rules.
     -- Returns all queries and evidence as grounded elements.
@@ -875,9 +876,8 @@ constraintHolds (EqConstraint exprX exprY) =  do
         (AST.StrConstant  x, AST.StrConstant  y) -> return $ x == y
         _                                        -> throw $ TypeError (toPropExprConst cnstX) (toPropExprConst cnstY)
 
-substitutePfsWithPfArgs :: Map (AST.PredicateLabel, Int) [([AST.HeadArgument], AST.RuleBody)]
-                        -> Map (AST.PredicateLabel, Int) [([AST.HeadArgument], AST.RuleBody)]
-substitutePfsWithPfArgs rules = undefined
+substitutePfsWithPfArgs :: AST -> AST
+substitutePfsWithPfArgs ast@AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.pFuncDefs=pfDefs} = ast
     where
     pfsWithPfArgs :: Set (AST.PFuncLabel, Int)
     pfsWithPfArgs = foldl'

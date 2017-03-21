@@ -26,6 +26,7 @@
 
 module AST
     ( AST(..)
+    , astToText
     , PredicateLabel(..)
     , PFuncLabel(..)
     , RuleBody(..)
@@ -75,6 +76,16 @@ data AST = AST
     , evidence  :: [RuleBodyElement]
     }
 
+astToText :: AST -> Map Int Text -> Builder
+astToText ast ids2str = rulesStr <> queryStr <> evStr
+    where
+    rulesStr     = mconcat $ mconcat [
+                        let lStr = predicateLabelToText label ids2str
+                        in  [lStr <> (if null args then "" else "(" <> showbLst args <> ")") <> " <- " <> ruleBodyToText body ids2str <> ".\n" | (args, body) <- bodies]
+                   | ((label, _), bodies) <- Map.toList $ rules ast]
+    queryStr     = mconcat ["query "    <> ruleBodyElementToText query ids2str <> ".\n" | query <- queries  ast]
+    evStr        = mconcat ["evidence " <> ruleBodyElementToText ev    ids2str <> ".\n" | ev    <- evidence ast]
+
 newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
 predicateLabelToText :: PredicateLabel -> Map Int Text -> Builder
 predicateLabelToText (PredicateLabel idNr) = fromText . Map.findWithDefault undefined idNr
@@ -103,6 +114,10 @@ pFuncDefToText (UniformOtherObjDist otherPf args) ids2str =
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 instance Hashable RuleBody
 
+ruleBodyToText :: RuleBody -> Map Int Text -> Builder
+ruleBodyToText (RuleBody elements) ids2str =
+    toTextLst elements (`ruleBodyElementToText` ids2str)
+
 data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic, Ord)
@@ -118,6 +133,10 @@ data HeadArgument = ArgVariable VarName
                   | ArgConstant ConstantExpr
                   | ArgDontCareVariable
                   deriving (Eq, Generic)
+instance TextShow HeadArgument where
+    showb (ArgVariable vname) = showb vname
+    showb (ArgConstant cnst)  = showb cnst
+    showb ArgDontCareVariable = "_"
 instance Hashable HeadArgument
 
 data VarName = VarName Text

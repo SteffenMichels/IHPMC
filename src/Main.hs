@@ -86,6 +86,7 @@ main' = do
     src <- doIOException $ readFile modelFile
     (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
     let ids2str = IdNrMap.fromIdNrMap identIds
+    printIfSet (`AST.astToText` ids2str) (Just $ Grounder.substitutePfsWithPfArgs ast)
     (groundedAst, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ Grounder.ground ast
     let ids2label = IdNrMap.fromIdNrMap labelIds
     let (queries, evidence, f, predIds) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
