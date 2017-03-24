@@ -22,6 +22,7 @@
 module Main (main, Exception(..), exceptionToText) where
 import System.Environment (getArgs)
 import qualified Parser
+import qualified AstPreprocessor
 import qualified Grounder
 import qualified FormulaConverter
 import qualified GroundedAST
@@ -85,7 +86,7 @@ main' = do
     printIfSet (\t -> "Stopping after " <> showb t <> "ms.") timeout
     src <- doIOException $ readFile modelFile
     (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
-    let (ast', identIds') = Grounder.substitutePfsWithPfArgs ast identIds
+    let (ast', identIds') = AstPreprocessor.substitutePfsWithPfArgs ast identIds
     let ids2str = IdNrMap.fromIdNrMap identIds'
     printIfSet (`AST.astToText` ids2str) (Just ast')
     (groundedAst, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ Grounder.ground ast'
