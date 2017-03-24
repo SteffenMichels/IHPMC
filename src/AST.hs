@@ -81,7 +81,9 @@ astToText ast ids2str = rulesStr <> queryStr <> evStr
     where
     rulesStr     = mconcat $ mconcat [
                         let lStr = predicateLabelToText label ids2str
-                        in  [lStr <> (if null args then "" else "(" <> showbLst args <> ")") <> " <- " <> ruleBodyToText body ids2str <> ".\n" | (args, body) <- bodies]
+                        in  [ lStr <> (if null args then "" else "(" <> showbLst args <> ")") <> " <- " <> ruleBodyToText body ids2str <> ".\n"
+                            | (args, body) <- bodies
+                            ]
                    | ((label, _), bodies) <- Map.toList $ rules ast]
     queryStr     = mconcat ["query "    <> ruleBodyElementToText query ids2str <> ".\n" | query <- queries  ast]
     evStr        = mconcat ["evidence " <> ruleBodyElementToText ev    ids2str <> ".\n" | ev    <- evidence ast]
@@ -279,8 +281,8 @@ mapAccExpr f acc expr = case expr' of
 
 foldExpr :: (a -> AST.Expr -> a) -> a -> AST.Expr -> a
 foldExpr f acc expr = case expr of
-    AST.Sum exprX exprY  -> foldExpr f (foldExpr f acc' exprX) exprY
-    AST.PFunc label args -> foldl' (foldExpr f) acc' args
-    _                    -> acc'
+    AST.Sum exprX exprY -> foldExpr f (foldExpr f acc' exprX) exprY
+    AST.PFunc _ args    -> foldl' (foldExpr f) acc' args
+    _                   -> acc'
     where
     acc' = f acc expr
