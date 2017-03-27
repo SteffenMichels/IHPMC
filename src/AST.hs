@@ -147,7 +147,7 @@ data VarName = VarName Text
 instance TextShow VarName
     where
     showb (VarName str) = fromText str
-    showb (TempVar i)   = showb i
+    showb (TempVar i)   = "_" <> showb i
 instance Hashable VarName
 
 data BuildInPredicate = Equality Bool Expr Expr

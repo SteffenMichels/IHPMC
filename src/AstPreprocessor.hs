@@ -1,6 +1,6 @@
 --The MIT License (MIT)
 --
---Copyright (c) 2016-2017 Steffen Michels (mail@steffen-michels.de)
+--Copyright (c) 2017 Steffen Michels (mail@steffen-michels.de)
 --
 --Permission is hereby granted, free of charge, to any person obtaining a copy of
 --this software and associated documentation files (the "Software"), to deal in
@@ -43,12 +43,46 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
     (ast', identIds') = Map.foldWithKey addUsagePreds (ast, identIds) pfsWithPfArgsUsages
         where
         addUsagePreds :: (AST.PFuncLabel, Int) -> Set [AST.Expr] -> (AST, IdNrMap Text) -> (AST, IdNrMap Text)
-        addUsagePreds (AST.PFuncLabel pfId, nArgs) uses ast'' = fst $ Set.fold addUsagePreds' (ast'', 0) uses
+        addUsagePreds (AST.PFuncLabel pfId, nArgs) uses ast'' = res
             where
-            addUsagePreds' :: [AST.Expr] -> ((AST, IdNrMap Text), Integer) -> ((AST, IdNrMap Text), Integer)
-            addUsagePreds' args ((ast''', identIds''), n) = ((ast'''', identIds'''), succ n)
+            (res, _, _, _) = Set.fold addUsagePreds' (ast'', 0, [], []) uses
+            addUsagePreds' :: [AST.Expr]
+                           -> ((AST, IdNrMap Text), Int, [(AST.PredicateLabel, [AST.Expr])], [[(AST.Expr, AST.Expr)]])
+                           -> ((AST, IdNrMap Text), Int, [(AST.PredicateLabel, [AST.Expr])], [[(AST.Expr, AST.Expr)]])
+            addUsagePreds' args ((ast''', identIds''), n, prevUsages, conditions) = ((ast'''', identIds'''), succ n, prevUsages', conditions')
                 where
-                ast'''' = ast'''{AST.rules = Map.insert (AST.PredicateLabel predId, nArgs) [([AST.ArgDontCareVariable], AST.RuleBody [])] $ AST.rules ast'''}
+                ast'''' = ast'''{AST.rules = Map.insert (usagePred, nArgs) (bodies prevUsages []) $ AST.rules ast'''}
+                conditions' = conditions
+                prevUsages' = (usagePred, args) : prevUsages
+                usagePred = AST.PredicateLabel predId
+
+                bodies :: [(AST.PredicateLabel, [AST.Expr])]
+                       -> [([AST.HeadArgument], AST.RuleBody)]
+                       -> [([AST.HeadArgument], AST.RuleBody)]
+                bodies ((prevUsagePred, prevUsageArgs) : prevUsages'') acc =
+                    bodies prevUsages'' (body : acc)
+                    where
+                    body = (usagePredArgsHead, AST.RuleBody (AST.UserPredicate prevUsagePred usagePredArgs : equalToPrev))
+                    usagePredArgsHead = [AST.ArgVariable $ AST.TempVar $ -x | x <- [1..nArgs]]
+                    usagePredArgs     = [AST.Variable    $ AST.TempVar $ -x | x <- [1..nArgs]]
+                    equalToPrev       = [ AST.BuildInPredicate $ AST.Equality True arg argPrev
+                                        | arg <- args, argPrev <- prevUsageArgs
+                                        ]
+                bodies [] acc = ([AST.ArgVariable $ AST.TempVar $ -x | x <- [1..nArgs]], AST.RuleBody body) : acc
+                    where
+                    body = concat (argValueEqs : unequalToPrev)
+                    argValueEqs = [ AST.BuildInPredicate $ AST.Equality True (AST.Variable $ AST.TempVar $ -v) (pfs2placeh arg)
+                                  | v <- [1..nArgs], arg <- args
+                                  ]
+                    unequalToPrev = [ [ AST.BuildInPredicate $ AST.Equality False arg argPrev
+                                      | arg <- args, argPrev <- prevUsageArgs
+                                      ]
+                                    | (_, prevUsageArgs) <- prevUsages
+                                    ]
+                    pfs2placeh (AST.PFunc (AST.PFuncLabel pf) []) = AST.ConstantExpr $
+                        AST.StrConstant ("_" <> Map.findWithDefault undefined pf (IdNrMap.fromIdNrMap identIds''))
+                    pfs2placeh arg = arg
+
                 (predId, identIds''') = IdNrMap.getIdNr (toText predIdent) identIds''
                 predIdent = "~" <>
                             fromText (Map.findWithDefault undefined pfId (IdNrMap.fromIdNrMap identIds'')) <>
