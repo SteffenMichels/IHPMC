@@ -34,27 +34,29 @@ import Data.Text (Text)
 import TextShow
 import Data.Monoid ((<>))
 import Data.Foldable (foldl')
+import qualified Data.List as List
+import Control.Arrow (second)
 
 substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)
 substitutePfsWithPfArgs ast identIds = (ast', identIds')
     where
-    AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules, AST.pFuncDefs=pfDefs} = ast
+    AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules} = ast
 
-    (ast', identIds') = Map.foldWithKey addUsagePreds (ast, identIds) pfsWithPfArgsUsages
+    (ast', identIds') = Map.foldWithKey addUsagePreds (ast2, identIds2) pfsWithPfArgsUsages
         where
-        addUsagePreds :: (AST.PFuncLabel, Int) -> Set [AST.Expr] -> (AST, IdNrMap Text) -> (AST, IdNrMap Text)
+        addUsagePreds :: (AST.PFuncLabel, Int) -> Map [AST.Expr] AST.PredicateLabel -> (AST, IdNrMap Text) -> (AST, IdNrMap Text)
         addUsagePreds (AST.PFuncLabel pfId, nArgs) uses ast'' = res
             where
-            (res, _, _, _) = Set.fold addUsagePreds' (ast'', 0, [], []) uses
+            (res, _, _, _) = Map.foldWithKey addUsagePreds' (ast'', 0, [], []) uses
             addUsagePreds' :: [AST.Expr]
+                           -> AST.PredicateLabel
                            -> ((AST, IdNrMap Text), Int, [(AST.PredicateLabel, [AST.Expr])], [[(AST.Expr, AST.Expr)]])
                            -> ((AST, IdNrMap Text), Int, [(AST.PredicateLabel, [AST.Expr])], [[(AST.Expr, AST.Expr)]])
-            addUsagePreds' args ((ast''', identIds''), n, prevUsages, conditions) = ((ast'''', identIds'''), succ n, prevUsages', conditions')
+            addUsagePreds' args usagePred ((ast''', identIds''), n, prevUsages, conditions) = ((ast'''', identIds''), succ n, prevUsages', conditions')
                 where
                 ast'''' = ast'''{AST.rules = Map.insert (usagePred, nArgs) (bodies prevUsages []) $ AST.rules ast'''}
                 conditions' = conditions
                 prevUsages' = (usagePred, args) : prevUsages
-                usagePred = AST.PredicateLabel predId
 
                 bodies :: [(AST.PredicateLabel, [AST.Expr])]
                        -> [([AST.HeadArgument], AST.RuleBody)]
@@ -83,50 +85,62 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
                         AST.StrConstant ("_" <> Map.findWithDefault undefined pf (IdNrMap.fromIdNrMap identIds''))
                     pfs2placeh arg = arg
 
-                (predId, identIds''') = IdNrMap.getIdNr (toText predIdent) identIds''
-                predIdent = "~" <>
-                            fromText (Map.findWithDefault undefined pfId (IdNrMap.fromIdNrMap identIds'')) <>
-                            "@" <>
-                            showb n
-
     -- arguments for which pfsWithPfArgs are used
-    pfsWithPfArgsUsages :: Map (AST.PFuncLabel, Int) (Set [AST.Expr])
-    pfsWithPfArgsUsages = foldPfs pfsWithPfArgsUsages' Map.empty
+    ((pfsWithPfArgsUsages, identIds2), ast2) = mapAccumAddRuleElemsPfs pfsWithPfArgsUsages' (Map.empty, identIds) ast
         where
-        pfsWithPfArgsUsages' :: Map (AST.PFuncLabel, Int) (Set [AST.Expr])
-                            -> ((AST.PFuncLabel, Int), [AST.Expr])
-                            -> Map (AST.PFuncLabel, Int) (Set [AST.Expr])
-        pfsWithPfArgsUsages' pfUses (sign, args)
-            | Set.member sign pfsWithPfArgs = Map.insert
-                sign
-                (Set.insert args $ Map.findWithDefault Set.empty sign pfUses)
-                pfUses
-            | otherwise = pfUses
-
+        pfsWithPfArgsUsages' :: (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text)
+                             -> ((AST.PFuncLabel, Int), [AST.Expr])
+                             -> ([AST.Expr], (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text), [AST.RuleBodyElement])
+        pfsWithPfArgsUsages' st@(pfUses, identIds) (sign@(AST.PFuncLabel pfId, nArgs), args)
+            | Set.member sign pfsWithPfArgs =
+                let usesArgs = Map.findWithDefault Map.empty sign pfUses
+                in  case Map.lookup args usesArgs of
+                    Just prd -> (args, st, [AST.UserPredicate prd args])
+                    Nothing ->
+                        let (prdId, identIds') = IdNrMap.getIdNr (predIdent $ Map.size usesArgs) identIds
+                            prdLabel           = AST.PredicateLabel prdId
+                        in  (args, (Map.insert sign (Map.insert args prdLabel usesArgs) pfUses, identIds'), [AST.UserPredicate prdLabel args]) -- [AST.Variable    $ AST.TempVar $ -x | x <- [1..nArgs]]
+            | otherwise = (args, st, [])
+            where
+            predIdent n = toText $
+                          "~" <>
+                          fromText (Map.findWithDefault undefined pfId (IdNrMap.fromIdNrMap identIds)) <>
+                          "@" <>
+                          showb n
     -- all pfs which have pfs as args
     pfsWithPfArgs :: Set (AST.PFuncLabel, Int)
-    pfsWithPfArgs = foldPfs pfsWithPfArgs' Set.empty
+    pfsWithPfArgs = fst $ mapAccumAddRuleElemsPfs pfsWithPfArgs' Set.empty ast
         where
         pfsWithPfArgs' :: Set (AST.PFuncLabel, Int)
                        -> ((AST.PFuncLabel, Int), [AST.Expr])
-                       -> Set (AST.PFuncLabel, Int)
+                       -> ([AST.Expr], Set (AST.PFuncLabel, Int), [a])
         pfsWithPfArgs' pfs (sign, args)
-            | any (AST.foldExpr (\b e -> b || AST.exprIsPFunc e) False) args = Set.insert sign pfs
-            | otherwise                                                      = pfs
+            | any (AST.foldExpr (\b e -> b || AST.exprIsPFunc e) False) args = (args, Set.insert sign pfs, [])
+            | otherwise                                                      = (args, pfs, [])
 
-    foldPfs :: (a -> ((AST.PFuncLabel, Int), [AST.Expr]) -> a) -> a -> a
-    foldPfs f acc = foldl'
-        ( foldl' ( \pfs (_, AST.RuleBody body) ->
-                     foldl' foldPfs' pfs body
-                 )
-        )
+mapAccumAddRuleElemsPfs :: (a -> ((AST.PFuncLabel, Int), [AST.Expr]) -> ([AST.Expr], a, [AST.RuleBodyElement])) -> a -> AST -> (a, AST)
+mapAccumAddRuleElemsPfs f acc ast = (acc', ast{AST.rules = rules})
+    where
+    (acc', rules) = Map.mapAccumWithKey
+        (\acc' sign -> List.mapAccumL mapAccumAddRuleElemsPfs' acc')
         acc
-        (Map.elems rules)
-        where
-        foldPfs' pfs (AST.UserPredicate _ _) = pfs
-        foldPfs' pfs (AST.BuildInPredicate bip) = case bip of
-            AST.Equality _ exprX exprY -> AST.foldExpr foldPfs'' (AST.foldExpr foldPfs'' pfs exprX) exprY
-            AST.Ineq     _ exprX exprY -> AST.foldExpr foldPfs'' (AST.foldExpr foldPfs'' pfs exprX) exprY
+        (AST.rules ast)
 
-        foldPfs'' acc' (AST.PFunc label args) = f acc' ((label, length args), args)
-        foldPfs'' acc' _                      = acc'
+    mapAccumAddRuleElemsPfs' acc (args, AST.RuleBody body) = (acc', (args, AST.RuleBody $ concat body'))
+        where
+        (acc', body') = List.mapAccumL mapAccumAddRuleElemsPfs'' acc body
+
+    mapAccumAddRuleElemsPfs'' acc' el@(AST.UserPredicate _ _) = (acc', [el])
+    mapAccumAddRuleElemsPfs'' acc' (AST.BuildInPredicate bip) = case bip of
+        AST.Equality op exprX exprY -> mapAccumAddRuleElemsPfs''' (AST.Equality op) exprX exprY
+        AST.Ineq     op exprX exprY -> mapAccumAddRuleElemsPfs''' (AST.Ineq     op) exprX exprY
+        where
+        mapAccumAddRuleElemsPfs''' constr exprX exprY = (acc''', AST.BuildInPredicate (constr exprX' exprY') : toAdd)
+            where
+            (acc'',  exprX')          = AST.mapAccExpr mapAccumAddRuleElemsPfs'''' (acc', []) exprX
+            ((acc''', toAdd), exprY') = AST.mapAccExpr mapAccumAddRuleElemsPfs'''' acc''      exprY
+
+    mapAccumAddRuleElemsPfs'''' (acc', toAdd) (AST.PFunc label args) = ((acc, toAdd ++ toAdd'), AST.PFunc label args')
+        where
+        (args', acc, toAdd') = f acc' ((label, length args), args)
+    mapAccumAddRuleElemsPfs'''' acc' expr = (acc', expr)
