@@ -36,6 +36,7 @@ import Data.Monoid ((<>))
 import Data.Foldable (foldl')
 import qualified Data.List as List
 import Control.Arrow (second)
+import Data.Traversable (mapAccumR)
 
 substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)
 substitutePfsWithPfArgs ast identIds = (ast', identIds')
@@ -44,6 +45,7 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
 
     (ast', identIds') = Map.foldWithKey addUsagePreds (ast2, identIds2) pfsWithPfArgsUsages
         where
+        -- add predicates for each usage of predicates, of which at least one arg is a PF in at least one usage
         addUsagePreds :: (AST.PFuncLabel, Int) -> Map [AST.Expr] AST.PredicateLabel -> (AST, IdNrMap Text) -> (AST, IdNrMap Text)
         addUsagePreds (AST.PFuncLabel pfId, nArgs) uses ast'' = res
             where
@@ -85,23 +87,35 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
                         AST.StrConstant ("_" <> Map.findWithDefault undefined pf (IdNrMap.fromIdNrMap identIds''))
                     pfs2placeh arg = arg
 
-    -- arguments for which pfsWithPfArgs are used
-    ((pfsWithPfArgsUsages, identIds2), ast2) = mapAccumAddRuleElemsPfs pfsWithPfArgsUsages' (Map.empty, identIds) ast
+    -- predicates for which pfsWithPfArgs are used -> all usages with generated predicate label to compute arguments of that usage
+    pfsWithPfArgsUsages :: Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel)
+    pfsWithPfArgsUsages = pfsWithPfArgsUsages'
+
+    ((pfsWithPfArgsUsages', identIds2, _), ast2) = mapAccumAddRuleElemsPfs pfsWithPfArgsUsages'' (Map.empty, identIds, 0) ast
         where
-        pfsWithPfArgsUsages' :: (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text)
-                             -> ((AST.PFuncLabel, Int), [AST.Expr])
-                             -> ([AST.Expr], (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text), [AST.RuleBodyElement])
-        pfsWithPfArgsUsages' st@(pfUses, identIds) (sign@(AST.PFuncLabel pfId, nArgs), args)
+        pfsWithPfArgsUsages'' :: (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text, Int)
+                              -> ((AST.PFuncLabel, Int), [AST.Expr])
+                              -> ([AST.Expr], (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text, Int), [AST.RuleBodyElement])
+        pfsWithPfArgsUsages'' st@(pfUses, identIds, tmpVarCounter) (sign@(AST.PFuncLabel pfId, nArgs), args)
             | Set.member sign pfsWithPfArgs =
                 let usesArgs = Map.findWithDefault Map.empty sign pfUses
                 in  case Map.lookup args usesArgs of
-                    Just prd -> (args, st, [AST.UserPredicate prd args])
+                    Just prd -> (argsWithSubstPfs, st, [AST.UserPredicate prd argsWithSubstPfs])
                     Nothing ->
                         let (prdId, identIds') = IdNrMap.getIdNr (predIdent $ Map.size usesArgs) identIds
                             prdLabel           = AST.PredicateLabel prdId
-                        in  (args, (Map.insert sign (Map.insert args prdLabel usesArgs) pfUses, identIds'), [AST.UserPredicate prdLabel args]) -- [AST.Variable    $ AST.TempVar $ -x | x <- [1..nArgs]]
+                        in  ( argsWithSubstPfs
+                            , (Map.insert sign (Map.insert args prdLabel usesArgs) pfUses, identIds', tmpVarCounter')
+                            , [AST.UserPredicate prdLabel argsWithSubstPfs]
+                            )
             | otherwise = (args, st, [])
             where
+            -- substitute all Pfs used as args with fresh variables
+            (tmpVarCounter', argsWithSubstPfs) = mapAccumR substPfs tmpVarCounter args
+                where
+                substPfs counter (AST.PFunc label args) = (succ counter, AST.Variable $ AST.TempVar $ -counter)
+                substPfs counter a                      = (counter,      a)
+
             predIdent n = toText $
                           "~" <>
                           fromText (Map.findWithDefault undefined pfId (IdNrMap.fromIdNrMap identIds)) <>
