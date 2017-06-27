@@ -115,6 +115,7 @@ test-suite integration
         AstPreprocessor
         IdNrMap
         IntegrationExactProbabilities
+        IntegrationPreprocessor
         Main
         GroundedAST
         IntegrationGrounding

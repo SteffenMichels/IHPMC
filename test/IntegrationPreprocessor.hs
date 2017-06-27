@@ -47,7 +47,7 @@ oneArg = IntegrationTest
               |]
     , expectedResults =
         [ (query "q1", preciseProb 0.4)
-        , (query "q2", preciseProb 0.0838)
+        , (query "q2", preciseProb 0.3376)
         , (query "q3", preciseProb 0.2824)
         ]
     }
