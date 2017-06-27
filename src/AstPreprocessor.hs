@@ -33,21 +33,17 @@ import qualified Data.HashSet as Set
 import Data.Text (Text)
 import TextShow
 import Data.Monoid ((<>))
-import Data.Foldable (foldl')
 import qualified Data.List as List
-import Control.Arrow (second)
 import Data.Traversable (mapAccumR)
 
 substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)
 substitutePfsWithPfArgs ast identIds = (ast', identIds')
     where
-    AST.AST{AST.queries=queries, AST.evidence=evidence, AST.rules=rules} = ast
-
     (ast', identIds') = Map.foldWithKey addUsagePreds (ast2, identIds2) pfsWithPfArgsUsages
         where
         -- add predicates for each usage of predicates, of which at least one arg is a PF in at least one usage
         addUsagePreds :: (AST.PFuncLabel, Int) -> Map [AST.Expr] AST.PredicateLabel -> (AST, IdNrMap Text) -> (AST, IdNrMap Text)
-        addUsagePreds (AST.PFuncLabel pfId, nArgs) uses ast'' = res
+        addUsagePreds (_, nArgs) uses ast'' = res
             where
             (res, _, _, _) = Map.foldWithKey addUsagePreds' (ast'', 0, [], []) uses
             addUsagePreds' :: [AST.Expr]
@@ -96,16 +92,16 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
         pfsWithPfArgsUsages'' :: (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text, Int)
                               -> ((AST.PFuncLabel, Int), [AST.Expr])
                               -> ([AST.Expr], (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text, Int), [AST.RuleBodyElement])
-        pfsWithPfArgsUsages'' st@(pfUses, identIds, tmpVarCounter) (sign@(AST.PFuncLabel pfId, nArgs), args)
+        pfsWithPfArgsUsages'' st@(pfUses, identIds'', tmpVarCounter) (sign@(AST.PFuncLabel pfId, _), args)
             | Set.member sign pfsWithPfArgs =
                 let usesArgs = Map.findWithDefault Map.empty sign pfUses
                 in  case Map.lookup args usesArgs of
                     Just prd -> (argsWithSubstPfs, st, [AST.UserPredicate prd argsWithSubstPfs])
                     Nothing ->
-                        let (prdId, identIds') = IdNrMap.getIdNr (predIdent $ Map.size usesArgs) identIds
-                            prdLabel           = AST.PredicateLabel prdId
+                        let (prdId, identIds''') = IdNrMap.getIdNr (predIdent $ Map.size usesArgs) identIds''
+                            prdLabel             = AST.PredicateLabel prdId
                         in  ( argsWithSubstPfs
-                            , (Map.insert sign (Map.insert args prdLabel usesArgs) pfUses, identIds', tmpVarCounter')
+                            , (Map.insert sign (Map.insert args prdLabel usesArgs) pfUses, identIds''', tmpVarCounter')
                             , [AST.UserPredicate prdLabel argsWithSubstPfs]
                             )
             | otherwise = (args, st, [])
@@ -113,8 +109,8 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
             -- substitute all Pfs used as args with fresh variables
             (tmpVarCounter', argsWithSubstPfs) = mapAccumR substPfs tmpVarCounter args
                 where
-                substPfs counter (AST.PFunc label args) = (succ counter, AST.Variable $ AST.TempVar $ -counter)
-                substPfs counter a                      = (counter,      a)
+                substPfs counter (AST.PFunc _ _) = (succ counter, AST.Variable $ AST.TempVar $ -counter)
+                substPfs counter a               = (counter,      a)
 
             predIdent n = toText $
                           "~" <>
@@ -136,25 +132,26 @@ mapAccumAddRuleElemsPfs :: (a -> ((AST.PFuncLabel, Int), [AST.Expr]) -> ([AST.Ex
 mapAccumAddRuleElemsPfs f acc ast = (acc', ast{AST.rules = rules})
     where
     (acc', rules) = Map.mapAccumWithKey
-        (\acc' sign -> List.mapAccumL mapAccumAddRuleElemsPfs' acc')
+        (\acc'' _ -> List.mapAccumL mapAccumAddRuleElemsPfs' acc'')
         acc
         (AST.rules ast)
 
-    mapAccumAddRuleElemsPfs' acc (args, AST.RuleBody body) = (acc', (args, AST.RuleBody $ concat body'))
+    mapAccumAddRuleElemsPfs' acc'' (args, AST.RuleBody body) = (acc''', (args, AST.RuleBody $ concat body'))
         where
-        (acc', body') = List.mapAccumL mapAccumAddRuleElemsPfs'' acc body
+        (acc''', body') = List.mapAccumL mapAccumAddRuleElemsPfs'' acc'' body
 
-    mapAccumAddRuleElemsPfs'' acc' el@(AST.UserPredicate _ _) = (acc', [el])
-    mapAccumAddRuleElemsPfs'' acc' (AST.BuildInPredicate bip) = case bip of
+    mapAccumAddRuleElemsPfs'' acc'' el@(AST.UserPredicate _ _) = (acc'', [el])
+    mapAccumAddRuleElemsPfs'' acc'' (AST.BuildInPredicate bip) = case bip of
         AST.Equality op exprX exprY -> mapAccumAddRuleElemsPfs''' (AST.Equality op) exprX exprY
         AST.Ineq     op exprX exprY -> mapAccumAddRuleElemsPfs''' (AST.Ineq     op) exprX exprY
         where
-        mapAccumAddRuleElemsPfs''' constr exprX exprY = (acc''', AST.BuildInPredicate (constr exprX' exprY') : toAdd)
+        mapAccumAddRuleElemsPfs''' constr exprX exprY = (acc'''', AST.BuildInPredicate (constr exprX' exprY') : toAdd)
             where
-            (acc'',  exprX')          = AST.mapAccExpr mapAccumAddRuleElemsPfs'''' (acc', []) exprX
-            ((acc''', toAdd), exprY') = AST.mapAccExpr mapAccumAddRuleElemsPfs'''' acc''      exprY
+            (acc''',  exprX')          = AST.mapAccExpr mapAccumAddRuleElemsPfs'''' (acc'', []) exprX
+            ((acc'''', toAdd), exprY') = AST.mapAccExpr mapAccumAddRuleElemsPfs'''' acc'''      exprY
 
-    mapAccumAddRuleElemsPfs'''' (acc', toAdd) (AST.PFunc label args) = ((acc, toAdd ++ toAdd'), AST.PFunc label args')
+    mapAccumAddRuleElemsPfs'''' (acc'', toAdd) (AST.PFunc label args) = ((acc''', toAdd ++ toAdd'), AST.PFunc label args')
         where
-        (args', acc, toAdd') = f acc' ((label, length args), args)
-    mapAccumAddRuleElemsPfs'''' acc' expr = (acc', expr)
+        (args', acc''', toAdd') = f acc'' ((label, length args), args)
+    mapAccumAddRuleElemsPfs'''' acc'' expr = (acc'', expr)
+
