@@ -87,7 +87,7 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
     pfsWithPfArgsUsages :: Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel)
     pfsWithPfArgsUsages = pfsWithPfArgsUsages'
 
-    ((pfsWithPfArgsUsages', identIds2, _), ast2) = mapAccumAddRuleElemsPfs pfsWithPfArgsUsages'' (Map.empty, identIds, 0) ast
+    ((pfsWithPfArgsUsages', identIds2, _), ast2) = mapAccumAddRuleElemsPfs pfsWithPfArgsUsages'' (Map.empty, identIds, 1) ast
         where
         pfsWithPfArgsUsages'' :: (Map (AST.PFuncLabel, Int) (Map [AST.Expr] AST.PredicateLabel), IdNrMap Text, Int)
                               -> ((AST.PFuncLabel, Int), [AST.Expr])
@@ -96,7 +96,7 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
             | Set.member sign pfsWithPfArgs =
                 let usesArgs = Map.findWithDefault Map.empty sign pfUses
                 in  case Map.lookup args usesArgs of
-                    Just prd -> (argsWithSubstPfs, st, [AST.UserPredicate prd argsWithSubstPfs])
+                    Just prd -> (argsWithSubstPfs, (pfUses, identIds'', tmpVarCounter'), [AST.UserPredicate prd argsWithSubstPfs])
                     Nothing ->
                         let (prdId, identIds''') = IdNrMap.getIdNr (predIdent $ Map.size usesArgs) identIds''
                             prdLabel             = AST.PredicateLabel prdId
