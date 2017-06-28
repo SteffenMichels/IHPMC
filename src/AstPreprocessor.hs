@@ -80,7 +80,7 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
                                     | (_, prevUsageArgs) <- prevUsages
                                     ]
                     pfs2placeh (AST.PFunc (AST.PFuncLabel pf) []) = AST.ConstantExpr $
-                        AST.StrConstant ("_" <> Map.findWithDefault undefined pf (IdNrMap.fromIdNrMap identIds''))
+                        AST.Placeholder (Map.findWithDefault undefined pf (IdNrMap.fromIdNrMap identIds''))
                     pfs2placeh arg = arg
 
     -- predicates for which pfsWithPfArgs are used -> all usages with generated predicate label to compute arguments of that usage

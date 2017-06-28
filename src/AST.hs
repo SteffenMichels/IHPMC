@@ -188,6 +188,7 @@ data ConstantExpr = BoolConstant Bool
                   | StrConstant  Text
                   | IntConstant  Integer
                   | ObjConstant  Integer
+                  | Placeholder  Text
                   deriving (Eq, Generic, Ord)
 
 instance TextShow ConstantExpr
@@ -197,6 +198,7 @@ instance TextShow ConstantExpr
     showb (StrConstant  cnst) = "\"" <> fromText cnst <> "\""
     showb (IntConstant  cnst) = showb cnst
     showb (ObjConstant  cnst) = "#" <> showb cnst
+    showb (Placeholder  ph)   = "_" <> fromText ph
 instance Hashable ConstantExpr
 
 negateOp :: IneqOp -> IneqOp

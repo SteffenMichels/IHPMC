@@ -459,6 +459,7 @@ toPropArg expr = do
         ExprInt  (GroundedAST.ConstantExpr (GroundedAST.IntConstant  cnst)) -> return $ AST.IntConstant  cnst
         ExprStr  (GroundedAST.ConstantExpr (GroundedAST.StrConstant  cnst)) -> return $ AST.StrConstant  cnst
         ExprObj  (GroundedAST.ConstantExpr (GroundedAST.ObjConstant  cnst)) -> return $ AST.ObjConstant  cnst
+        ExprPh   (GroundedAST.ConstantExpr (GroundedAST.Placeholder  ph  )) -> return $ AST.Placeholder  ph
         _                                                                   -> error "precondition"
     where
     toPropArgExpr :: AST.Expr -> Exceptional Exception PropExprWithType
@@ -489,6 +490,7 @@ data PropExprWithType = ExprBool (GroundedAST.Expr Bool)
                       | ExprStr  (GroundedAST.Expr Text)
                       | ExprInt  (GroundedAST.Expr Integer)
                       | ExprObj  (GroundedAST.Expr GroundedAST.Object)
+                      | ExprPh   (GroundedAST.Expr GroundedAST.Placeholder)
 
 propExprWithTypeToText :: PropExprWithType -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " <> typeStr <> ")"
@@ -499,6 +501,7 @@ propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " 
         ExprStr  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "String")
         ExprInt  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Integer")
         ExprObj  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Object")
+        ExprPh   expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Placeholder")
 
 mapPropExprWithType :: (forall a. GroundedAST.Expr a -> GroundedAST.Expr a) -> PropExprWithType -> PropExprWithType
 mapPropExprWithType f (ExprBool expr) = ExprBool $ f expr
@@ -506,6 +509,7 @@ mapPropExprWithType f (ExprReal expr) = ExprReal $ f expr
 mapPropExprWithType f (ExprStr  expr) = ExprStr  $ f expr
 mapPropExprWithType f (ExprInt  expr) = ExprInt  $ f expr
 mapPropExprWithType f (ExprObj  expr) = ExprObj  $ f expr
+mapPropExprWithType f (ExprPh   expr) = ExprPh   $ f expr
 
 -- precondition: no vars left in 'bip'
 toPropBuildInPred :: AST.BuildInPredicate
@@ -528,6 +532,7 @@ toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
             (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
             (ExprStr  exprX'', ExprStr  exprY'') -> return $ GroundedAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
             (ExprObj  exprX'', ExprObj  exprY'') -> return $ GroundedAST.BuildInPredicateObj  $ bipConstructor exprX'' exprY''
+            (ExprPh   exprX'', ExprPh   exprY'') -> return $ GroundedAST.BuildInPredicatePh   $ bipConstructor exprX'' exprY''
             _                                    -> lift $ throw $ TypeError exprX' exprY'
 
     toPropBuildInPredIneq' :: (forall a. GroundedAST.Ineq a => GroundedAST.Expr a -> GroundedAST.Expr a -> GroundedAST.TypedBuildInPred a)
@@ -609,6 +614,7 @@ toPropExprConst (AST.RealConstant cnst) = ExprReal $ GroundedAST.ConstantExpr $ 
 toPropExprConst (AST.StrConstant  cnst) = ExprStr  $ GroundedAST.ConstantExpr $ GroundedAST.StrConstant  cnst
 toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ GroundedAST.ConstantExpr $ GroundedAST.IntConstant  cnst
 toPropExprConst (AST.ObjConstant  cnst) = ExprObj  $ GroundedAST.ConstantExpr $ GroundedAST.ObjConstant  cnst
+toPropExprConst (AST.Placeholder  ph)   = ExprPh   $ GroundedAST.ConstantExpr $ GroundedAST.Placeholder  ph
 
 inCurProof :: AST.RuleBodyElement -> GState Bool3
 inCurProof (AST.BuildInPredicate _) = return False3

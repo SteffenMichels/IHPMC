@@ -675,6 +675,7 @@ refBuildInPredicate prd = case GroundedAST.deterministicValue prd of
         GroundedAST.BuildInPredicateReal prd' -> RefBuildInPredicateReal   prd' Map.empty
         GroundedAST.BuildInPredicateStr  prd' -> RefBuildInPredicateString prd' Map.empty
         GroundedAST.BuildInPredicateObj  prd' -> RefBuildInPredicateObject prd' Map.empty
+        GroundedAST.BuildInPredicatePh   _    -> undefined
         GroundedAST.BuildInPredicateInt  _    -> undefined
 
 refComposed :: ComposedId -> NodeRef
