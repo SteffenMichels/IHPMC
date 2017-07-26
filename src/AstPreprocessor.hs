@@ -35,6 +35,7 @@ import TextShow
 import Data.Monoid ((<>))
 import qualified Data.List as List
 import Data.Traversable (mapAccumR)
+import Data.Foldable (foldl')
 
 substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)
 substitutePfsWithPfArgs ast identIds = (ast', identIds')
@@ -50,35 +51,59 @@ substitutePfsWithPfArgs ast identIds = (ast', identIds')
                            -> AST.PredicateLabel
                            -> ((AST, IdNrMap Text), Int, [(AST.PredicateLabel, [AST.Expr])], [[(AST.Expr, AST.Expr)]])
                            -> ((AST, IdNrMap Text), Int, [(AST.PredicateLabel, [AST.Expr])], [[(AST.Expr, AST.Expr)]])
-            addUsagePreds' args usagePred ((ast''', identIds''), n, prevUsages, conditions) = ((ast'''', identIds''), succ n, prevUsages', conditions')
-                where
-                ast'''' = ast'''{AST.rules = Map.insert (usagePred, nArgs) (bodies prevUsages []) $ AST.rules ast'''}
+            addUsagePreds' args usagePred ((ast''', identIds''), n, prevUsages, conditions) = ((ast'''', identIds'''), succ n, prevUsages', conditions')
+                where                
+                ast'''' = ast'''
+                    { AST.rules =
+                        foldl'
+                            (\x (head', bodies'') -> Map.insert (head', 0) (([],) <$> bodies'') x)
+                            (Map.insert (usagePred, nArgs) bodies' $ AST.rules ast''')
+                            auxRules
+                    }
+                (bodies', auxRules, identIds''') = bodies prevUsages ([], []) identIds''
                 conditions' = conditions
                 prevUsages' = (usagePred, args) : prevUsages
 
                 bodies :: [(AST.PredicateLabel, [AST.Expr])]
-                       -> [([AST.HeadArgument], AST.RuleBody)]
-                       -> [([AST.HeadArgument], AST.RuleBody)]
-                bodies ((prevUsagePred, prevUsageArgs) : prevUsages'') acc =
-                    bodies prevUsages'' (body : acc)
+                       -> ([([AST.HeadArgument], AST.RuleBody)], [(AST.PredicateLabel, [AST.RuleBody])])
+                       -> IdNrMap Text
+                       -> ([([AST.HeadArgument], AST.RuleBody)], [(AST.PredicateLabel, [AST.RuleBody])], IdNrMap Text)
+                -- handle cases that usage actually equals one of previous usage
+                bodies ((prevUsagePred, prevUsageArgs) : prevUsages'') (accBodies, accAuxRules) identIds'''' =
+                    bodies prevUsages'' (body : accBodies, unequalAuxRule : accAuxRules) identIds'''''
                     where
                     body = (usagePredArgsHead, AST.RuleBody (AST.UserPredicate prevUsagePred usagePredArgs : equalToPrev))
                     usagePredArgsHead = [AST.ArgVariable $ AST.TempVar $ -x | x <- [1..nArgs]]
                     usagePredArgs     = [AST.Variable    $ AST.TempVar $ -x | x <- [1..nArgs]]
                     equalToPrev       = [ AST.BuildInPredicate $ AST.Equality True arg argPrev
-                                        | arg <- args, argPrev <- prevUsageArgs
+                                        | arg <- args | argPrev <- prevUsageArgs
                                         ]
-                bodies [] acc = ([AST.ArgVariable $ AST.TempVar $ -x | x <- [1..nArgs]], AST.RuleBody body) : acc
+                    -- add aux rule, which is negation of 'equalToPrev', used to restrict last body to cases no rules matches
+                    unequalAuxRule = ( unequalAuxRuleHead
+                                     , [ AST.RuleBody [AST.BuildInPredicate $ AST.Equality False arg argPrev]
+                                       | arg <- args | argPrev <- prevUsageArgs
+                                       ]
+                                     )
+                    unequalAuxRuleHead = AST.PredicateLabel unequalAuxRuleLabel
+                    (unequalAuxRuleLabel, identIds''''') = IdNrMap.getIdNr usagePredAuxLabel identIds''''
+                        where
+                        AST.PredicateLabel pfId = usagePred
+                        usagePredAuxLabel = toText $ fromText (Map.findWithDefault undefined pfId (IdNrMap.fromIdNrMap identIds'')) <>
+                                                     "_" <> showb (length accBodies)
+                -- add last case: no previous usage equals current one
+                bodies [] (accBodies, accAuxRules) identIds'''' =
+                    ( ([AST.ArgVariable $ AST.TempVar $ -x | x <- [1..nArgs]], AST.RuleBody body) : accBodies
+                    , accAuxRules
+                    , identIds''''
+                    )
                     where
-                    body = concat (argValueEqs : unequalToPrev)
+                    body = argValueEqs ++ uneqPrevious
                     argValueEqs = [ AST.BuildInPredicate $ AST.Equality True (AST.Variable $ AST.TempVar $ -v) (pfs2placeh arg)
-                                  | v <- [1..nArgs], arg <- args
+                                  | v <- [1..nArgs] | arg <- args
                                   ]
-                    unequalToPrev = [ [ AST.BuildInPredicate $ AST.Equality False arg argPrev
-                                      | arg <- args, argPrev <- prevUsageArgs
-                                      ]
-                                    | (_, prevUsageArgs) <- prevUsages
-                                    ]
+
+                    uneqPrevious = [AST.UserPredicate label [] | (label, _) <- accAuxRules]
+
                     pfs2placeh (AST.PFunc (AST.PFuncLabel pf) []) = AST.ConstantExpr $
                         AST.Placeholder (Map.findWithDefault undefined pf (IdNrMap.fromIdNrMap identIds''))
                     pfs2placeh arg = arg

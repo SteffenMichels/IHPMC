@@ -26,7 +26,7 @@ executable ihpmc_float
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
-                OverloadedStrings
+                OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
         AstPreprocessor
@@ -65,7 +65,7 @@ executable ihpmc_exact
         text-show >=3.4.1
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
-                OverloadedStrings
+                OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
         AstPreprocessor
@@ -109,7 +109,7 @@ test-suite integration
         text-show >=3.4.1
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
-                OverloadedStrings
+                OverloadedStrings ParallelListComp
     hs-source-dirs: test src
     other-modules:
         AstPreprocessor
