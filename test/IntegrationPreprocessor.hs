@@ -28,7 +28,7 @@ import IntegrationTest
 import Data.Text (unpack)
 
 tests :: (String, [IntegrationTest])
-tests = ("AST preprocessor", [ oneArg, twoArgs
+tests = ("AST preprocessor", [ oneArg, twoArgs, twoArgsConsts
                              ]
         )
 
@@ -72,5 +72,25 @@ twoArgs = IntegrationTest
         [ (query "q1", preciseProb 0.5)
         , (query "q2", preciseProb 0.3424)
         , (query "q3", preciseProb 0.2287)
+        ]
+    }
+
+twoArgsConsts :: IntegrationTest
+twoArgsConsts = IntegrationTest
+    { label = "two PF arguments"
+    , model = unpack $ [text|
+                  ~a ~ flip(0.1).
+                  ~b ~ flip(0.2).
+                  ~c ~ flip(0.3).
+                  ~x(_, _) ~ flip(0.5).
+
+                  q1 <- ~x(~a, 1) = true.
+                  q2 <- ~x(~a, 1) = true, ~x(~b, 1) = true.
+                  q3 <- ~x(~a, 1) = true, ~x(~b, 1) = true, ~x(~c, 1) = true.
+              |]
+    , expectedResults =
+        [ (query "q1", preciseProb 0.5)
+        , (query "q2", preciseProb 0.435)
+        , (query "q3", preciseProb 0.3775)
         ]
     }
