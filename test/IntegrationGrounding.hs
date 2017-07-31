@@ -193,7 +193,6 @@ pfs = IntegrationTest
                   pf             <- ~pf      = true.
                   pf1            <- ~pf(1)   = true.
                   pf2            <- ~pf(2)   = true.
-                  pfErrRfAsArg   <- ~pf(~pf) = true.
                   pfErrNonGround <- ~pf(X)   = true.
                   pfErrUndefined <- ~pf2     = true.
                   pfErrUndefVal  <- ~pf(3)   = true.
@@ -204,7 +203,6 @@ pfs = IntegrationTest
         [ (query "pf",             preciseProb 0.99)
         , (query "pf1",            preciseProb 0.991)
         , (query "pf2",            preciseProb 0.992)
-        , (query "pfErrRfAsArg",   pfAsArg)
         , (query "pfErrNonGround", nonGround "pfErrNonGround" 0 1)
         , (query "pfErrUndefined", undefinedPf "pf2" 0)
         , (query "pfErrUndefVal",  undefinedPfVal "pf" 1)

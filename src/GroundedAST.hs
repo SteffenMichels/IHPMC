@@ -46,6 +46,7 @@ module GroundedAST ( GroundedAST(..)
                    , AST.IneqOp(..)
                    , RealN
                    , Object
+                   , Placeholder
                    , RuleBody(..)
                    , RuleBodyElement(..)
                    , negatePred
@@ -163,7 +164,7 @@ pFuncLabelToText (PFuncLabel idNr) ids2str ids2label =
     TB.fromText (Map.findWithDefault undefined label ids2str) <>
     if null args then "" else "(" <> showbLst args <> ")"
     where
-    (label, args) = Map.findWithDefault undefined idNr ids2label
+    (label, args) = Map.findWithDefault (0, []) idNr ids2label
 instance Hashable PFuncLabel
 
 newtype RuleBody = RuleBody (Set RuleBodyElement) deriving (Eq, Generic, Ord)
@@ -187,6 +188,7 @@ data BuildInPredicate = BuildInPredicateBool (TypedBuildInPred Bool)
                       | BuildInPredicateStr  (TypedBuildInPred Text)
                       | BuildInPredicateInt  (TypedBuildInPred Integer)
                       | BuildInPredicateObj  (TypedBuildInPred Object)
+                      | BuildInPredicatePh   (TypedBuildInPred Placeholder)
                       deriving (Eq, Generic, Ord)
 buildInPredToText :: BuildInPredicate -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 buildInPredToText (BuildInPredicateBool b) = typedBuildInPredToText b
@@ -194,6 +196,7 @@ buildInPredToText (BuildInPredicateReal r) = typedBuildInPredToText r
 buildInPredToText (BuildInPredicateStr  s) = typedBuildInPredToText s
 buildInPredToText (BuildInPredicateInt  i) = typedBuildInPredToText i
 buildInPredToText (BuildInPredicateObj  o) = typedBuildInPredToText o
+buildInPredToText (BuildInPredicatePh   p) = typedBuildInPredToText p
 instance Hashable BuildInPredicate
 
 data TypedBuildInPred a
@@ -242,6 +245,7 @@ data ConstantExpr a
     StrConstant  :: Text     -> ConstantExpr Text
     IntConstant  :: Integer  -> ConstantExpr Integer
     ObjConstant  :: Integer  -> ConstantExpr Object
+    Placeholder  :: Text     -> ConstantExpr Placeholder
 
 deriving instance Eq (ConstantExpr a)
 instance TextShow (ConstantExpr a) where
@@ -250,6 +254,7 @@ instance TextShow (ConstantExpr a) where
     showb (StrConstant  cnst) = TB.fromText cnst
     showb (IntConstant  cnst) = showb cnst
     showb (ObjConstant  cnst) = "#" <> showb cnst
+    showb (Placeholder  ph)   = "_" <> TB.fromText ph
 instance Hashable (ConstantExpr a)
     where
     hashWithSalt salt (BoolConstant b) = Hashable.hashWithSalt salt b
@@ -257,6 +262,7 @@ instance Hashable (ConstantExpr a)
     hashWithSalt salt (StrConstant  s) = Hashable.hashWithSalt salt s
     hashWithSalt salt (IntConstant  i) = Hashable.hashWithSalt salt i
     hashWithSalt salt (ObjConstant  o) = Hashable.hashWithSalt salt o
+    hashWithSalt salt (Placeholder  p) = Hashable.hashWithSalt salt p
 instance Ord (ConstantExpr a)
     where
     BoolConstant x <= BoolConstant y = x <= y
@@ -264,12 +270,14 @@ instance Ord (ConstantExpr a)
     StrConstant  x <= StrConstant  y = x <= y
     IntConstant  x <= IntConstant  y = x <= y
     ObjConstant  x <= ObjConstant  y = x <= y
+    Placeholder  x <= Placeholder  y = x <= y
 #if __GLASGOW_HASKELL__ < 800
     _              <= _              = undefined
 #endif
 
-data RealN  -- phantom for real numbered expression etc.
-data Object -- phantom for expressions about objects
+data RealN       -- phantom for real numbered expression etc.
+data Object      -- phantom for expressions about objects
+data Placeholder -- phantom type for placeholder expressions in AstPreprocessor
 
 class Addition a
 instance Addition Integer
@@ -302,6 +310,7 @@ deterministicValue (BuildInPredicateReal r) = deterministicValueTyped r
 deterministicValue (BuildInPredicateStr  s) = deterministicValueTyped s
 deterministicValue (BuildInPredicateInt  i) = deterministicValueTyped i
 deterministicValue (BuildInPredicateObj  o) = deterministicValueTyped o
+deterministicValue (BuildInPredicatePh   p) = deterministicValueTyped p
 
 deterministicValueTyped :: TypedBuildInPred a -> Maybe Bool
 deterministicValueTyped (Equality eq (ConstantExpr left) (ConstantExpr right))              = Just $ (if eq then (==) else (/=)) left right
@@ -347,6 +356,7 @@ simplifiedBuildInPred (BuildInPredicateReal prd) = BuildInPredicateReal $ simpli
 simplifiedBuildInPred (BuildInPredicateInt  prd) = BuildInPredicateInt  $ simplifiedTypedBuildInPred prd
 simplifiedBuildInPred (BuildInPredicateStr  prd) = BuildInPredicateStr  $ simplifiedTypedBuildInPred prd
 simplifiedBuildInPred (BuildInPredicateObj  prd) = BuildInPredicateObj  $ simplifiedTypedBuildInPred prd
+simplifiedBuildInPred (BuildInPredicatePh   prd) = BuildInPredicatePh   $ simplifiedTypedBuildInPred prd
 
 simplifiedTypedBuildInPred :: TypedBuildInPred a -> TypedBuildInPred a
 simplifiedTypedBuildInPred (Equality eq exprX exprY) = Equality eq (simplifiedExpr exprX) (simplifiedExpr exprY)

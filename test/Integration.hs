@@ -30,6 +30,7 @@ import Control.Monad.Exception.Synchronous
 import IntegrationTest (IntegrationTest (..))
 import qualified IntegrationGrounding
 import qualified IntegrationExactProbabilities
+import qualified IntegrationPreprocessor
 import Control.Monad (forM)
 import Data.Foldable (foldl')
 import Main (Exception(..), exceptionToText)
@@ -44,9 +45,10 @@ import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy as LT
 import Data.Monoid ((<>))
 import TextShow
+import qualified AstPreprocessor
 
 allTests :: [(String, [IntegrationTest])]
-allTests = [IntegrationGrounding.tests, IntegrationExactProbabilities.tests]
+allTests = [IntegrationGrounding.tests, IntegrationExactProbabilities.tests, IntegrationPreprocessor.tests]
 
 tests :: IO [Test]
 tests = return $ map toTestGroup allTests
@@ -77,15 +79,16 @@ checkResults src expRes = do
     checkResults' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO Result
     checkResults' = do
         (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
-        let ids2str = IdNrMap.fromIdNrMap identIds
-        let strs2id = IdNrMap.toIdNrMap   identIds
-        assertT (((,ids2str, Map.empty) . TestException) "No queries in source expected.") $ null $ AST.queries ast
-        assertT (((,ids2str, Map.empty) . TestException) "No evidence expected.")          $ null $ AST.evidence ast
+        let (ast', identIds') = AstPreprocessor.substitutePfsWithPfArgs ast identIds
+        let ids2str = IdNrMap.fromIdNrMap identIds'
+        let strs2id = IdNrMap.toIdNrMap   identIds'
+        assertT (((,ids2str, Map.empty) . TestException) "No queries in source expected.") $ null $ AST.queries ast'
+        assertT (((,ids2str, Map.empty) . TestException) "No evidence expected.")          $ null $ AST.evidence ast'
         results <- forM expRes $ \(query, isExp) -> do
             let query' = query strs2id
             res <- lift $ runExceptionalT $ do
-                let ast' = ast{AST.queries = [query']}
-                (groundedAst, _) <- returnExceptional $ mapException ((,Map.empty) . GrounderException) $ Grounder.ground ast'
+                let ast'' = ast'{AST.queries = [query']}
+                (groundedAst, _) <- returnExceptional $ mapException ((,Map.empty) . GrounderException) $ Grounder.ground ast''
                 let ([(_, qRef)], _, f, _) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
                 (_, _, bounds, _) <- mapExceptionT ((,Map.empty) . IOException) $ IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing) f
                 return bounds
@@ -105,3 +108,4 @@ combineResults mbErr (query, isExp, res) ids2str
         "unexpected result '" <>
         TB.fromLazyText (LT.pack $ show (mapException (\(e, ids2label) -> exceptionToText e ids2str ids2label) res)) <>
         "' for query '" <> AST.ruleBodyElementToText query ids2str <> "'"
+

@@ -1,9 +1,10 @@
 name: ihpmc
 version: 0.0.1
-cabal-version: >= 1.4
+cabal-version: >=1.4
 build-type: Simple
 license: MIT
-Tested-With: GHC == 7.10.1, GHC == 7.10.2, GHC == 7.10.3, GHC == 8.0.2, GHC == 8.0.1
+tested-with: GHC ==7.10.1 GHC ==7.10.2 GHC ==7.10.3 GHC ==8.0.2
+             GHC ==8.0.1
 
 executable ihpmc_float
     main-is: Main.hs
@@ -13,7 +14,7 @@ executable ihpmc_float
         statistics -any,
         hashable >=1.2.4.0,
         argparser -any,
-        hashmap >= 1.3.2,
+        hashmap >=1.3.2,
         containers -any,
         mtl -any,
         explicit-exception -any,
@@ -21,13 +22,14 @@ executable ihpmc_float
         transformers -any,
         Boolean -any,
         text -any,
-        text-show >= 3.4.1
+        text-show >=3.4.1
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
-                OverloadedStrings
+                OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
+        AstPreprocessor
         GroundedAST
         IdNrMap
         Options
@@ -52,7 +54,7 @@ executable ihpmc_exact
         statistics -any,
         hashable >=1.2.4.0,
         argparser -any,
-        hashmap >= 1.3.2,
+        hashmap >=1.3.2,
         containers -any,
         mtl -any,
         explicit-exception -any,
@@ -60,12 +62,13 @@ executable ihpmc_exact
         transformers -any,
         Boolean -any,
         text -any,
-        text-show >= 3.4.1
+        text-show >=3.4.1
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
-                OverloadedStrings
+                OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
+        AstPreprocessor
         GroundedAST
         IdNrMap
         Options
@@ -93,7 +96,7 @@ test-suite integration
         statistics -any,
         hashable >=1.2.4.0,
         argparser -any,
-        hashmap >= 1.3.2,
+        hashmap >=1.3.2,
         containers -any,
         mtl -any,
         explicit-exception -any,
@@ -103,14 +106,16 @@ test-suite integration
         text -any,
         Boolean -any,
         text -any,
-        text-show >= 3.4.1
+        text-show >=3.4.1
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
-                OverloadedStrings
+                OverloadedStrings ParallelListComp
     hs-source-dirs: test src
     other-modules:
+        AstPreprocessor
         IdNrMap
         IntegrationExactProbabilities
+        IntegrationPreprocessor
         Main
         GroundedAST
         IntegrationGrounding

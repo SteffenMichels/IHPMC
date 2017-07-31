@@ -26,6 +26,7 @@
 
 module AST
     ( AST(..)
+    , astToText
     , PredicateLabel(..)
     , PFuncLabel(..)
     , RuleBody(..)
@@ -44,11 +45,13 @@ module AST
     , mapExprsInRuleBodyElementM
     , mapAccExpr
     , mapAccExprsInRuleBodyElement
+    , foldExpr
     , predicateLabelToText
     , pFuncLabelToText
     , pFuncDefToText
     , ruleBodyElementToText
     , exprToText
+    , exprIsPFunc
     ) where
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
@@ -64,6 +67,7 @@ import Data.Text (Text)
 import qualified Data.Text.Lazy as LT
 import TextShow
 import Data.Monoid ((<>))
+import Data.Foldable (foldl')
 
 data AST = AST
     { pFuncDefs :: Map (PFuncLabel, Int)     [([HeadArgument], PFuncDef)] -- first matching def applies
@@ -71,6 +75,18 @@ data AST = AST
     , queries   :: [RuleBodyElement]
     , evidence  :: [RuleBodyElement]
     }
+
+astToText :: AST -> Map Int Text -> Builder
+astToText ast ids2str = rulesStr <> queryStr <> evStr
+    where
+    rulesStr     = mconcat $ mconcat [
+                        let lStr = predicateLabelToText label ids2str
+                        in  [ lStr <> (if null args then "" else "(" <> showbLst args <> ")") <> " <- " <> ruleBodyToText body ids2str <> ".\n"
+                            | (args, body) <- bodies
+                            ]
+                   | ((label, _), bodies) <- Map.toList $ rules ast]
+    queryStr     = mconcat ["query "    <> ruleBodyElementToText query ids2str <> ".\n" | query <- queries  ast]
+    evStr        = mconcat ["evidence " <> ruleBodyElementToText ev    ids2str <> ".\n" | ev    <- evidence ast]
 
 newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
 predicateLabelToText :: PredicateLabel -> Map Int Text -> Builder
@@ -100,6 +116,10 @@ pFuncDefToText (UniformOtherObjDist otherPf args) ids2str =
 newtype RuleBody = RuleBody [RuleBodyElement] deriving (Eq, Generic)
 instance Hashable RuleBody
 
+ruleBodyToText :: RuleBody -> Map Int Text -> Builder
+ruleBodyToText (RuleBody elements) ids2str =
+    toTextLst elements (`ruleBodyElementToText` ids2str)
+
 data RuleBodyElement = UserPredicate    PredicateLabel [Expr]
                      | BuildInPredicate BuildInPredicate
                      deriving (Eq, Generic, Ord)
@@ -115,6 +135,10 @@ data HeadArgument = ArgVariable VarName
                   | ArgConstant ConstantExpr
                   | ArgDontCareVariable
                   deriving (Eq, Generic)
+instance TextShow HeadArgument where
+    showb (ArgVariable vname) = showb vname
+    showb (ArgConstant cnst)  = showb cnst
+    showb ArgDontCareVariable = "_"
 instance Hashable HeadArgument
 
 data VarName = VarName Text
@@ -123,7 +147,7 @@ data VarName = VarName Text
 instance TextShow VarName
     where
     showb (VarName str) = fromText str
-    showb (TempVar i)   = showb i
+    showb (TempVar i)   = "_" <> showb i
 instance Hashable VarName
 
 data BuildInPredicate = Equality Bool Expr Expr
@@ -164,6 +188,7 @@ data ConstantExpr = BoolConstant Bool
                   | StrConstant  Text
                   | IntConstant  Integer
                   | ObjConstant  Integer
+                  | Placeholder  Text
                   deriving (Eq, Generic, Ord)
 
 instance TextShow ConstantExpr
@@ -173,6 +198,7 @@ instance TextShow ConstantExpr
     showb (StrConstant  cnst) = "\"" <> fromText cnst <> "\""
     showb (IntConstant  cnst) = showb cnst
     showb (ObjConstant  cnst) = "#" <> showb cnst
+    showb (Placeholder  ph)   = "_" <> fromText ph
 instance Hashable ConstantExpr
 
 negateOp :: IneqOp -> IneqOp
@@ -194,6 +220,10 @@ varsInExpr (Variable _)      = True
 varsInExpr (ConstantExpr _)  = False
 varsInExpr (PFunc _ args)    = any varsInExpr args
 varsInExpr (Sum exprX exprY) = varsInExpr exprX || varsInExpr exprY
+
+exprIsPFunc :: AST.Expr -> Bool
+exprIsPFunc (AST.PFunc _ _) = True
+exprIsPFunc _               = False
 
 -- traverses top-down
 mapExprsInRuleBodyElement :: (AST.Expr -> AST.Expr) -> AST.RuleBodyElement -> AST.RuleBodyElement
@@ -250,3 +280,11 @@ mapAccExpr f acc expr = case expr' of
     _ -> (acc', expr')
     where
     (acc', expr') = f acc expr
+
+foldExpr :: (a -> AST.Expr -> a) -> a -> AST.Expr -> a
+foldExpr f acc expr = case expr of
+    AST.Sum exprX exprY -> foldExpr f (foldExpr f acc' exprX) exprY
+    AST.PFunc _ args    -> foldl' (foldExpr f) acc' args
+    _                   -> acc'
+    where
+    acc' = f acc expr

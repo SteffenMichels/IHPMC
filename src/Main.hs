@@ -22,6 +22,7 @@
 module Main (main, Exception(..), exceptionToText) where
 import System.Environment (getArgs)
 import qualified Parser
+import qualified AstPreprocessor
 import qualified Grounder
 import qualified FormulaConverter
 import qualified GroundedAST
@@ -85,8 +86,9 @@ main' = do
     printIfSet (\t -> "Stopping after " <> showb t <> "ms.") timeout
     src <- doIOException $ readFile modelFile
     (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
-    let ids2str = IdNrMap.fromIdNrMap identIds
-    (groundedAst, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ Grounder.ground ast
+    let (ast', identIds') = AstPreprocessor.substitutePfsWithPfArgs ast identIds
+    let ids2str = IdNrMap.fromIdNrMap identIds'
+    (groundedAst, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ Grounder.ground ast'
     let ids2label = IdNrMap.fromIdNrMap labelIds
     let (queries, evidence, f, predIds) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
     let ids2predlbl = IdNrMap.fromIdNrMap predIds
