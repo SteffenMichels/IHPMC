@@ -48,16 +48,47 @@ import Data.Ratio
 
 type FState = Formula.FState HPT.CachedSplitPoints
 
-ihpmc :: Formula.NodeRef
-      -> [Formula.NodeRef]
-      -> (Int -> ProbabilityBounds -> Int -> Bool)
-      -> (Int -> ProbabilityBounds -> Int -> Int -> Maybe (ExceptionalT IOException IO ()))
-      -> Formula HPT.CachedSplitPoints
-      -> ExceptionalT IOException IO (Int, Int, Maybe ProbabilityBounds, Formula HPT.CachedSplitPoints)
+-- | The actual IHPMC inference algorithm.
+-- Computes bounds on the probability of a query given evidence.
+-- A predicate determines when this anytime algorithm is stopped.
+-- Also intermediate results can be reported.
+ihpmc :: Formula.NodeRef                             -- ^ The query formula node.
+      -> [Formula.NodeRef]                           -- ^ The evidence formula nodes.
+      -> (Int -> ProbabilityBounds -> Int -> Bool)   -- ^ A predicate determining when to stop the algorithm.
+                                                     -- The arguments are:
+                                                     --
+                                                     -- (1) the number of iterations.
+                                                     -- (2) the current probability bounds.
+                                                     -- (3) the total runtime.
+      -> ( Int -> ProbabilityBounds -> Int -> Int
+           -> Maybe (ExceptionalT IOException IO ())
+         )                                           -- ^ A reporting function that optionally
+                                                     -- gives an arbitrary IO action. The arguments are:
+                                                     --
+                                                     -- (1) the number of iterations.
+                                                     -- (2) the current probability bounds.
+                                                     -- (3) the total runtime.
+                                                     -- (4) the runtime at which a report was generated last time.
+      -> Formula HPT.CachedSplitPoints               -- ^ The formula containing the query and evidence.
+      -> ExceptionalT
+             IOException
+             IO
+             ( Int
+             , Int
+             , Maybe ProbabilityBounds
+             , Formula HPT.CachedSplitPoints
+             )                                       -- ^ Performs IO for measuring runtime and reporting. Return values:
+                                                     --
+                                                     -- (1) The number of iterations.
+                                                     -- (2) The total runtime.
+                                                     -- (3) The actual probability bound result
+                                                     --     ('Nothing' if evidence is found to be inconsistent.)
+                                                     -- (4) The formula (TODO: do we need to return it? Should be again in initial state if we do GC for nodes.)
 ihpmc query evidence finishPred reportingIO f = do
     t <- doIO getTime
     ((n, et, mbBounds), f') <- runStateT
         ( do
+            -- put together all evidence elements in single conjunction
             evidenceConj <- state $ runState $ do
                 evidence' <- forM evidence Formula.augmentWithEntry
                 Formula.insert
@@ -65,12 +96,14 @@ ihpmc query evidence finishPred reportingIO f = do
                     True
                     Formula.And
                     evidence'
+            -- initialise HPT
             initHpt <- state $ runState $ HPT.initialHPT query $ Formula.entryRef evidenceConj
+            -- run inference
             ihpmc' 1 t t initHpt
         ) f
     return (n, et, mbBounds, f')
     where
-    ihpmc' :: Int
+    ihpmc' :: Int -- iteration number
            -> Int
            -> Int
            -> HPT
@@ -94,11 +127,10 @@ ihpmc query evidence finishPred reportingIO f = do
         Nothing -> return Nothing
         Just (HPT.HPTLeaf fs p cachedProofs, hpt') -> case fs of
             HPT.WithinEv q _ -> do
-                qEntry        <- Formula.augmentWithEntry q
-                let (mbSpPoint, cProofsL, cProofsR) =  splitPoint qEntry cachedProofs
-                case mbSpPoint of
+                qEntry <- Formula.augmentWithEntry q
+                case splitPoint qEntry cachedProofs of
                     Nothing -> return Nothing
-                    Just spPoint -> do
+                    Just (spPoint, cProofsL, cProofsR) -> do
                         (ql, _, qr, _, pl) <- splitFormula qEntry Nothing spPoint
                         Formula.dereference q
                         let pr =  1.0 - pl
@@ -106,11 +138,10 @@ ihpmc query evidence finishPred reportingIO f = do
                         hpt''' <- HPT.addLeafWithinEvidence qr (pr * p) cProofsR hpt''
                         return $ Just hpt'''
             HPT.MaybeWithinEv q e _ -> do
-                eEntry      <- Formula.augmentWithEntry e
-                let (mbSpPoint, cProofsL, cProofsR) =  splitPoint eEntry cachedProofs
-                case mbSpPoint of
+                eEntry <- Formula.augmentWithEntry e
+                case splitPoint eEntry cachedProofs of
                     Nothing -> return Nothing
-                    Just spPoint -> do
+                    Just (spPoint, cProofsL, cProofsR) -> do
                         (el, Just ql, er, Just qr, pl) <- splitFormula eEntry (Just q) spPoint
                         Formula.dereference e
                         when (Formula.deterministicNodeRef el /= Just False && Formula.deterministicNodeRef er /= Just False)
@@ -130,25 +161,30 @@ instance Ord ProofCounters where
                 EQ  -> compare' $ succ i
                 res -> res
 
-splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints -> Set HPT.Proof -> (Maybe HPT.SplitPoint, Set HPT.Proof, Set HPT.Proof)
+-- | Find the next point to split the formula on.
+splitPoint :: Formula.RefWithNode HPT.CachedSplitPoints            -- ^ The formula node to split on.
+           -> Set HPT.Proof                                        -- ^ The current cached proofs for the formula.
+           -> Maybe (HPT.SplitPoint, Set HPT.Proof, Set HPT.Proof) -- ^ Nothing if the node is true/false (cannot be split further).
+                                                                   --   Otherwise, the best split point and updated proofs for the
+                                                                   --   left and right branch of the split.
 splitPoint f cachedProofs
-    | null candidateSplitPoints = (Nothing, Set.empty, Set.empty)
+    | null candidateSplitPoints = Nothing
     | Set.null cachedProofs = let newProofs = Set.union proofsT proofsF
-                              in if Set.null newProofs
-                                 then ( Just $ fst $ List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
-                                      , Set.empty
-                                      , Set.empty
-                                      )
-                                 else splitWithProofs newProofs
-    | otherwise             = splitWithProofs cachedProofs
+                              in Just $ if Set.null newProofs
+                                        then ( fst $ List.maximumBy (\(_,x) (_,y) -> compare x y) candidateSplitPoints
+                                             , Set.empty
+                                             , Set.empty
+                                             )
+                                        else splitWithProofs newProofs
+    | otherwise             = Just $ splitWithProofs cachedProofs
     where
     HPT.CachedSplitPoints proofsT proofsF spType = Formula.entryCachedInfo f
     candidateSplitPoints = case spType of
         HPT.Composed pts  -> Map.toList pts
         HPT.Primitive pts -> (, 0) <$> Set.toList pts
 
-    splitWithProofs :: Set HPT.Proof -> (Maybe HPT.SplitPoint, Set HPT.Proof, Set HPT.Proof)
-    splitWithProofs proofs = (Just splitPt, condCachedProofs splitPt HPT.Left proofs, condCachedProofs splitPt HPT.Right proofs)
+    splitWithProofs :: Set HPT.Proof -> (HPT.SplitPoint, Set HPT.Proof, Set HPT.Proof)
+    splitWithProofs proofs = (splitPt, condCachedProofs splitPt HPT.Left proofs, condCachedProofs splitPt HPT.Right proofs)
         where
         splitPt = fst $ List.maximumBy (\(_,x) (_,y) -> compare x y) (attachScores <$> candidateSplitPoints)
 
@@ -213,7 +249,6 @@ splitFormula f lf (HPT.StringSplit splitPF splitSet) = splitFormulaCommon f lf p
     addCond val conds               = conds{Formula.stringConds = Map.insert pfLabel val $ Formula.stringConds conds}
 -- we assume here that the splitObj is within the set given by the current conditions,
 -- otherwise the formula would have already been simplified
---splitFormula f lf (ObjectIntervSplit splitPf splitObj) = undefined
 splitFormula f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
     GroundedAST.UniformObjDist _ -> splitFormulaCommon f lf pLeft (addCondObj splitPf) leftCond rightCond -- TODO: can probabilties become 1.0/0.0?
     GroundedAST.UniformOtherObjDist _ -> error "not implemented"
@@ -555,38 +590,6 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 pUntilUpper   = cdf' cdf False curUpper
                 Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
                 GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
-
-            -- how much thoes this split reduce the error bound
---            reduction :: [GroundedAST.PFunc GroundedAST.RealN]
---                      -> Map (GroundedAST.PFunc GroundedAST.RealN) Rational
---                      -> Map GroundedAST.PFuncLabel Interval
---                      -> Probability
---            reduction [] _ choices
---                | all ((==) $ Just True) checkedCorners || all ((==) $ Just False) checkedCorners = product [pDiff pf choices | pf <- Set.toList remainingRfs]
---                | otherwise                                                                       = 0.0
---                    where
---                    extremePoints  = Set.map
---                        ( \pf' -> let pfLabel = GroundedAST.probabilisticFuncLabel pf'
---                                  in (pfLabel, Map.findWithDefault (Interval.Interval Inf Inf) pfLabel choices)
---                        )
---                        predRfs
---                    corners        = Interval.corners $ Set.toList extremePoints
---                    checkedCorners = GroundedAST.checkRealIneqPred op exprX exprY <$> corners
---            reduction (pf:pfs') corner choices = pDiff pf chLeft * reduction pfs' corner chLeft + pDiff pf chRight * reduction pfs' corner chRight
---                where
---                splitP  = spPoint pf corner
---                Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) pfLabel choices
---                chLeft  = Map.insert pfLabel (Interval.Interval curLower (Open splitP)) choices
---                chRight = Map.insert pfLabel (Interval.Interval (Open splitP) curUpper) choices
---                pfLabel = GroundedAST.probabilisticFuncLabel pf
-
---        pDiff :: GroundedAST.PFunc GroundedAST.RealN -> Map GroundedAST.PFuncLabel Interval -> Probability
---        pDiff pf choices = pUntilUpper - pUntilLower
---            where
---            pUntilLower = cdf' cdf True  curLower
---            pUntilUpper = cdf' cdf False curUpper
---            Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) choices
---            GroundedAST.RealDist cdf _  = GroundedAST.probabilisticFuncDef pf
 
 heuristicBuildInPredObject :: Map GroundedAST.PFuncLabel Formula.ObjCondition
                            -> GroundedAST.TypedBuildInPred GroundedAST.Object
