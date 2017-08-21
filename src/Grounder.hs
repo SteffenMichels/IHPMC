@@ -357,7 +357,7 @@ ground ast = evalStateT
             (\goals' (d, r, parents') -> do
                 r' <- AST.mapExprsInRuleBodyElementM
                     r
-                    (\a -> snd <$> applyValuArg valu a)
+                    (fmap snd . applyValuArg valu)
                     (return . snd . applyValuExpr valu)
                 return $ PQ.insert (d, r', parents') goals'
             )
@@ -657,7 +657,7 @@ applyArgs givenArgs args elements = do
         (intValu, extValu, constrs) <- doMaybe mbVals
         elements' <- lift $ forM elements (\e -> AST.mapExprsInRuleBodyElementM
                 e
-                (\a -> snd <$> applyValuArg intValu a)
+                (fmap snd . applyValuArg intValu)
                 (return . snd . applyValuExpr intValu)
             )
         return (elements', extValu, constrs)
@@ -723,7 +723,7 @@ applyValuation valu pfDefs = do
                -> ([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, Set GoalId)
                -> MaybeT GState [([AST.Expr], AST.RuleBody, GroundedAST.RuleBody, Set GoalId)]
     applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements, parents) = do
-        args' <- lift $ lift $ forM args $ \a -> snd <$> applyValuArg valu a
+        args' <- lift $ lift $ forM args $ fmap snd . applyValuArg valu
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
         return $ (args', AST.RuleBody elements', GroundedAST.RuleBody gElements', parents) : rules
 
@@ -756,7 +756,7 @@ applyValuationMaybeInProof valu pfDefs = do
                   -> RuleMaybeInProof
                   -> MaybeT GState ([RuleMaybeInProof], Set GoalId)
     applyValuRule (rules, toPrune) rule@RuleMaybeInProof{goalId, label, args, nonGroundBody = AST.RuleBody elements, groundBody = GroundedAST.RuleBody gElements, ruleParents} = do
-        args' <- lift $ lift $ forM args $ \a -> snd <$> applyValuArg valu a
+        args' <- lift $ lift $ forM args $ fmap snd . applyValuArg valu
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
         inCProof <- lift $ inCurProof $ AST.UserPredicate label args'
         case inCProof of
