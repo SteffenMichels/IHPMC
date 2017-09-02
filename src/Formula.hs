@@ -574,7 +574,7 @@ evidenceComposedLabel :: ComposedLabel
 evidenceComposedLabel = ComposedLabel (PredicateId (-1)) noConditions 0
 
 uncondComposedLabel :: PredicateId -> ComposedLabel
-uncondComposedLabel pid = ComposedLabel pid noConditions 0
+uncondComposedLabel pid = ComposedLabel pid noConditions $ Hashable.hash pid
 
 condComposedLabelBool :: GroundedAST.PFuncLabel -> Bool -> ComposedLabel -> ComposedLabel
 condComposedLabelBool pf val (ComposedLabel label conds hash) = ComposedLabel label conds{boolConds = bConds} hash'
