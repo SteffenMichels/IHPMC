@@ -1,6 +1,6 @@
 --The MIT License (MIT)
 --
---Copyright (c) 2016 Steffen Michels (mail@steffen-michels.de)
+--Copyright (c) 2016-2017 Steffen Michels (mail@steffen-michels.de)
 --
 --Permission is hereby granted, free of charge, to any person obtaining a copy of
 --this software and associated documentation files (the "Software"), to deal in
@@ -19,9 +19,8 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-module Formula
-    ( Formula
-    , Node
+module KnowledgeBase
+    ( Node
     , NodeType(..)
     , NodeRef
     , refDeterministic
@@ -36,8 +35,9 @@ module Formula
     , Conditions(..)
     , noConditions
     , ObjCondition(..)
-    , FState
-    , empty
+    , KBState
+    , runKBState
+    , kbStateDoIO
     , insert
     , augmentWithEntry
     , augmentWithEntryRef
@@ -48,7 +48,6 @@ module Formula
     , condition
     , reference
     , dereference
-    , Formula.negate
     , entryChoices
     , nodeRefToText
     ) where
@@ -77,46 +76,65 @@ import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))
 import Control.Arrow (first)
 import qualified Data.List as List
+import Control.Monad.Reader
+-- use IORefs because IO is needed within IHPMC anyhow (for timing, reporting, ...)
+import Data.IORef
+import qualified Data.HashTable.IO as H
+
+type HashTable k v = H.CuckooHashTable k v
+
+kbStateDoIO :: IO a -> KBState cachedInfo a
+kbStateDoIO = lift . doIO
 
 -- INTERFACE
-data Node = Composed !NodeType ![NodeRef]
-          | BuildInPredicateBool   (GroundedAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
-          | BuildInPredicateString (GroundedAST.TypedBuildInPred Text)               (Map GroundedAST.PFuncLabel (Set Text))
-          | BuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN)  (Map GroundedAST.PFuncLabel Interval)
-          | BuildInPredicateObject (GroundedAST.TypedBuildInPred GroundedAST.Object) (Map GroundedAST.PFuncLabel ObjCondition)
-          | Deterministic Bool
+data Node cachedInfo
+    = Composed !NodeType ![NodeRef cachedInfo]
+    | BuildInPredicateBool   (GroundedAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
+    | BuildInPredicateString (GroundedAST.TypedBuildInPred Text)               (Map GroundedAST.PFuncLabel (Set Text))
+    | BuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN)  (Map GroundedAST.PFuncLabel Interval)
+    | BuildInPredicateObject (GroundedAST.TypedBuildInPred GroundedAST.Object) (Map GroundedAST.PFuncLabel ObjCondition)
+    | Deterministic Bool
 
 data RefWithNode cachedInfo = RefWithNode
-    { entryRef        :: NodeRef
-    , entryNode       :: Node
+    { entryRef        :: NodeRef cachedInfo
+    , entryNode       :: Node cachedInfo
     , entryLabel      :: Maybe ComposedLabel
     , entryPFuncs     :: Set GroundedAST.PFuncLabel
     , entryCachedInfo :: cachedInfo
     }
 
-type FState cachedInfo = State (Formula cachedInfo)
+-- use ST monad to improve performance
+type KBState cachedInfo = ReaderT (KnowledgeBase cachedInfo) (ExceptionalT IOException IO)
 
-empty :: CacheComputations cachedInfo -> Formula cachedInfo
-empty cacheComps = Formula { nodes              = Map.empty
-                           , freshCounter       = 0
-                           , labels2ids         = Map.empty
-                           , buildinCacheString = Map.empty
-                           , buildinCacheReal   = Map.empty
-                           , buildinCacheObject = Map.empty
-                           , cacheComps         = cacheComps
-                           }
+-- aux functions for KBState monad, resembling functions on State monad
+runKBState :: CacheComputations cachedInfo -> KBState cachedInfo a -> ExceptionalT IOException IO a
+runKBState cacheComps m = do
+    freshCounterRef       <- doIO $ newIORef 0
+    labels2idsRef         <- doIO H.new
+    buildinCacheStringRef <- doIO H.new
+    buildinCacheRealRef   <- doIO H.new
+    buildinCacheObjectRef <- doIO H.new
+    let kb = KB { freshCounterRef       = freshCounterRef
+                , labels2idsRef         = labels2idsRef
+                , buildinCacheStringRef = buildinCacheStringRef
+                , buildinCacheRealRef   = buildinCacheRealRef
+                , buildinCacheObjectRef = buildinCacheObjectRef
+                , cacheComps            = cacheComps
+                }
+    runReaderT m kb
 
 insert :: ComposedLabel
        -> Bool
        -> NodeType
        -> [RefWithNode cachedInfo]
-       -> FState cachedInfo (RefWithNode cachedInfo)
+       -> KBState cachedInfo (RefWithNode cachedInfo)
 insert label sign operator children = do
-    mbCId <- gets $ Map.lookup label . labels2ids
+    kb <- ask
+    mbCId <- kbStateDoIO $ H.lookup (labels2idsRef kb) label
     case mbCId of
         Just cid -> augmentWithEntryRef $ RefComposed sign cid
         Nothing -> do
-            cComps <- gets cacheComps
+            let cComps = cacheComps kb
             if RefDeterministic singleDeterminismValue `elem` childRefs then do
                 forM_ childRefs dereference
                 return $ deterministicRefWithNode singleDeterminismValue $ cachedInfoDeterministic cComps singleDeterminismValue
@@ -129,18 +147,12 @@ insert label sign operator children = do
                         let pFuncs     = foldl' (\pfuncs child -> Set.union pfuncs $ entryPFuncs child) Set.empty children'
                         let cachedInfo = cachedInfoComposed cComps operator (Set.size pFuncs) (entryCachedInfo <$> children')
                         let childRefs' = entryRef <$> children'
-                        cid <- state (\f@Formula{freshCounter} ->
-                                ( freshCounter,
-                                  f{ nodes        = Map.insert
-                                                     (ComposedId freshCounter)
-                                                     (1, FormulaEntry label operator childRefs' pFuncs cachedInfo)
-                                                     (nodes f)
-                                   , freshCounter = succ freshCounter
-                                   , labels2ids   = Map.insert label (ComposedId freshCounter) $ labels2ids f
-                                   }
-                                )
-                            )
-                        return RefWithNode { entryRef        = RefComposed sign $ ComposedId cid
+                        cidNr <- kbStateDoIO $ readIORef $ freshCounterRef kb
+                        cidRef <- kbStateDoIO $ newIORef (1, KBEntry label operator childRefs' pFuncs cachedInfo)
+                        let cid = ComposedId cidNr cidRef
+                        kbStateDoIO $ modifyIORef' (freshCounterRef kb) succ
+                        kbStateDoIO $ H.insert (labels2idsRef kb) label cid
+                        return RefWithNode { entryRef        = RefComposed sign cid
                                            , entryNode       = Composed operator childRefs'
                                            , entryLabel      = Just label
                                            , entryPFuncs     = pFuncs
@@ -153,7 +165,7 @@ insert label sign operator children = do
             filterValue = operator == And
             childRefs = entryRef <$> children
 
-            simplifyChild :: RefWithNode cachedInfo -> FState cachedInfo [RefWithNode cachedInfo]
+            simplifyChild :: RefWithNode cachedInfo -> KBState cachedInfo [RefWithNode cachedInfo]
             simplifyChild c = case entryNode c of
                 Composed cop cs | cop == operator -> do
                     augCs <- forM cs augmentWithEntryRef
@@ -162,21 +174,16 @@ insert label sign operator children = do
                 Deterministic v | v == filterValue -> return []
                 _ -> return [c]
 
-augmentWithEntry :: NodeRef -> FState cachedInfo (RefWithNode cachedInfo)
+augmentWithEntry :: NodeRef cachedInfo -> KBState cachedInfo (RefWithNode cachedInfo)
 augmentWithEntry ref = augmentWithEntryBase ref False
 
-augmentWithEntryRef :: NodeRef -> FState cachedInfo (RefWithNode cachedInfo)
+augmentWithEntryRef :: NodeRef cachedInfo -> KBState cachedInfo (RefWithNode cachedInfo)
 augmentWithEntryRef ref = augmentWithEntryBase ref True
 
-augmentWithEntryBase :: NodeRef -> Bool -> FState cachedInfo (RefWithNode cachedInfo)
-augmentWithEntryBase ref@(RefComposed _ i) incRefCount = do
-    fNodes <- gets nodes
-    (_, FormulaEntry label nType nChildren pFuncs cachedInfo) <- if incRefCount then do
-        let (Just entry, fNodes') = Map.insertLookupWithKey (\_ _ (rCount, ent) -> (succ rCount, ent)) i undefined fNodes
-        modify' (\st -> st{nodes = fNodes'})
-        return entry
-    else
-        return $ Map.findWithDefault undefined i fNodes
+augmentWithEntryBase :: NodeRef cachedInfo -> Bool -> KBState cachedInfo (RefWithNode cachedInfo)
+augmentWithEntryBase ref@(RefComposed _ (ComposedId _ nRef)) incRefCount = do
+    (rCount, ent @ (KBEntry label nType nChildren pFuncs cachedInfo)) <- kbStateDoIO $ readIORef nRef
+    when incRefCount $ kbStateDoIO $ writeIORef nRef (succ rCount, ent)
     return RefWithNode
         { entryRef        = ref
         , entryNode       = Composed nType nChildren
@@ -185,23 +192,23 @@ augmentWithEntryBase ref@(RefComposed _ i) incRefCount = do
         , entryCachedInfo = cachedInfo
         }
 augmentWithEntryBase (RefBuildInPredicateBool prd) _ = do
-    Formula{cacheComps} <- get
-    return $ predRefWithNodeBool prd $ cachedInfoBuildInPredBool cacheComps prd
-augmentWithEntryBase (RefBuildInPredicateString prd sConds) _ = state (\f@Formula{buildinCacheString, cacheComps} ->
-        let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached sConds prd (cachedInfoBuildInPredString cacheComps) buildinCacheString
-        in  (predRefWithNodeString prd sConds cachedInfo, f {buildinCacheString = buildinCache'})
-    )
-augmentWithEntryBase (RefBuildInPredicateReal prd rConds) _ = state (\f@Formula{buildinCacheReal, cacheComps} ->
-        let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached rConds prd (cachedInfoBuildInPredReal cacheComps) buildinCacheReal
-        in  (predRefWithNodeReal prd rConds cachedInfo, f {buildinCacheReal = buildinCache'})
-    )
-augmentWithEntryBase (RefBuildInPredicateObject prd oConds) _ = state (\f@Formula{buildinCacheObject, cacheComps} ->
-        let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached oConds prd (cachedInfoBuildInPredObject cacheComps) buildinCacheObject
-        in  (predRefWithNodeObject prd oConds cachedInfo, f {buildinCacheObject = buildinCache'})
-    )
+    kb <- ask
+    return $ predRefWithNodeBool prd $ cachedInfoBuildInPredBool (cacheComps kb) prd
+augmentWithEntryBase (RefBuildInPredicateString prd sConds) _ = do
+    kb <- ask
+    cachedInfo <- cachedInfoBuildInPredCached sConds prd (cachedInfoBuildInPredString $ cacheComps kb) (buildinCacheStringRef kb)
+    return $ predRefWithNodeString prd sConds cachedInfo
+augmentWithEntryBase (RefBuildInPredicateReal prd rConds) _ = do
+    kb <- ask
+    cachedInfo <- cachedInfoBuildInPredCached rConds prd (cachedInfoBuildInPredReal $ cacheComps kb) (buildinCacheRealRef kb)
+    return $ predRefWithNodeReal prd rConds cachedInfo
+augmentWithEntryBase (RefBuildInPredicateObject prd oConds) _ = do
+    kb <- ask
+    cachedInfo <- cachedInfoBuildInPredCached oConds prd (cachedInfoBuildInPredObject $ cacheComps kb) (buildinCacheObjectRef kb)
+    return $ predRefWithNodeObject prd oConds cachedInfo
 augmentWithEntryBase (RefDeterministic val) _ = do
-    Formula{cacheComps} <- get
-    return $ deterministicRefWithNode val $ cachedInfoDeterministic cacheComps val
+    kb <- ask
+    return $ deterministicRefWithNode val $ cachedInfoDeterministic (cacheComps kb) val
 
 predRefWithNodeBool :: GroundedAST.TypedBuildInPred Bool
                     -> cachedInfo
@@ -231,8 +238,8 @@ predRefWithNodeObject prd oConds =
     predRefWithNode prd (RefBuildInPredicateObject prd oConds) (BuildInPredicateObject prd oConds)
 
 predRefWithNode :: GroundedAST.TypedBuildInPred a
-                -> NodeRef
-                -> Node
+                -> NodeRef cachedInfo
+                -> Node cachedInfo
                 -> cachedInfo
                 -> RefWithNode cachedInfo
 predRefWithNode prd ref node cachedInfo = RefWithNode
@@ -264,7 +271,7 @@ entryChoices entry = case entryRef entry of
 
 condition :: RefWithNode cachedInfo
           -> Conditions
-          -> FState cachedInfo (RefWithNode cachedInfo)
+          -> KBState cachedInfo (RefWithNode cachedInfo)
 condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} = condition' rootNodeEntry
     where
     condition' origNodeEntry
@@ -273,8 +280,9 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
             return origNodeEntry
         | otherwise = case entryRef origNodeEntry of
             RefComposed sign _ -> do
-                labels2ids <- gets labels2ids
-                case Map.lookup newLabel labels2ids of
+                kb <- ask
+                mbCid <- kbStateDoIO $ H.lookup (labels2idsRef kb) newLabel
+                case mbCid of
                     Just nodeId -> augmentWithEntryRef $ RefComposed sign nodeId
                     _ -> do
                         condChildren <- forM
@@ -296,16 +304,17 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                          -> Map GroundedAST.PFuncLabel a
                          -> ComposedLabel
                          -> ComposedLabel
-                updLabel lblCondFunc conds label = Map.foldWithKey
-                    (\pf cond lbl -> if Set.member pf pFuncs then lblCondFunc pf cond lbl else lbl)
+                updLabel lblCondFunc conds label = foldl'
+                    (\lbl (pf, cond) -> if Set.member pf pFuncs then lblCondFunc pf cond lbl else lbl)
                     label
-                    conds
+                    (Map.toList conds)
             RefBuildInPredicateBool (GroundedAST.Equality eq exprL exprR) -> do
+                kb <- ask
                 let condPred = GroundedAST.Equality eq (conditionExpr exprL) (conditionExpr exprR)
-                cacheComps <- gets cacheComps
+                let cComps = cacheComps kb
                 return $ case GroundedAST.deterministicValueTyped condPred of
-                    Just val' -> deterministicRefWithNode val' $ cachedInfoDeterministic cacheComps val'
-                    Nothing   -> predRefWithNodeBool condPred $ cachedInfoBuildInPredBool cacheComps condPred
+                    Just val' -> deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
+                    Nothing   -> predRefWithNodeBool condPred $ cachedInfoBuildInPredBool cComps condPred
                 where
                 conditionExpr :: GroundedAST.Expr Bool -> GroundedAST.Expr Bool
                 conditionExpr expr@(GroundedAST.PFuncExpr exprPFunc) =
@@ -314,12 +323,12 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                         Nothing  -> expr
                 conditionExpr expr = expr
             RefBuildInPredicateString prd@(GroundedAST.Equality eq exprL exprR) sConds -> do
-                Formula{cacheComps, buildinCacheString} <- get
+                kb <- ask
+                let cComps = cacheComps kb
                 case GroundedAST.deterministicValueTyped condPred of
-                    Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cacheComps val'
+                    Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
                     Nothing -> do
-                        let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached sConds' condPred (cachedInfoBuildInPredString cacheComps) buildinCacheString
-                        modify' (\f -> f {buildinCacheString = buildinCache'})
+                        cachedInfo <- cachedInfoBuildInPredCached sConds' condPred (cachedInfoBuildInPredString cComps) (buildinCacheStringRef kb)
                         return $ predRefWithNodeString condPred sConds' cachedInfo
                 where
                 sConds' = Set.fold
@@ -340,12 +349,12 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                     possibleLeft  = GroundedAST.possibleValuesStr exprL sConds'
                     possibleRight = GroundedAST.possibleValuesStr exprR sConds'
             RefBuildInPredicateReal prd@(GroundedAST.Ineq op left right) rConds -> do
-                Formula{cacheComps, buildinCacheReal} <- get
+                kb <- ask
+                let cComps = cacheComps kb
                 case GroundedAST.deterministicValueTyped condPred of
-                    Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cacheComps val'
+                    Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
                     Nothing -> do
-                        let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached rConds' condPred (cachedInfoBuildInPredReal cacheComps) buildinCacheReal
-                        modify' (\f -> f {buildinCacheReal=buildinCache'})
+                        cachedInfo<- cachedInfoBuildInPredCached rConds' condPred (cachedInfoBuildInPredReal cComps) (buildinCacheRealRef kb)
                         return $ predRefWithNodeReal condPred rConds' cachedInfo
                 where
                 rConds'  = Set.fold
@@ -371,12 +380,12 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                     conditions   = [(pf',interv') | (pf',interv') <- Map.toList rConds', Set.member pf' pFuncs]
                     crns         = Interval.corners conditions
             RefBuildInPredicateObject prd@(GroundedAST.Equality eq exprL exprR) oConds -> do
-                Formula{cacheComps, buildinCacheObject} <- get
+                kb <- ask
+                let cComps = cacheComps kb
                 case GroundedAST.deterministicValueTyped condPred of
-                    Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cacheComps val'
+                    Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
                     Nothing -> do
-                        let (cachedInfo, buildinCache') = cachedInfoBuildInPredCached oConds' condPred (cachedInfoBuildInPredObject cacheComps) buildinCacheObject
-                        modify' (\f -> f {buildinCacheObject = buildinCache'})
+                        cachedInfo <- cachedInfoBuildInPredCached oConds' condPred (cachedInfoBuildInPredObject cComps) (buildinCacheObjectRef kb)
                         return $ predRefWithNodeObject condPred oConds' cachedInfo
                 where
                 oConds' = Set.fold
@@ -429,69 +438,61 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                                , Set.fromList $ Map.keys objConds
                                ]
 
-reference :: NodeRef -> FState cachedInfo ()
-reference (RefComposed _ cid) = modify'
-    (\st -> st{nodes = Map.adjust (first succ) cid $ nodes st})
-reference _ = return ()
+reference :: NodeRef cachedInfo -> KBState cachedInfo ()
+reference (RefComposed _ (ComposedId _ nRef)) = kbStateDoIO $ modifyIORef' nRef $ first succ
+reference _                                   = return ()
 
-dereference :: NodeRef -> FState cachedInfo ()
-dereference (RefComposed _ cid) = do
-        (delete, children) <- state (\f ->
-                let Just (refCount, FormulaEntry label _ children _ _) = Map.lookup cid (nodes f)
-                    doDelete = refCount == 1
-                    f' = if doDelete
-                         then f{nodes = Map.delete cid $ nodes f, labels2ids = Map.delete label $ labels2ids f}
-                         else f{nodes = Map.adjust (\(rc, entry) -> (rc - 1, entry)) cid $ nodes f}
-                in ((doDelete, children), f')
-            )
-        when delete $ forM_ children dereference
+dereference :: NodeRef cachedInfo -> KBState cachedInfo ()
+dereference (RefComposed _ (ComposedId _ nRef)) = do
+    kb <- ask
+    (refCount, KBEntry label _ children _ _) <- kbStateDoIO $ readIORef nRef
+    if refCount == 1 then do
+        -- delete node
+        kbStateDoIO $ H.delete (labels2idsRef kb) label
+        forM_ children dereference
+    else
+        kbStateDoIO $ modifyIORef' nRef $ first (\c -> c - 1)
 dereference _ = return ()
 
-negate :: NodeRef -> NodeRef
-negate (RefComposed sign refId)               = RefComposed (not sign) refId
-negate (RefBuildInPredicateBool   prd)        = RefBuildInPredicateBool   (GroundedAST.negatePred prd)
-negate (RefBuildInPredicateString prd sConds) = RefBuildInPredicateString (GroundedAST.negatePred prd) sConds
-negate (RefBuildInPredicateReal   prd rConds) = RefBuildInPredicateReal   (GroundedAST.negatePred prd) rConds
-negate (RefBuildInPredicateObject prd oConds) = RefBuildInPredicateObject (GroundedAST.negatePred prd) oConds
-negate (RefDeterministic val)                 = RefDeterministic $ not val
-
 exportAsDot :: FilePath
-            -> Formula cachedInfo
             -> Map Int Text
             -> Map Int (Int, [AST.ConstantExpr])
             -> Map Int PredicateLabel
-            -> ExceptionalT IOException IO ()
-exportAsDot path Formula{nodes} ids2str ids2label ids2predlbl = do
-    file <- doIO (openFile path WriteMode)
-    doIO (hPutStrLn file "digraph Formula {")
-    forM_ (Map.toList nodes) (printNode file)
-    doIO (hPutStrLn file "}")
-    doIO (hClose file)
+            -> KBState cachedInfo ()
+exportAsDot path ids2str ids2label ids2predlbl = do
+    file <- kbStateDoIO (openFile path WriteMode)
+    kbStateDoIO (hPutStrLn file "digraph KB {")
+    lbls2idsRef <- asks labels2idsRef
+    labesl2ids <- kbStateDoIO $ H.toList lbls2idsRef
+    forM_ labesl2ids (printNode file)
+    kbStateDoIO (hPutStrLn file "}")
+    kbStateDoIO (hClose file)
     where
-        printNode :: Handle -> (ComposedId, (Int, FormulaEntry cachedInfo)) -> ExceptionalT IOException IO ()
-        printNode file (ComposedId i, (refCount, FormulaEntry label op children _ _)) = do
-            doIO ( LTIO.hPutStrLn file $ TB.toLazyText $
+        printNode :: Handle -> (ComposedLabel, ComposedId cachedInfo) -> KBState cachedInfo ()
+        printNode file (_, ComposedId i nRef) = do
+            (refCount, KBEntry label op children _ _) <- kbStateDoIO $ readIORef nRef
+            kbStateDoIO ( LTIO.hPutStrLn file $ TB.toLazyText $
                        showb i <>
                        "[label=\"" <>
                        showb i <>
                        ": " <>
                        TB.fromLazyText (LT.replace "\"" "\\\"" $ TB.toLazyText $ composedLabelToText label ids2str ids2label ids2predlbl) <>
                        "\\n" <>
-                       descr <>
+                       descr refCount op <>
                        "\"];"
                  )
-            void $ forM_ children writeEdge
+            forM_ children writeEdge
             where
-                descr = (case op of And -> "AND "; Or -> "OR ") <> showb refCount
-                writeEdge childRef = doIO $ LTIO.hPutStrLn file $ TB.toLazyText $ showb i <> "->" <> childStr childRef <> ";"
+                descr refCount op = (case op of And -> "AND "; Or -> "OR ") <> showb refCount
+                writeEdge childRef = kbStateDoIO $ LTIO.hPutStrLn file $ TB.toLazyText $ showb i <> "->" <> childStr childRef <> ";"
 
-                childStr :: NodeRef -> Builder
-                childStr (RefComposed sign (ComposedId childId)) = showb childId <> "[label=\"" <> showb sign <> "\"]"
-                childStr (RefBuildInPredicateBool prd)           = printPrd prd
-                childStr (RefBuildInPredicateString prd _)       = printPrd prd
-                childStr (RefBuildInPredicateReal prd _)         = printPrd prd
-                childStr (RefBuildInPredicateObject prd _)       = printPrd prd
-                childStr (RefDeterministic v)                    = showb v
+                childStr :: NodeRef cachedInfo -> Builder
+                childStr (RefComposed sign (ComposedId childId _)) = showb childId <> "[label=\"" <> showb sign <> "\"]"
+                childStr (RefBuildInPredicateBool prd)             = printPrd prd
+                childStr (RefBuildInPredicateString prd _)         = printPrd prd
+                childStr (RefBuildInPredicateReal prd _)           = printPrd prd
+                childStr (RefBuildInPredicateObject prd _)         = printPrd prd
+                childStr (RefDeterministic v)                      = showb v
 
                 printPrd :: GroundedAST.TypedBuildInPred a -> Builder
                 printPrd prd = showb h <>
@@ -503,21 +504,23 @@ exportAsDot path Formula{nodes} ids2str ids2label ids2predlbl = do
                     where
                     h = Hashable.hashWithSalt (Hashable.hash i) prd
 
--- FORMULA STORAGE
-data Formula cachedInfo = Formula
-    { nodes              :: Map ComposedId (Int, FormulaEntry cachedInfo)                                                             -- graph representing formulas
-    , freshCounter       :: Int                                                                                                       -- counter for fresh nodes
-    , labels2ids         :: Map ComposedLabel ComposedId                                                                              -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
-    , buildinCacheString :: Map (GroundedAST.TypedBuildInPred Text,               Map GroundedAST.PFuncLabel (Set Text))   cachedInfo -- cache for buildin predicates
-    , buildinCacheReal   :: Map (GroundedAST.TypedBuildInPred GroundedAST.RealN,  Map GroundedAST.PFuncLabel Interval)     cachedInfo -- cache for buildin predicates
-    , buildinCacheObject :: Map (GroundedAST.TypedBuildInPred GroundedAST.Object, Map GroundedAST.PFuncLabel ObjCondition) cachedInfo -- cache for buildin predicates
-    , cacheComps         :: CacheComputations cachedInfo                                                                              -- how cached information attached to formulas is computed
+-- KB STORAGE
+data KnowledgeBase cachedInfo = KB
+    { freshCounterRef       :: IORef Int                                                                                                       -- counter for fresh nodes
+    , labels2idsRef         :: HashTable ComposedLabel (ComposedId cachedInfo)                                                                           -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
+    , buildinCacheStringRef :: HashTable (GroundedAST.TypedBuildInPred Text,               Map GroundedAST.PFuncLabel (Set Text))   cachedInfo -- cache for buildin predicates
+    , buildinCacheRealRef   :: HashTable (GroundedAST.TypedBuildInPred GroundedAST.RealN,  Map GroundedAST.PFuncLabel Interval)     cachedInfo -- cache for buildin predicates
+    , buildinCacheObjectRef :: HashTable (GroundedAST.TypedBuildInPred GroundedAST.Object, Map GroundedAST.PFuncLabel ObjCondition) cachedInfo -- cache for buildin predicates
+    , cacheComps            :: CacheComputations cachedInfo                                                                                    -- how cached information attached to KB nodes is computed
     }
 
-newtype ComposedId = ComposedId Int deriving (Ord, Eq)
+data ComposedId cachedInfo = ComposedId Int (IORef (Int, KBEntry cachedInfo)) deriving Eq
 
-instance Hashable ComposedId where
-    hashWithSalt salt (ComposedId cid) = salt + cid
+instance Ord (ComposedId cachedInfo) where
+    compare (ComposedId x _) (ComposedId y _) = compare x y
+
+instance Hashable (ComposedId cachedInfo) where
+    hashWithSalt salt (ComposedId cid _) = salt + cid
 
 data ComposedLabel = ComposedLabel
     PredicateId -- id
@@ -526,7 +529,7 @@ data ComposedLabel = ComposedLabel
     deriving (Eq, Ord)
 
 instance Hashable ComposedLabel where
-    hashWithSalt salt (ComposedLabel _ _ hash) = salt + hash
+    hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
 data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel) (Maybe Int) deriving (Eq, Ord, Generic)
 instance Hashable PredicateLabel
@@ -534,7 +537,7 @@ instance Hashable PredicateLabel
 newtype PredicateId = PredicateId Int deriving (Eq, Ord, Generic)
 instance Hashable PredicateId
 
--- conditioned formulas
+-- conditioned KB nodes
 data Conditions = Conditions { boolConds   :: Map GroundedAST.PFuncLabel Bool
                              , stringConds :: Map GroundedAST.PFuncLabel (Set Text)
                              , realConds   :: Map GroundedAST.PFuncLabel Interval
@@ -609,28 +612,31 @@ condComposedLabelObject pf condSet (ComposedLabel label conds _) = ComposedLabel
     hashPf  = Hashable.hash pf
     hash'   = Hashable.hashWithSalt hashPf oConds
 
-labelId :: ComposedLabel -> FState cachednInfo (Maybe ComposedId)
-labelId label = gets labels2ids >>= \l2ids -> return $ Map.lookup label l2ids
+labelId :: ComposedLabel -> KBState cachedInfo (Maybe (ComposedId cachedInfo))
+labelId label = do
+    kb <- ask
+    kbStateDoIO $  H.lookup (labels2idsRef kb) label
 
--- the FormulaEntry contains composed node, plus additional, redundant, cached information to avoid recomputations
-data FormulaEntry cachedInfo = FormulaEntry ComposedLabel NodeType [NodeRef] (Set GroundedAST.PFuncLabel) cachedInfo
+-- the KBEntry contains composed node, plus additional, redundant, cached information to avoid recomputations
+data KBEntry cachedInfo = KBEntry ComposedLabel NodeType [NodeRef cachedInfo] (Set GroundedAST.PFuncLabel) cachedInfo
 
 data NodeType = And | Or deriving (Eq, Generic)
 instance Hashable NodeType
 
 -- node refs are used for optimisation, to avoid looking up leaves (build in preds and deterministic nodes) in the graph
-data NodeRef = RefComposed Bool ComposedId
-             | RefBuildInPredicateBool   (GroundedAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
-             | RefBuildInPredicateString (GroundedAST.TypedBuildInPred Text)               (Map GroundedAST.PFuncLabel (Set Text))
-             | RefBuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN)  (Map GroundedAST.PFuncLabel Interval)
-             | RefBuildInPredicateObject (GroundedAST.TypedBuildInPred GroundedAST.Object) (Map GroundedAST.PFuncLabel ObjCondition)
-             | RefDeterministic Bool
-             deriving (Eq, Ord, Generic)
+data NodeRef cachedInfo
+    = RefComposed Bool (ComposedId cachedInfo)
+    | RefBuildInPredicateBool   (GroundedAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
+    | RefBuildInPredicateString (GroundedAST.TypedBuildInPred Text)               (Map GroundedAST.PFuncLabel (Set Text))
+    | RefBuildInPredicateReal   (GroundedAST.TypedBuildInPred GroundedAST.RealN)  (Map GroundedAST.PFuncLabel Interval)
+    | RefBuildInPredicateObject (GroundedAST.TypedBuildInPred GroundedAST.Object) (Map GroundedAST.PFuncLabel ObjCondition)
+    | RefDeterministic Bool
+    deriving (Eq, Ord, Generic)
 
-instance Hashable NodeRef
+instance Hashable (NodeRef cachedInfo)
 
-nodeRefToText :: NodeRef -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
-nodeRefToText (RefComposed sign (ComposedId cid)) _ _ = if sign then "" else "-" <> showb cid
+nodeRefToText :: NodeRef cachedInfo -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+nodeRefToText (RefComposed sign (ComposedId cid _)) _ _ = if sign then "" else "-" <> showb cid
 nodeRefToText (RefBuildInPredicateBool prd) ids2str ids2label = GroundedAST.typedBuildInPredToText prd ids2str ids2label
 nodeRefToText (RefBuildInPredicateString prd sConds) ids2str ids2label =
    GroundedAST.typedBuildInPredToText prd ids2str ids2label <>
@@ -664,10 +670,10 @@ showCondObject (pf, cond) ids2str ids2label =
         InInterval from upto            -> "in [" <> showb from <> ", " <> showb upto <> "]"
         AnyExceptInInterval s from upto -> "in [" <> showb from <> ", " <> showb upto <> "] \\ {" <> showbLst (Set.toList s) <> "}"
 
-refDeterministic :: Bool -> NodeRef
+refDeterministic :: Bool -> NodeRef cachedInfo
 refDeterministic = RefDeterministic
 
-refBuildInPredicate :: GroundedAST.BuildInPredicate -> NodeRef
+refBuildInPredicate :: GroundedAST.BuildInPredicate -> NodeRef cachedInfo
 refBuildInPredicate prd = case GroundedAST.deterministicValue prd of
     Just val -> RefDeterministic val
     Nothing  -> case prd of
@@ -678,10 +684,10 @@ refBuildInPredicate prd = case GroundedAST.deterministicValue prd of
         GroundedAST.BuildInPredicatePh   _    -> undefined
         GroundedAST.BuildInPredicateInt  _    -> undefined
 
-refComposed :: ComposedId -> NodeRef
+refComposed :: ComposedId cachedInfo -> NodeRef cachedInfo
 refComposed = RefComposed True
 
-deterministicNodeRef :: NodeRef -> Maybe Bool
+deterministicNodeRef :: NodeRef cachedInfo-> Maybe Bool
 deterministicNodeRef (RefDeterministic val) = Just val
 deterministicNodeRef _                      = Nothing
 
@@ -699,9 +705,15 @@ cachedInfoBuildInPredCached :: (Ord a, Hashable a)
                             => Map GroundedAST.PFuncLabel a
                             -> GroundedAST.TypedBuildInPred b
                             -> (Map GroundedAST.PFuncLabel a -> GroundedAST.TypedBuildInPred b -> cachedInfo)
-                            -> Map (GroundedAST.TypedBuildInPred b, Map GroundedAST.PFuncLabel a) cachedInfo
-                            -> (cachedInfo, Map (GroundedAST.TypedBuildInPred b, Map GroundedAST.PFuncLabel a) cachedInfo)
-cachedInfoBuildInPredCached conds prd infoComp cache = case Map.lookup (prd,conds) cache of
-    Just cachedInfo -> (cachedInfo, cache)
-    Nothing         -> let cachedInfo = infoComp conds prd
-                       in  (cachedInfo, Map.insert (prd,conds) cachedInfo cache)
+                            -> HashTable (GroundedAST.TypedBuildInPred b, Map GroundedAST.PFuncLabel a) cachedInfo
+                            -> KBState cachedInfo cachedInfo
+cachedInfoBuildInPredCached conds prd infoComp cache = do
+    let key = (prd, conds)
+    mbCachedInfo <- kbStateDoIO $ H.lookup cache key
+    case mbCachedInfo of
+        Just cachedInfo -> return cachedInfo
+        Nothing         -> do
+            let cachedInfo = infoComp conds prd
+            kbStateDoIO $ H.insert cache key cachedInfo
+            return cachedInfo
+

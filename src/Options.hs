@@ -60,7 +60,7 @@ parseConsoleArgs args = do
         `andBy`    maybeFlag "errorbound"          `Descr` "maximal result error bound"
         `andBy`    maybeFlag "timeout"             `Descr` "maximal inference runtime (ms)"
         `andBy`    maybeFlag "reporting_interval"  `Descr` "interval in which intermediate results are reported (ms)"
-        `andBy`    maybeFlag "formula_export_path" `Descr` "path to file to which the initial formula is exported (as dot file)"
+        `andBy`    maybeFlag "kb_export_path"      `Descr` "path to file to which the initial KB is exported (as dot file)"
 
 maybeFlag :: ReadArg a => Key -> StdArgParam (Maybe a)
 maybeFlag key = StdArgParam (Optional Nothing) Flag key (SingleArgParser $ readArg' key)

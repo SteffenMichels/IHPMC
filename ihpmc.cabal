@@ -22,7 +22,8 @@ executable ihpmc_float
         transformers -any,
         Boolean -any,
         text -any,
-        text-show >=3.4.1
+        text-show >=3.4.1,
+        hashtables >= 1.2.1.1
     cpp-options: -DFLOAT_PROBS
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
@@ -35,8 +36,8 @@ executable ihpmc_float
         Options
         Parser
         HPT
-        Formula
-        FormulaConverter
+        KnowledgeBase
+        KnowledgeBaseConverter
         IHPMC
         AST
         Grounder
@@ -62,7 +63,8 @@ executable ihpmc_exact
         transformers -any,
         Boolean -any,
         text -any,
-        text-show >=3.4.1
+        text-show >=3.4.1,
+        hashtables >= 1.2.1.1
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
                 OverloadedStrings ParallelListComp
@@ -74,8 +76,8 @@ executable ihpmc_exact
         Options
         Parser
         HPT
-        Formula
-        FormulaConverter
+        KnowledgeBase
+        KnowledgeBaseConverter
         IHPMC
         AST
         Grounder
@@ -106,7 +108,8 @@ test-suite integration
         text -any,
         Boolean -any,
         text -any,
-        text-show >=3.4.1
+        text-show >=3.4.1,
+        hashtables >= 1.2.1.1
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
                 OverloadedStrings ParallelListComp
@@ -123,8 +126,8 @@ test-suite integration
         Options
         Parser
         HPT
-        Formula
-        FormulaConverter
+        KnowledgeBase
+        KnowledgeBaseConverter
         IHPMC
         AST
         Grounder

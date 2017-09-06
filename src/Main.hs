@@ -24,17 +24,18 @@ import System.Environment (getArgs)
 import qualified Parser
 import qualified AstPreprocessor
 import qualified Grounder
-import qualified FormulaConverter
+import qualified KnowledgeBaseConverter as KBConverter
 import qualified GroundedAST
 import Exception
 import qualified IHPMC
 import Options (Options(..))
 import qualified Options
 import Control.Monad.Exception.Synchronous
-import Control.Monad (foldM_, when)
+import Control.Monad (forM_, when)
+import Control.Monad.Trans.Class (lift)
 import System.Exit (exitFailure)
 import Data.Maybe (isJust)
-import qualified Formula
+import qualified KnowledgeBase as KB
 import Probability
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
@@ -90,36 +91,42 @@ main' = do
     let ids2str = IdNrMap.fromIdNrMap identIds'
     (groundedAst, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ Grounder.ground ast'
     let ids2label = IdNrMap.fromIdNrMap labelIds
-    let (queries, evidence, f, predIds) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-    let ids2predlbl = IdNrMap.fromIdNrMap predIds
-    whenJust formExpPath $ \path -> mapExceptionT ((,ids2str, ids2label) . IOException) $ Formula.exportAsDot path f ids2str ids2label ids2predlbl
-    let stopPred n (ProbabilityBounds l u) t =  maybe False (<= n)       nIterations
-                                             || maybe False (>= (u-l)/2) errBound
-                                             || maybe False (<= t)       timeout
-    let reportingIO = case repInterval of
-            Just rInterv -> \qLabel n bounds t lastRep -> if   t - lastRep >= rInterv
-                                                          then Just $ printResult qLabel n t (Just bounds) ids2str ids2label
-                                                          else Nothing
-            _            -> \_      _ _      _ _       -> Nothing
-    foldM_
-        (\f' (qLabel, qRef) -> do
-            (n, t, mbBounds, f'') <- mapExceptionT ((,ids2str, ids2label) . IOException) $ IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel) f'
-            mapExceptionT ((,ids2str, ids2label) . IOException) $ printResult qLabel n t mbBounds ids2str ids2label
-            when (isJust repInterval) $ doIOException $ putStrLn ""
-            return f''
-        )
-        f
-        queries
-        where
-        printResult qLabel n t mbBounds ids2str ids2label = doIO $ LTIO.putStrLn $ toLazyText $
-            GroundedAST.ruleBodyElementToText qLabel ids2str ids2label <>
-            " (iteration " <> showb n <>
-            ", after " <> showb t <> "ms): " <>
-            case mbBounds of
-                Just (ProbabilityBounds l u) ->
-                    showb ((u + l) / 2.0) <>
-                    " (error bound: " <> showb ((u - l) / 2.0) <> ")"
-                Nothing -> "inconsistent evidence"
+    mapExceptionT ((,Map.empty, Map.empty) . IOException) $ KB.runKBState IHPMC.heuristicsCacheComputations $ do
+        ((queries, evidence), predIds) <- KBConverter.convert groundedAst
+        let ids2predlbl = IdNrMap.fromIdNrMap predIds
+        whenJust formExpPath $ \path -> KB.exportAsDot path ids2str ids2label ids2predlbl
+        let stopPred n (ProbabilityBounds l u) t =  maybe False (<= n)       nIterations
+                                                 || maybe False (>= (u-l)/2) errBound
+                                                 || maybe False (<= t)       timeout
+        let reportingIO = case repInterval of
+                Just rInterv -> \qLabel n bounds t lastRep -> if   t - lastRep >= rInterv
+                                                              then Just $ printResult qLabel n t (Just bounds) ids2str ids2label
+                                                              else Nothing
+                _            -> \_      _ _      _ _       -> Nothing
+        forM_
+            queries
+            ( \(qLabel, qRef) -> do
+                  (n, t, mbBounds) <- IHPMC.ihpmc qRef evidence stopPred (reportingIO qLabel)
+                  lift $ printResult qLabel n t mbBounds ids2str ids2label
+                  when (isJust repInterval) $ lift $ doIO $ putStrLn ""
+            )
+    where
+    printResult :: GroundedAST.RuleBodyElement
+                -> Int
+                -> Int
+                -> Maybe ProbabilityBounds
+                -> Map Int Text
+                -> Map Int (Int, [AST.ConstantExpr])
+                -> ExceptionalT IOException IO ()
+    printResult qLabel n t mbBounds ids2str ids2label = doIO $ LTIO.putStrLn $ toLazyText $
+        GroundedAST.ruleBodyElementToText qLabel ids2str ids2label <>
+        " (iteration " <> showb n <>
+        ", after " <> showb t <> "ms): " <>
+        case mbBounds of
+            Just (ProbabilityBounds l u) ->
+                showb ((u + l) / 2.0) <>
+                " (error bound: " <> showb ((u - l) / 2.0) <> ")"
+            Nothing -> "inconsistent evidence"
 
 doIOException :: IO a -> ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO a
 doIOException io = mapExceptionT ((,Map.empty, Map.empty) . IOException) $ doIO io
@@ -130,3 +137,4 @@ printIfSet fstr = maybe (return ()) $ doIOException . LTIO.putStrLn . toLazyText
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust Nothing _   = return ()
 whenJust (Just x) fx = fx x
+

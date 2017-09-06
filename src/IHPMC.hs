@@ -21,7 +21,7 @@
 
 {-# LANGUAGE CPP #-}
 #if __GLASGOW_HASKELL__ >= 800
-{-# LANGUAGE Strict#-}
+{-# LANGUAGE Strict #-}
 #endif
 
 module IHPMC
@@ -29,8 +29,7 @@ module IHPMC
     , heuristicsCacheComputations
     , HPT.CachedSplitPoints
     ) where
-import Formula (Formula)
-import qualified Formula
+import qualified KnowledgeBase as KB
 import HPT (HPT)
 import qualified HPT
 import Data.HashSet (Set)
@@ -52,14 +51,14 @@ import Control.Arrow (second)
 import Data.Ratio
 import Data.List (foldl1')
 
-type FState = Formula.FState HPT.CachedSplitPoints
+type KBState = KB.KBState HPT.CachedSplitPoints
 
 -- | The actual IHPMC inference algorithm.
 -- Computes bounds on the probability of a query given evidence.
 -- A predicate determines when this anytime algorithm is stopped.
 -- Also intermediate results can be reported.
-ihpmc :: Formula.NodeRef                             -- ^ The query formula node.
-      -> [Formula.NodeRef]                           -- ^ The evidence formula nodes.
+ihpmc :: KB.NodeRef HPT.CachedSplitPoints            -- ^ The query KB node.
+      -> [KB.NodeRef HPT.CachedSplitPoints]          -- ^ The evidence KB nodes.
       -> (Int -> ProbabilityBounds -> Int -> Bool)   -- ^ A predicate determining when to stop the algorithm.
                                                      -- The arguments are:
                                                      --
@@ -75,48 +74,34 @@ ihpmc :: Formula.NodeRef                             -- ^ The query formula node
                                                      -- (2) the current probability bounds.
                                                      -- (3) the total runtime.
                                                      -- (4) the runtime at which a report was generated last time.
-      -> Formula HPT.CachedSplitPoints               -- ^ The formula containing the query and evidence.
-      -> ExceptionalT
-             IOException
-             IO
-             ( Int
-             , Int
-             , Maybe ProbabilityBounds
-             , Formula HPT.CachedSplitPoints
-             )                                       -- ^ Performs IO for measuring runtime and reporting. Return values:
+      -> KBState (Int, Int, Maybe ProbabilityBounds) -- ^ Performs IO for measuring runtime and reporting. Return values:
                                                      --
                                                      -- (1) The number of iterations.
                                                      -- (2) The total runtime.
                                                      -- (3) The actual probability bound result
                                                      --     ('Nothing' if evidence is found to be inconsistent.)
-                                                     -- (4) The formula (TODO: do we need to return it? Should be again in initial state if we do GC for nodes.)
-ihpmc query evidence finishPred reportingIO f = do
-    t <- doIO getTime
-    ((n, et, mbBounds), f') <- runStateT
-        ( do
-            -- put together all evidence elements in single conjunction
-            evidenceConj <- state $ runState $ do
-                evidence' <- forM evidence Formula.augmentWithEntry
-                Formula.insert
-                    Formula.evidenceComposedLabel
-                    True
-                    Formula.And
-                    evidence'
-            -- initialise HPT
-            initHpt <- state $ runState $ HPT.initialHPT query $ Formula.entryRef evidenceConj
-            -- run inference
-            ihpmc' 1 t t initHpt
-        ) f
-    return (n, et, mbBounds, f')
+ihpmc query evidence finishPred reportingIO = do
+    t <- KB.kbStateDoIO getTime
+    evidence' <- forM evidence KB.augmentWithEntry
+    -- put together all evidence elements in single conjunction
+    evidenceConj <- KB.insert
+            KB.evidenceComposedLabel
+            True
+            KB.And
+            evidence'
+    -- initialise HPT
+    initHpt <- HPT.initialHPT query $ KB.entryRef evidenceConj
+    -- run inference
+    ihpmc' 1 t t initHpt
     where
     ihpmc' :: Int -- iteration number
            -> Int
            -> Int
            -> HPT
-           -> StateT (Formula HPT.CachedSplitPoints) (ExceptionalT IOException IO) (Int, Int, Maybe ProbabilityBounds)
+           -> KBState (Int, Int, Maybe ProbabilityBounds)
     ihpmc' i startTime lastReportedTime hpt = do
-        mbHpt <- state $ runState $ ihpmcIterate hpt
-        curTime <- lift $ doIO getTime
+        mbHpt   <- ihpmcIterate hpt
+        curTime <- KB.kbStateDoIO getTime
         let runningTime = curTime - startTime
         case mbHpt of
             Nothing -> return (i, runningTime, HPT.bounds hpt)
@@ -128,30 +113,30 @@ ihpmc query evidence finishPred reportingIO f = do
                         Nothing    ->               ihpmc' (succ i) startTime lastReportedTime hpt'
                     _ -> return (i, runningTime, bounds)
 
-    ihpmcIterate :: HPT -> FState (Maybe HPT)
+    ihpmcIterate :: HPT -> KBState (Maybe HPT)
     ihpmcIterate hpt = case HPT.nextLeaf hpt of
         Nothing -> return Nothing
         Just (HPT.HPTLeaf fs p, hpt') -> case fs of
             HPT.WithinEv q _ -> do
-                qEntry <- Formula.augmentWithEntry q
+                qEntry <- KB.augmentWithEntry q
                 case splitPoint qEntry of
                     Nothing -> return Nothing
                     Just spPoint -> do
-                        (ql, _, qr, _, pl) <- splitFormula qEntry Nothing spPoint
-                        Formula.dereference q
+                        (ql, _, qr, _, pl) <- splitNode qEntry Nothing spPoint
+                        KB.dereference q
                         let pr =  1.0 - pl
                         hpt''  <- HPT.addLeafWithinEvidence ql (pl * p) hpt'
                         hpt''' <- HPT.addLeafWithinEvidence qr (pr * p) hpt''
                         return $ Just hpt'''
             HPT.MaybeWithinEv q e _ -> do
-                eEntry <- Formula.augmentWithEntry e
+                eEntry <- KB.augmentWithEntry e
                 case splitPoint eEntry of
                     Nothing -> return Nothing
                     Just spPoint -> do
-                        (el, Just ql, er, Just qr, pl) <- splitFormula eEntry (Just q) spPoint
-                        Formula.dereference e
-                        when (Formula.deterministicNodeRef el /= Just False && Formula.deterministicNodeRef er /= Just False)
-                             (Formula.reference query) -- new lazy formula refers to initial query
+                        (el, Just ql, er, Just qr, pl) <- splitNode eEntry (Just q) spPoint
+                        KB.dereference e
+                        when (KB.deterministicNodeRef el /= Just False && KB.deterministicNodeRef er /= Just False)
+                             (KB.reference query) -- new lazy KB node refers to initial query
                         let pr =  1.0 - pl
                         hpt'' <- HPT.addLeaf ql el (pl * p) hpt'
                         Just <$> HPT.addLeaf qr er (pr * p) hpt''
@@ -170,10 +155,10 @@ instance Ord ProofCounters where
                 EQ  -> compare' $ succ i
                 res -> res
 
-type RefWithNode = Formula.RefWithNode HPT.CachedSplitPoints
+type RefWithNode = KB.RefWithNode HPT.CachedSplitPoints
 
--- | Find the next point to split the formula on.
-splitPoint :: RefWithNode          -- ^ The formula node to split on.
+-- | Find the next point to split the KB node on.
+splitPoint :: RefWithNode          -- ^ The KB node to split on.
            -> Maybe HPT.SplitPoint -- ^ Nothing if the node is true/false (cannot be split further).
                                    --   Otherwise, the best split point found.
 splitPoint f
@@ -183,13 +168,13 @@ splitPoint f
     | otherwise                 = Just $ splitWithProofs proofs
     where
     proofs = Set.union proofsT proofsF
-    HPT.CachedSplitPoints proofsT proofsF spType = Formula.entryCachedInfo f
+    HPT.CachedSplitPoints proofsT proofsF spType = KB.entryCachedInfo f
     candidateSplitPoints = case spType of
         HPT.Composed pts  -> Map.toList pts
         HPT.Primitive pts -> (, 0) <$> Set.toList pts
 
     splitWithProofs :: Set HPT.Proof -> HPT.SplitPoint
-    splitWithProofs proofs = fst $ List.maximumBy (\(_,x) (_,y) -> compare x y) (attachScores <$> candidateSplitPoints)
+    splitWithProofs proofs' = fst $ List.maximumBy (\(_,x) (_,y) -> compare x y) (attachScores <$> candidateSplitPoints)
         where
         attachScores :: (HPT.SplitPoint, Int)
                      -> (HPT.SplitPoint, (ProofCounters, Int))
@@ -202,8 +187,8 @@ splitPoint f
 
         proofCounters :: Map HPT.SplitPoint ProofCounters
         proofCounters = Set.fold
-            ( \(HPT.Proof p) counts-> let lengthProof = Map.size p in Map.foldWithKey
-                ( \pt _ counts' -> Map.insert
+            ( \(HPT.Proof p) counts-> let lengthProof = Map.size p in foldl'
+                ( \counts' pt -> Map.insert
                     pt
                     ( case Map.lookup pt counts' of
                         Nothing -> ProofCounters (Map.singleton lengthProof 1) lengthProof
@@ -213,47 +198,47 @@ splitPoint f
                     counts'
                 )
                 counts
-                p
+                (Map.keys p)
             )
             Map.empty
-            proofs
+            proofs'
 
--- | Splits the formula according to splitpoint given.
--- This results in 2 (or 4 if evidence is included) new formula nodes.
-splitFormula :: RefWithNode
-             -> Maybe HPT.LazyNode
-             -> HPT.SplitPoint
-             -> FState (Formula.NodeRef, Maybe HPT.LazyNode, Formula.NodeRef, Maybe HPT.LazyNode, Probability)
-splitFormula f lf (HPT.BoolSplit splitPF) = splitFormulaCommon f lf pLeft addCond True False
+-- | Splits the KB node according to splitpoint given.
+-- This results in 2 (or 4 if evidence is included) new KB nodes.
+splitNode :: RefWithNode
+          -> Maybe HPT.LazyNode
+          -> HPT.SplitPoint
+          -> KBState (KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, Probability)
+splitNode f lf (HPT.BoolSplit splitPF) = splitNodeCommon f lf pLeft addCond True False
     where
     GroundedAST.Flip pLeft = GroundedAST.probabilisticFuncDef splitPF
     pfLabel = GroundedAST.probabilisticFuncLabel splitPF
-    addCond val conds = conds{Formula.boolConds = Map.insert pfLabel val $ Formula.boolConds conds}
-splitFormula f lf (HPT.StringSplit splitPF splitSet) = splitFormulaCommon f lf pLeft addCond splitSet splitSetCompl
+    addCond val conds = conds{KB.boolConds = Map.insert pfLabel val $ KB.boolConds conds}
+splitNode f lf (HPT.StringSplit splitPF splitSet) = splitNodeCommon f lf pLeft addCond splitSet splitSetCompl
     where
     splitSetCompl                   = Set.difference curSet splitSet
     curSet                          = Map.findWithDefault
                                           (Set.fromList $ snd <$> elements)
                                           (GroundedAST.probabilisticFuncLabel splitPF)
                                           sConds
-    Formula.Conditions _ sConds _ _ = Formula.entryChoices f
+    KB.Conditions _ sConds _ _ = KB.entryChoices f
     GroundedAST.StrDist elements    = GroundedAST.probabilisticFuncDef splitPF
     pLeft                           = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
     z                               = List.sum $ fst <$> curElements
     curElements                     = List.filter ((`Set.member` curSet) . snd) elements
     pfLabel                         = GroundedAST.probabilisticFuncLabel splitPF
-    addCond val conds               = conds{Formula.stringConds = Map.insert pfLabel val $ Formula.stringConds conds}
+    addCond val conds               = conds{KB.stringConds = Map.insert pfLabel val $ KB.stringConds conds}
 -- we assume here that the splitObj is within the set given by the current conditions,
--- otherwise the formula would have already been simplified
-splitFormula f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
-    GroundedAST.UniformObjDist _ -> splitFormulaCommon f lf pLeft (addCondObj splitPf) leftCond rightCond -- TODO: can probabilties become 1.0/0.0?
+-- otherwise the KB node would have already been simplified
+splitNode f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
+    GroundedAST.UniformObjDist _ -> splitNodeCommon f lf pLeft (addCondObj splitPf) leftCond rightCond -- TODO: can probabilties become 1.0/0.0?
     GroundedAST.UniformOtherObjDist _ -> error "not implemented"
     where
     pLeft = case possibleValues of
-        Formula.Object _                           -> error "object PF restricted to single object should never be selected to split on"
-        Formula.AnyExcept excl                     -> p 0 upto' (nrObjects - 1) excl
-        Formula.InInterval from upto               -> p from upto' upto Set.empty
-        Formula.AnyExceptInInterval excl from upto -> p from upto' upto excl
+        KB.Object _                           -> error "object PF restricted to single object should never be selected to split on"
+        KB.AnyExcept excl                     -> p 0 upto' (nrObjects - 1) excl
+        KB.InInterval from upto               -> p from upto' upto Set.empty
+        KB.AnyExceptInInterval excl from upto -> p from upto' upto excl
         where
         upto' = splitObj
         p :: Integer -> Integer -> Integer -> Set Integer -> Probability
@@ -263,110 +248,110 @@ splitFormula f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.pr
 
     -- TODO: corner cases: interval collapses to single point
     leftCond  = case possibleValues of
-        Formula.Object _                        -> error "object PF restricted to single object should never be selected to split on"
-        Formula.AnyExcept excl                  -> anyExceptInInterval 0    upto' excl
-        Formula.InInterval from _               -> inInterval          from upto'
-        Formula.AnyExceptInInterval excl from _ -> anyExceptInInterval from upto' excl
+        KB.Object _                        -> error "object PF restricted to single object should never be selected to split on"
+        KB.AnyExcept excl                  -> anyExceptInInterval 0    upto' excl
+        KB.InInterval from _               -> inInterval          from upto'
+        KB.AnyExceptInInterval excl from _ -> anyExceptInInterval from upto' excl
         where
         upto' = splitObj
     rightCond = case possibleValues of
-        Formula.Object _                        -> error "object PF restricted to single object should never be selected to split on"
-        Formula.AnyExcept excl                  -> anyExceptInInterval from' (nrObjects - 1) excl
-        Formula.InInterval _ upto               -> inInterval          from' upto
-        Formula.AnyExceptInInterval excl _ upto -> anyExceptInInterval from' upto excl
+        KB.Object _                        -> error "object PF restricted to single object should never be selected to split on"
+        KB.AnyExcept excl                  -> anyExceptInInterval from' (nrObjects - 1) excl
+        KB.InInterval _ upto               -> inInterval          from' upto
+        KB.AnyExceptInInterval excl _ upto -> anyExceptInInterval from' upto excl
         where
         from' = splitObj + 1
 
     possibleValues = Map.findWithDefault
-        (Formula.InInterval 0 $ nrObjects - 1)
+        (KB.InInterval 0 $ nrObjects - 1)
         (GroundedAST.probabilisticFuncLabel splitPf)
         oConds
 
     nrObjects = GroundedAST.objectPfNrObjects splitPf
     anyExceptInInterval from upto excl | from == upto = if Set.member from excl then error "TODO: deal with inconsistency"
-                                                                                else Formula.Object from
-                                       | otherwise = Formula.AnyExceptInInterval (filterExcl from upto excl) from upto
+                                                                                else KB.Object from
+                                       | otherwise = KB.AnyExceptInInterval (filterExcl from upto excl) from upto
 
-    inInterval from upto | from == upto = Formula.Object from
-                         | otherwise    = Formula.InInterval from upto
+    inInterval from upto | from == upto = KB.Object from
+                         | otherwise    = KB.InInterval from upto
     filterExcl from upto = Set.filter (\e -> e >= from && e <= upto)
-    Formula.Conditions _ _ _ oConds = Formula.entryChoices f
-splitFormula f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
-    GroundedAST.UniformObjDist _ -> splitObjFormula $ 1 / nPossibilities
+    KB.Conditions _ _ _ oConds = KB.entryChoices f
+splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
+    GroundedAST.UniformObjDist _ -> splitObjNode $ 1 / nPossibilities
     GroundedAST.UniformOtherObjDist otherPf -> case possibleValues otherPf oConds of
-        Formula.Object otherObj
-            | otherObj == splitObj -> splitObjFormula 0.0
-            | otherwise -> splitObjFormula $
+        KB.Object otherObj
+            | otherObj == splitObj -> splitObjNode 0.0
+            | otherwise -> splitObjNode $
                 1 / if inCurPossibleValues otherObj then nPossibilities - 1
                                                     else nPossibilities
         _ | splitPfInPossibleValuesOf otherPf ->
             -- we cannot split current PF, split parent PF
-            splitFormula f lf $ HPT.ObjectSplit otherPf splitObj
-        _ -> splitObjFormula $ 1 / (nPossibilities - 1)
+            splitNode f lf $ HPT.ObjectSplit otherPf splitObj
+        _ -> splitObjNode $ 1 / (nPossibilities - 1)
     where
-    splitObjFormula :: Probability -> FState (Formula.NodeRef, Maybe HPT.LazyNode, Formula.NodeRef, Maybe HPT.LazyNode, Probability)
-    splitObjFormula pLeft
+    splitObjNode :: Probability -> KBState (KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, Probability)
+    splitObjNode pLeft
         | pLeft == 1.0 = do -- right branch has probability 0
-            left  <- Formula.condition f $ addCondObj splitPf leftCond Formula.noConditions
-            return ( Formula.entryRef left
+            left  <- KB.condition f $ addCondObj splitPf leftCond KB.noConditions
+            return ( KB.entryRef left
                    , second (addCondObj splitPf leftCond) <$> lf
-                   , Formula.refDeterministic False
-                   , const (Formula.refDeterministic False, Formula.noConditions) <$> lf
+                   , KB.refDeterministic False
+                   , const (KB.refDeterministic False, KB.noConditions) <$> lf
                    , 1.0
                    )
         | pLeft == 0.0 = do
-            right <- Formula.condition f $ addCondObj splitPf rightCond Formula.noConditions
-            return ( Formula.refDeterministic False
-                   , const (Formula.refDeterministic False, Formula.noConditions) <$> lf
-                   , Formula.entryRef right
+            right <- KB.condition f $ addCondObj splitPf rightCond KB.noConditions
+            return ( KB.refDeterministic False
+                   , const (KB.refDeterministic False, KB.noConditions) <$> lf
+                   , KB.entryRef right
                    , second (addCondObj splitPf rightCond) <$> lf
                    , 0.0
                    )
-        | otherwise = splitFormulaCommon f lf pLeft (addCondObj splitPf) leftCond rightCond
+        | otherwise = splitNodeCommon f lf pLeft (addCondObj splitPf) leftCond rightCond
 
     nPossibilities :: Probability
     nPossibilities = case possibleValues splitPf oConds of
-        Formula.Object _                           -> error "object PF restricted to single object should never be selected to split on"
-        Formula.AnyExcept excl                     -> intToProb $ nr splitPf - fromIntegral (Set.size excl)
-        Formula.InInterval from upto               -> intToProb $ upto - from + 1
-        Formula.AnyExceptInInterval excl from upto -> intToProb $ upto - from + 1 - fromIntegral (Set.size excl)
+        KB.Object _                           -> error "object PF restricted to single object should never be selected to split on"
+        KB.AnyExcept excl                     -> intToProb $ nr splitPf - fromIntegral (Set.size excl)
+        KB.InInterval from upto               -> intToProb $ upto - from + 1
+        KB.AnyExceptInInterval excl from upto -> intToProb $ upto - from + 1 - fromIntegral (Set.size excl)
 
     nr :: GroundedAST.PFunc GroundedAST.Object -> Integer
     nr pf = case GroundedAST.probabilisticFuncDef pf of
         GroundedAST.UniformObjDist nr'          -> nr'
         GroundedAST.UniformOtherObjDist otherPf -> nr otherPf
 
-    Formula.Conditions _ _ _ oConds = Formula.entryChoices f
+    KB.Conditions _ _ _ oConds = KB.entryChoices f
 
     possibleValues :: GroundedAST.PFunc GroundedAST.Object
-                   -> Map GroundedAST.PFuncLabel Formula.ObjCondition
-                   -> Formula.ObjCondition
+                   -> Map GroundedAST.PFuncLabel KB.ObjCondition
+                   -> KB.ObjCondition
     possibleValues pf = Map.findWithDefault
-        (Formula.AnyExcept Set.empty)
+        (KB.AnyExcept Set.empty)
         (GroundedAST.probabilisticFuncLabel pf)
 
     inCurPossibleValues :: Integer -> Bool
     inCurPossibleValues obj = case possibleValues splitPf oConds of
-        Formula.Object _                           -> error "object PF restricted to single object should never be selected to split on"
-        Formula.AnyExcept excl                     -> not $ Set.member obj excl
-        Formula.InInterval from upto               -> from <= obj && obj <= upto
-        Formula.AnyExceptInInterval excl from upto -> from <= obj && obj <= upto && not (Set.member obj excl)
+        KB.Object _                           -> error "object PF restricted to single object should never be selected to split on"
+        KB.AnyExcept excl                     -> not $ Set.member obj excl
+        KB.InInterval from upto               -> from <= obj && obj <= upto
+        KB.AnyExceptInInterval excl from upto -> from <= obj && obj <= upto && not (Set.member obj excl)
 
     splitPfInPossibleValuesOf :: GroundedAST.PFunc GroundedAST.Object -> Bool
     splitPfInPossibleValuesOf pf = case possibleValues pf oConds of
-        Formula.Object _                           -> undefined
-        Formula.AnyExcept excl                     -> not $ Set.member splitObj excl
-        Formula.InInterval from upto               -> from <= splitObj && splitObj <= upto
-        Formula.AnyExceptInInterval excl from upto -> from <= splitObj && splitObj <= upto && not (Set.member splitObj excl)
+        KB.Object _                           -> undefined
+        KB.AnyExcept excl                     -> not $ Set.member splitObj excl
+        KB.InInterval from upto               -> from <= splitObj && splitObj <= upto
+        KB.AnyExceptInInterval excl from upto -> from <= splitObj && splitObj <= upto && not (Set.member splitObj excl)
 
-    leftCond  = Formula.Object splitObj
+    leftCond  = KB.Object splitObj
     rightCond = case possibleValues splitPf oConds of
-        Formula.Object _                           -> error "object PF restricted to single object should never be selected to split on"
-        Formula.AnyExcept excl                     -> Formula.AnyExcept $ Set.insert splitObj excl
-        Formula.InInterval from upto               -> Formula.AnyExceptInInterval (Set.singleton splitObj) from upto
-        Formula.AnyExceptInInterval excl from upto -> Formula.AnyExceptInInterval (Set.insert splitObj excl) from upto
+        KB.Object _                           -> error "object PF restricted to single object should never be selected to split on"
+        KB.AnyExcept excl                     -> KB.AnyExcept $ Set.insert splitObj excl
+        KB.InInterval from upto               -> KB.AnyExceptInInterval (Set.singleton splitObj) from upto
+        KB.AnyExceptInInterval excl from upto -> KB.AnyExceptInInterval (Set.insert splitObj excl) from upto
 
-splitFormula f lf (HPT.ContinuousSplit splitPF spPoint) = splitFormulaCommon f lf pLeft addCond leftCond rightCond
+splitNode f lf (HPT.ContinuousSplit splitPF spPoint) = splitNodeCommon f lf pLeft addCond leftCond rightCond
     where
     leftCond  = Interval.Interval curLower (Open spPoint)
     rightCond = Interval.Interval (Open spPoint) curUpper
@@ -378,41 +363,41 @@ splitFormula f lf (HPT.ContinuousSplit splitPF spPoint) = splitFormulaCommon f l
                                               (Interval.Interval Inf Inf)
                                               (GroundedAST.probabilisticFuncLabel splitPF)
                                               rConds
-    rConds = Formula.realConds $ Formula.entryChoices f
+    rConds = KB.realConds $ KB.entryChoices f
     GroundedAST.RealDist cdf _ = GroundedAST.probabilisticFuncDef splitPF
     pfLabel           = GroundedAST.probabilisticFuncLabel splitPF
-    addCond val conds = conds{Formula.realConds = Map.insert pfLabel val $ Formula.realConds conds}
+    addCond val conds = conds{KB.realConds = Map.insert pfLabel val $ KB.realConds conds}
 
-splitFormulaCommon :: RefWithNode
-                   -> Maybe HPT.LazyNode
-                   -> Probability
-                   -> (cond -> Formula.Conditions -> Formula.Conditions)
-                   -> cond
-                   -> cond
-                   -> FState (Formula.NodeRef, Maybe HPT.LazyNode, Formula.NodeRef, Maybe HPT.LazyNode, Probability)
-splitFormulaCommon f lf pLeft addCond leftCond rightCond = do
-    left  <- Formula.condition f $ addCond leftCond  Formula.noConditions
-    right <- Formula.condition f $ addCond rightCond Formula.noConditions
-    return ( Formula.entryRef left
+splitNodeCommon :: RefWithNode
+                -> Maybe HPT.LazyNode
+                -> Probability
+                -> (cond -> KB.Conditions -> KB.Conditions)
+                -> cond
+                -> cond
+                -> KBState (KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, Probability)
+splitNodeCommon f lf pLeft addCond leftCond rightCond = do
+    left  <- KB.condition f $ addCond leftCond  KB.noConditions
+    right <- KB.condition f $ addCond rightCond KB.noConditions
+    return ( KB.entryRef left
            , second (addCond leftCond)  <$> lf
-           , Formula.entryRef right
+           , KB.entryRef right
            , second (addCond rightCond) <$> lf
            , pLeft
            )
 
-addCondObj :: GroundedAST.PFunc a -> Formula.ObjCondition -> Formula.Conditions -> Formula.Conditions
-addCondObj pf val conds = conds{Formula.objConds = Map.insert pfLabel val $ Formula.objConds conds}
+addCondObj :: GroundedAST.PFunc a -> KB.ObjCondition -> KB.Conditions -> KB.Conditions
+addCondObj pf val conds = conds{KB.objConds = Map.insert pfLabel val $ KB.objConds conds}
     where
     pfLabel = GroundedAST.probabilisticFuncLabel pf
 
-heuristicsCacheComputations :: Formula.CacheComputations HPT.CachedSplitPoints
-heuristicsCacheComputations = Formula.CacheComputations
-    { Formula.cachedInfoComposed          = heuristicComposed
-    , Formula.cachedInfoBuildInPredBool   = heuristicBuildInPredBool
-    , Formula.cachedInfoBuildInPredString = heuristicBuildInPredString
-    , Formula.cachedInfoBuildInPredReal   = heuristicBuildInPredReal
-    , Formula.cachedInfoBuildInPredObject = heuristicBuildInPredObject
-    , Formula.cachedInfoDeterministic     = heuristicDeterministic
+heuristicsCacheComputations :: KB.CacheComputations HPT.CachedSplitPoints
+heuristicsCacheComputations = KB.CacheComputations
+    { KB.cachedInfoComposed          = heuristicComposed
+    , KB.cachedInfoBuildInPredBool   = heuristicBuildInPredBool
+    , KB.cachedInfoBuildInPredString = heuristicBuildInPredString
+    , KB.cachedInfoBuildInPredReal   = heuristicBuildInPredReal
+    , KB.cachedInfoBuildInPredObject = heuristicBuildInPredObject
+    , KB.cachedInfoDeterministic     = heuristicDeterministic
     }
 
 heuristicDeterministic :: Bool -> HPT.CachedSplitPoints
@@ -587,7 +572,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
                 GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
 
-heuristicBuildInPredObject :: Map GroundedAST.PFuncLabel Formula.ObjCondition
+heuristicBuildInPredObject :: Map GroundedAST.PFuncLabel KB.ObjCondition
                            -> GroundedAST.TypedBuildInPred GroundedAST.Object
                            -> HPT.CachedSplitPoints
 heuristicBuildInPredObject prevChoicesObjects prd = case prd of
@@ -693,13 +678,13 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
         corners :: GroundedAST.PFunc GroundedAST.Object -> (Integer, Integer, Set Integer)
         corners pf = case Map.lookup (GroundedAST.probabilisticFuncLabel pf) prevChoicesObjects of
             Nothing                             -> (0, lastObj, Set.empty)
-            Just (Formula.Object obj)           -> (obj, obj, Set.empty)
-            Just (Formula.AnyExcept excl)       -> ( head $ List.filter (\i -> not $ Set.member i excl) [0..lastObj]
+            Just (KB.Object obj)           -> (obj, obj, Set.empty)
+            Just (KB.AnyExcept excl)       -> ( head $ List.filter (\i -> not $ Set.member i excl) [0..lastObj]
                                                    , head $ List.filter (\i -> not $ Set.member i excl) $ reverse [0..lastObj]
                                                    , excl
                                                    )
-            Just (Formula.InInterval from upto) -> (from, upto, Set.empty)
-            Just (Formula.AnyExceptInInterval excl from upto) ->
+            Just (KB.InInterval from upto) -> (from, upto, Set.empty)
+            Just (KB.AnyExceptInInterval excl from upto) ->
                 ( head $ List.filter (\i -> not $ Set.member i excl) [from..upto]
                 , head $ List.filter (\i -> not $ Set.member i excl) $ reverse [from..upto]
                 , excl
@@ -725,17 +710,17 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
             appNTimes n _ _ | n < 0 = error "precondition"
             appNTimes n f x = appNTimes (n - 1) f $ f x
 
-heuristicComposed :: Formula.NodeType -> Int -> [HPT.CachedSplitPoints] -> HPT.CachedSplitPoints
+heuristicComposed :: KB.NodeType -> Int -> [HPT.CachedSplitPoints] -> HPT.CachedSplitPoints
 heuristicComposed op nPfs points = HPT.CachedSplitPoints
     proofsT
     proofsF
     (HPT.Composed $ composition points)
     where
     proofsT
-        | op == Formula.And = proofProduct allProofsT
+        | op == KB.And = proofProduct allProofsT
         | otherwise         = proofSum     allProofsT
     proofsF
-        | op == Formula.Or  = proofProduct allProofsF
+        | op == KB.Or  = proofProduct allProofsF
         | otherwise         = proofSum     allProofsF
     allProofsT = (\(HPT.CachedSplitPoints psT _ _) -> psT) <$> points
     allProofsF = (\(HPT.CachedSplitPoints _ psF _) -> psF) <$> points
@@ -757,13 +742,12 @@ heuristicComposed op nPfs points = HPT.CachedSplitPoints
             Set.empty
 
         combineProofs :: HPT.Proof -> HPT.Proof -> Maybe (Map HPT.SplitPoint HPT.Choice)
-        combineProofs (HPT.Proof x) (HPT.Proof y) = Map.foldWithKey addProofElement (Just x) y
+        combineProofs (HPT.Proof x) (HPT.Proof y) = foldl' addProofElement (Just x) $ Map.toList y
 
-        addProofElement :: HPT.SplitPoint
-                        -> HPT.Choice
+        addProofElement :: Maybe (Map HPT.SplitPoint HPT.Choice)
+                        -> (HPT.SplitPoint, HPT.Choice)
                         -> Maybe (Map HPT.SplitPoint HPT.Choice)
-                        -> Maybe (Map HPT.SplitPoint HPT.Choice)
-        addProofElement pt choice mbP = do
+        addProofElement mbP (pt, choice) = do
             p <- mbP
             -- TODO: this check of proof consistency is only correct for bools
             case Map.lookup pt p of

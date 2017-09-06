@@ -19,6 +19,11 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 800
+{-# LANGUAGE Strict #-}
+#endif
+
 module Exception
     ( doIO
     , returnExceptional
@@ -49,3 +54,4 @@ returnExceptional exc = ExceptionalT $ return exc
 
 exceptionalFromMaybe :: e -> Maybe a -> Exceptional e a
 exceptionalFromMaybe = fromMaybe
+

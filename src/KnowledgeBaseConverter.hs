@@ -24,12 +24,12 @@
 {-# LANGUAGE Strict #-}
 #endif
 
-module FormulaConverter ( convert
-                        ) where
+module KnowledgeBaseConverter
+    ( convert
+    ) where
 import GroundedAST (GroundedAST(..))
 import qualified GroundedAST
-import Formula (Formula)
-import qualified Formula
+import qualified KnowledgeBase as KB
 import Data.HashSet (Set)
 import qualified Data.HashSet as Set
 import Data.HashMap (Map)
@@ -41,67 +41,63 @@ import Util
 import IdNrMap (IdNrMap)
 import qualified IdNrMap
 
-type CState cachedInfo = StateT (IdNrMap Formula.PredicateLabel) (Formula.FState cachedInfo)
+type CState s cachedInfo = StateT (IdNrMap KB.PredicateLabel) (KB.KBState cachedInfo)
 
 convert :: GroundedAST
-        -> Formula.CacheComputations cachedInfo
-        -> ([(GroundedAST.RuleBodyElement, Formula.NodeRef)], [Formula.NodeRef], Formula cachedInfo, IdNrMap Formula.PredicateLabel)
-convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = evidence, GroundedAST.rules = rules} cachedInfoComps = (qs, ev, f, predIds)
+        -> KB.KBState cachedInfo (([(GroundedAST.RuleBodyElement, KB.NodeRef cachedInfo)], [KB.NodeRef cachedInfo]), IdNrMap KB.PredicateLabel)
+convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = evidence, GroundedAST.rules = rules} = runStateT
+    ( do groundedQueries  <- forM (Set.toList queries)  (\q -> (\entry -> (q, KB.entryRef entry)) <$> headFormula q Set.empty)
+         groundedEvidence <- forM (Set.toList evidence) (\e -> KB.entryRef <$> headFormula e Set.empty)
+         return (groundedQueries, groundedEvidence)
+    )
+    IdNrMap.empty
     where
-    (((qs, ev), predIds), f) = runState (
-        runStateT (do groundedQueries  <- forM (Set.toList queries)  (\q -> (\entry -> (q, Formula.entryRef entry)) <$> headFormula q Set.empty)
-                      groundedEvidence <- forM (Set.toList evidence) (\e -> Formula.entryRef <$> headFormula e Set.empty)
-                      return (groundedQueries, groundedEvidence)
-                  )
-                  IdNrMap.empty
-        )
-        (Formula.empty cachedInfoComps)
     headFormula :: GroundedAST.RuleBodyElement
                 -> Set GroundedAST.PredicateLabel
-                -> CState cachedInfo (Formula.RefWithNode cachedInfo)
+                -> CState s cachedInfo (KB.RefWithNode cachedInfo)
     headFormula (GroundedAST.UserPredicate label) excludedGoals = do
-            flabel <- Formula.uncondComposedLabel . Formula.PredicateId <$> state (IdNrMap.getIdNr plabel)
-            mbNodeId <- lift $ Formula.labelId flabel
+            flabel <- KB.uncondComposedLabel . KB.PredicateId <$> state (IdNrMap.getIdNr plabel)
+            mbNodeId <- lift $ KB.labelId flabel
             case mbNodeId of
                 Just nodeId -> do
-                    let nodeRef = Formula.refComposed nodeId
-                    lift $ Formula.augmentWithEntryRef nodeRef
+                    let nodeRef = KB.refComposed nodeId
+                    lift $ KB.augmentWithEntryRef nodeRef
                 _ -> do
                     (fBodies,_) <- foldM ruleFormulas ([], 0::Int) $ Set.toList $ Map.findWithDefault Set.empty label rules
-                    lift $ Formula.insert flabel True Formula.Or fBodies
+                    lift $ KB.insert flabel True KB.Or fBodies
             where
-            plabel         = Formula.PredicateLabel label excludedGoals' Nothing
+            plabel         = KB.PredicateLabel label excludedGoals' Nothing
             excludedGoals' = Set.intersection excludedGoals children
             children       = Map.findWithDefault (error "not in predChildren") label predChildren
 
-            ruleFormulas :: ([Formula.RefWithNode cachedInfo], Int)
+            ruleFormulas :: ([KB.RefWithNode cachedInfo], Int)
                          -> GroundedAST.RuleBody
-                         -> CState cachedInfo ([Formula.RefWithNode cachedInfo], Int)
+                         -> CState s cachedInfo ([KB.RefWithNode cachedInfo], Int)
             ruleFormulas (fBodies, counter) body = do
                 newChild <- bodyFormula counter body
                 return (newChild : fBodies, succ counter)
 
             bodyFormula :: Int
                         -> GroundedAST.RuleBody
-                        -> CState cachedInfo (Formula.RefWithNode cachedInfo)
+                        -> CState s cachedInfo (KB.RefWithNode cachedInfo)
             bodyFormula counter (GroundedAST.RuleBody elements)
                 | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] =
-                    lift $ Formula.augmentWithEntry $ Formula.refDeterministic False
+                    lift $ KB.augmentWithEntry $ KB.refDeterministic False
                 | otherwise = case Set.size elements of
-                        0 -> lift $ Formula.augmentWithEntry $ Formula.refDeterministic True
+                        0 -> lift $ KB.augmentWithEntry $ KB.refDeterministic True
                         1 -> headFormula (getFirst elements) excludedGoals''
                         _ -> do
                             fChildren <- foldlM (\fChildren el -> do newChild <- headFormula el excludedGoals''
                                                                      return $! newChild : fChildren
                                                 ) [] $ Set.toList elements
-                            let plabel' = Formula.PredicateLabel label excludedGoals' (Just counter)
-                            flabel <- Formula.uncondComposedLabel . Formula.PredicateId <$> state (IdNrMap.getIdNr plabel')
-                            lift $ Formula.insert flabel True Formula.And fChildren
+                            let plabel' = KB.PredicateLabel label excludedGoals' (Just counter)
+                            flabel <- KB.uncondComposedLabel . KB.PredicateId <$> state (IdNrMap.getIdNr plabel')
+                            lift $ KB.insert flabel True KB.And fChildren
                where
                excludedGoals''
                    | Set.member label children = Set.insert label excludedGoals'
                    | otherwise                 = excludedGoals'
-    headFormula (GroundedAST.BuildInPredicate bip) _ = lift $ Formula.augmentWithEntry $ Formula.refBuildInPredicate bip
+    headFormula (GroundedAST.BuildInPredicate bip) _ = lift $ KB.augmentWithEntry $ KB.refBuildInPredicate bip
 
     predChildren = execState
         (do forM_ [q | GroundedAST.UserPredicate q <- Set.toList queries]  (\q -> (\ref -> (q, ref)) <$> determinePredChildren q)

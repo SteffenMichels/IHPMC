@@ -23,7 +23,8 @@ module Integration (tests, IntegrationTest(..)) where
 import Distribution.TestSuite
 import qualified Parser
 import qualified Grounder
-import qualified FormulaConverter
+import qualified KnowledgeBaseConverter as KBConverter
+import qualified KnowledgeBase as KB
 import Exception
 import qualified IHPMC
 import Control.Monad.Exception.Synchronous
@@ -88,10 +89,11 @@ checkResults src expRes = do
             let query' = query strs2id
             res <- lift $ runExceptionalT $ do
                 let ast'' = ast'{AST.queries = [query']}
-                (groundedAst, _) <- returnExceptional $ mapException ((,Map.empty) . GrounderException) $ Grounder.ground ast''
-                let ([(_, qRef)], _, f, _) = FormulaConverter.convert groundedAst IHPMC.heuristicsCacheComputations
-                (_, _, bounds, _) <- mapExceptionT ((,Map.empty) . IOException) $ IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing) f
-                return bounds
+                (groundedAst, _) <- returnExceptional $ mapException ((, Map.empty) . GrounderException) $ Grounder.ground ast''
+                mapExceptionT ((, Map.empty) . IOException) $ KB.runKBState IHPMC.heuristicsCacheComputations $ do
+                    (([(_, qRef)], _), _) <- KBConverter.convert groundedAst
+                    (_, _, bounds) <-  IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing)
+                    return bounds
             return (query', isExp (mapException fst res) strs2id, res)
         return $ maybe Pass Fail $ LT.unpack . TB.toLazyText <$> foldl' (\mbErr res -> combineResults mbErr res ids2str) Nothing results
 

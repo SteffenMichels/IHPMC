@@ -40,7 +40,7 @@ module HPT
     , addLeaf
     , addLeafWithinEvidence
     ) where
-import qualified Formula
+import qualified KnowledgeBase as KB
 import Probability
 import qualified GroundedAST
 import Data.HashMap (Map)
@@ -58,8 +58,8 @@ type PQ = PQ.Set
 -- Hybrid Probability Tree
 data HPT = HPT (PQ HPTLeaf) ProbabilityQuadruple (Map HPTLeafFormulas Probability)
 data HPTLeaf = HPTLeaf HPTLeafFormulas Probability deriving Eq
-data HPTLeafFormulas = MaybeWithinEv LazyNode Formula.NodeRef Int
-                     | WithinEv      Formula.NodeRef Int
+data HPTLeafFormulas = MaybeWithinEv LazyNode (KB.NodeRef CachedSplitPoints) Int
+                     | WithinEv      (KB.NodeRef CachedSplitPoints) Int
                      deriving (Eq, Generic)
 instance Ord HPTLeafFormulas where
     compare WithinEv{} MaybeWithinEv{} = LT
@@ -77,7 +77,7 @@ instance Hashable HPTLeafFormulas where
     hashWithSalt salt (MaybeWithinEv _ _ h) = Hashable.hashWithSalt salt h
     hashWithSalt salt (WithinEv _ h)        = Hashable.hashWithSalt salt h
 
-type LazyNode = (Formula.NodeRef, Formula.Conditions)
+type LazyNode = (KB.NodeRef CachedSplitPoints, KB.Conditions)
 instance Ord HPTLeaf where
     HPTLeaf fx px <= HPTLeaf fy py
         | px == py  = fx <= fy
@@ -99,8 +99,8 @@ instance Hashable Proof
 data Choice = Left | Right deriving (Eq, Ord, Generic)
 instance Hashable Choice
 
-initialHPT :: Formula.NodeRef -> Formula.NodeRef -> Formula.FState CachedSplitPoints HPT
-initialHPT q e = addLeaf (q, Formula.noConditions) e 1.0 $ HPT PQ.empty (ProbabilityQuadruple 0.0 0.0 0.0 0.0) Map.empty
+initialHPT :: KB.NodeRef CachedSplitPoints -> KB.NodeRef CachedSplitPoints -> KB.KBState CachedSplitPoints HPT
+initialHPT q e = addLeaf (q, KB.noConditions) e 1.0 $ HPT PQ.empty (ProbabilityQuadruple 0.0 0.0 0.0 0.0) Map.empty
 
 nextLeaf :: HPT -> Maybe (HPTLeaf, HPT)
 nextLeaf (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case PQ.maxView leaves of
@@ -111,16 +111,16 @@ nextLeaf (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case PQ.maxView l
             MaybeWithinEv{} -> ProbabilityQuadruple t f e (u - p)
             WithinEv{}      -> ProbabilityQuadruple t f (e - p) u
 
-addLeaf :: LazyNode -> Formula.NodeRef -> Probability -> HPT -> Formula.FState CachedSplitPoints HPT
-addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case Formula.deterministicNodeRef ev of
+addLeaf :: LazyNode -> KB.NodeRef CachedSplitPoints -> Probability -> HPT -> KB.KBState CachedSplitPoints HPT
+addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case KB.deterministicNodeRef ev of
     Just True -> do
-        q'  <- Formula.augmentWithEntry q
-        q'' <- Formula.condition q' qConds
-        Formula.dereference q
-        addLeafWithinEvidence (Formula.entryRef q'') p hpt
+        q'  <- KB.augmentWithEntry q
+        q'' <- KB.condition q' qConds
+        KB.dereference q
+        addLeafWithinEvidence (KB.entryRef q'') p hpt
     Just False -> return hpt
     Nothing    -> do
-        when merged $ Formula.dereference q >> Formula.dereference ev
+        when merged $ KB.dereference q >> KB.dereference ev
         return $ HPT pq' (ProbabilityQuadruple t f e (u + p)) leafSet'
         where
         (pq', leafSet', merged) = insertIntoPQ
@@ -129,12 +129,12 @@ addLeaf qWithConds@(q, qConds) ev p hpt@(HPT leaves (ProbabilityQuadruple t f e 
             leaves
             leafSet
 
-addLeafWithinEvidence :: Formula.NodeRef -> Probability -> HPT -> Formula.FState CachedSplitPoints HPT
-addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case Formula.deterministicNodeRef q of
+addLeafWithinEvidence :: KB.NodeRef CachedSplitPoints -> Probability -> HPT -> KB.KBState CachedSplitPoints HPT
+addLeafWithinEvidence q p (HPT leaves (ProbabilityQuadruple t f e u) leafSet) = case KB.deterministicNodeRef q of
     Just True  -> return $ HPT leaves (ProbabilityQuadruple (t + p) f e u) leafSet
     Just False -> return $ HPT leaves (ProbabilityQuadruple t (f + p) e u) leafSet
     Nothing    -> do
-        when merged $ Formula.dereference q
+        when merged $ KB.dereference q
         return $ HPT pq' (ProbabilityQuadruple t f (e + p) u) leafSet'
         where
         (pq', leafSet', merged) = insertIntoPQ (WithinEv q $ Hashable.hash q) p leaves leafSet

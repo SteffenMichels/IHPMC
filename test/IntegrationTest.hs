@@ -84,8 +84,8 @@ nonGround expLabel expN expNPreds (Exception (Main.GrounderException (Grounder.N
 nonGround _ _ _ _ _                                                                                    = False
 
 nonGroundPfDef :: Exceptional Exception a -> Map Text Int -> Bool
-nonGroundPfDef (Exception (Main.GrounderException (Grounder.NonGroundPfDef{}))) _ = True
-nonGroundPfDef _                                                                _ = False
+nonGroundPfDef (Exception (Main.GrounderException Grounder.NonGroundPfDef{})) _ = True
+nonGroundPfDef _                                                              _ = False
 
 typeError :: Exceptional Exception a -> Map Text Int -> Bool
 typeError (Exception (Main.GrounderException (Grounder.TypeError _ _))) _ = True

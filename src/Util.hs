@@ -45,12 +45,13 @@ import TextShow
 import Data.Monoid ((<>))
 import Data.Hashable (Hashable)
 import qualified Data.Hashable as Hashable
+import Data.Foldable (foldl')
 
 instance Hashable a => Hashable (Set a) where
     hashWithSalt = Set.fold (flip Hashable.hashWithSalt)
 
 instance (Hashable a, Hashable b) => Hashable (Map a b) where
-    hashWithSalt = Map.foldWithKey (\k a s -> Hashable.hashWithSalt (Hashable.hashWithSalt s k) a)
+    hashWithSalt s m = foldl' (\s' (k, a) -> Hashable.hashWithSalt (Hashable.hashWithSalt s' k) a) s $ Map.toList m
 
 getFirst :: Set a -> a
 getFirst set = head $ Set.toList set

@@ -104,7 +104,7 @@ groundedAstToText ast ids2str ids2label = rulesStr <> queryStr <> evStr
     evStr        = mconcat ["evidence " <> ruleBodyElementToText ev    ids2str ids2label <> ".\n" | ev    <- Set.toList $ evidence ast]
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
-newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
+newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord, Show)
 predicateLabelToText :: PredicateLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 predicateLabelToText (PredicateLabel idNr) ids2str ids2label =
     AST.predicateLabelToText (AST.PredicateLabel label) ids2str <>
