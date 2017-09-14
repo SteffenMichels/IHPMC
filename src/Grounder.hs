@@ -435,12 +435,13 @@ toPropPredLabel (AST.PredicateLabel label) args =
                        in  (idNr, st{labelIdentifiers = lIdents})
               )
 
+-- TODO: doesn't have to be a monadic function
 toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GState GroundedAST.PFuncLabel
-toPropPFuncLabel (AST.PFuncLabel label) args =
-        GroundedAST.PFuncLabel
-    <$> state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
-                       in  (idNr, st{labelIdentifiers = lIdents})
-              )
+toPropPFuncLabel label{-(AST.PFuncLabel label)-} args = return $ GroundedAST.PFuncLabel label args
+    {-GroundedAST.PFuncLabel <$>
+    state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
+                   in  (idNr, st{labelIdentifiers = lIdents})
+          )-}
 
 -- precondition: no vars in expr
 -- throws exception if there are PFs in expressions

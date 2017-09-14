@@ -104,7 +104,7 @@ groundedAstToText ast ids2str ids2label = rulesStr <> queryStr <> evStr
     evStr        = mconcat ["evidence " <> ruleBodyElementToText ev    ids2str ids2label <> ".\n" | ev    <- Set.toList $ evidence ast]
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
-newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord, Show)
+newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
 predicateLabelToText :: PredicateLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 predicateLabelToText (PredicateLabel idNr) ids2str ids2label =
     AST.predicateLabelToText (AST.PredicateLabel label) ids2str <>
@@ -157,14 +157,15 @@ makePFuncObj label nr = PFunc label $ UniformObjDist nr
 makePFuncObjOther :: PFuncLabel -> PFunc Object -> PFunc Object
 makePFuncObjOther label other = PFunc label $ UniformOtherObjDist other
 
-newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
+-- keep argument information to be able to transform PFs as args of PFs
+data PFuncLabel = PFuncLabel AST.PFuncLabel [AST.ConstantExpr] deriving (Eq, Generic, Ord)
 pFuncLabelToText :: PFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
-pFuncLabelToText (PFuncLabel idNr) ids2str ids2label =
-    "~" <>
+pFuncLabelToText (PFuncLabel idNr _) ids2str ids2label = error "TODO"
+   {- "~" <>
     TB.fromText (Map.findWithDefault undefined label ids2str) <>
     if null args then "" else "(" <> showbLst args <> ")"
     where
-    (label, args) = Map.findWithDefault (0, []) idNr ids2label
+    (label, args) = Map.findWithDefault (0, []) idNr ids2label-}
 instance Hashable PFuncLabel
 
 newtype RuleBody = RuleBody (Set RuleBodyElement) deriving (Eq, Generic, Ord)
