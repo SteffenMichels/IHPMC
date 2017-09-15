@@ -22,8 +22,8 @@
 module Main (main, Exception(..), exceptionToText) where
 import System.Environment (getArgs)
 import qualified Parser
-import qualified AstPreprocessor
-import qualified Grounder
+import qualified GrounderPhase1
+import qualified GrounderPhase2
 import qualified KnowledgeBaseConverter as KBConverter
 import qualified GroundedAST
 import Exception
@@ -46,7 +46,7 @@ import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))
 import Data.Text (Text)
 
-data Exception = GrounderException        Grounder.Exception
+data Exception = GrounderException        GrounderPhase1.Exception
                | ParameterException       Builder
                | CommandLineArgsException Builder
                | ParserException          Parser.Exception
@@ -54,7 +54,7 @@ data Exception = GrounderException        Grounder.Exception
                | TestException            Builder
 
 exceptionToText :: Exception -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
-exceptionToText (GrounderException e)        ids2str ids2label = "Invalid model: " <> Grounder.exceptionToText e ids2str ids2label
+exceptionToText (GrounderException e)        ids2str ids2label = "Invalid model: " <> GrounderPhase1.exceptionToText e ids2str ids2label
 exceptionToText (ParameterException e)       _       _         = "Invalid parameter: " <> e
 exceptionToText (CommandLineArgsException e) _       _         = e
 exceptionToText (ParserException e)          _       _         = "Invalid model syntax: " <> showb e
@@ -87,10 +87,10 @@ main' = do
     printIfSet (\t -> "Stopping after " <> showb t <> "ms.") timeout
     src <- doIOException $ readFile modelFile
     (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
-    let (ast', identIds') = AstPreprocessor.substitutePfsWithPfArgs ast identIds
-    let ids2str = IdNrMap.fromIdNrMap identIds'
-    (groundedAst, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ Grounder.ground ast'
+    let ids2str = IdNrMap.fromIdNrMap identIds
+    (groundedAst1, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ GrounderPhase1.ground ast
     let ids2label = IdNrMap.fromIdNrMap labelIds
+    let groundedAst = GrounderPhase2.substitutePfsWithPfArgs groundedAst1
     mapExceptionT ((,Map.empty, Map.empty) . IOException) $ KB.runKBState IHPMC.heuristicsCacheComputations $ do
         ((queries, evidence), predIds) <- KBConverter.convert groundedAst
         let ids2predlbl = IdNrMap.fromIdNrMap predIds
@@ -111,7 +111,7 @@ main' = do
                   when (isJust repInterval) $ lift $ doIO $ putStrLn ""
             )
     where
-    printResult :: GroundedAST.RuleBodyElement
+    printResult :: GroundedAST.RuleBodyElementPhase2
                 -> Int
                 -> Int
                 -> Maybe ProbabilityBounds

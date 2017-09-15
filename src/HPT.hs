@@ -54,6 +54,7 @@ import Data.HashSet (Set)
 import Control.Monad (when)
 
 type PQ = PQ.Set
+type PFunc a = GroundedAST.PFuncPhase2 a
 
 -- Hybrid Probability Tree
 data HPT = HPT (PQ HPTLeaf) ProbabilityQuadruple (Map HPTLeafFormulas Probability)
@@ -86,11 +87,11 @@ instance Ord HPTLeaf where
 -- CachedSplitPoints "true proofs" "false proofs" "all point [+ scores]"
 data CachedSplitPoints = CachedSplitPoints (Set Proof) (Set Proof) FNodeType
 data FNodeType = Primitive (Set SplitPoint) | Composed (Map SplitPoint Int)
-data SplitPoint = BoolSplit         (GroundedAST.PFunc Bool)
-                | StringSplit       (GroundedAST.PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
-                | ContinuousSplit   (GroundedAST.PFunc GroundedAST.RealN)  Rational
-                | ObjectSplit       (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object, right branch: excluding this object
-                | ObjectIntervSplit (GroundedAST.PFunc GroundedAST.Object) Integer    -- left branch: including this object
+data SplitPoint = BoolSplit         (PFunc Bool)
+                | StringSplit       (PFunc Text)               (Set Text) -- left branch: all string in this set, right branch: all remaining strings
+                | ContinuousSplit   (PFunc GroundedAST.RealN)  Rational
+                | ObjectSplit       (PFunc GroundedAST.Object) Integer    -- left branch: including this object, right branch: excluding this object
+                | ObjectIntervSplit (PFunc GroundedAST.Object) Integer    -- left branch: including this object
                 deriving (Eq, Generic, Ord)
 instance Hashable SplitPoint
 

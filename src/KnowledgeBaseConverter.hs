@@ -27,7 +27,7 @@
 module KnowledgeBaseConverter
     ( convert
     ) where
-import GroundedAST (GroundedAST(..))
+import GroundedAST (GroundedAST(..), GroundedASTPhase2)
 import qualified GroundedAST
 import qualified KnowledgeBase as KB
 import Data.HashSet (Set)
@@ -42,9 +42,11 @@ import IdNrMap (IdNrMap)
 import qualified IdNrMap
 
 type CState s cachedInfo = StateT (IdNrMap KB.PredicateLabel) (KB.KBState cachedInfo)
+type RuleBodyElement = GroundedAST.RuleBodyElementPhase2
+type RuleBody = GroundedAST.RuleBodyPhase2
 
-convert :: GroundedAST
-        -> KB.KBState cachedInfo (([(GroundedAST.RuleBodyElement, KB.NodeRef cachedInfo)], [KB.NodeRef cachedInfo]), IdNrMap KB.PredicateLabel)
+convert :: GroundedASTPhase2
+        -> KB.KBState cachedInfo (([(RuleBodyElement, KB.NodeRef cachedInfo)], [KB.NodeRef cachedInfo]), IdNrMap KB.PredicateLabel)
 convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = evidence, GroundedAST.rules = rules} = runStateT
     ( do groundedQueries  <- forM (Set.toList queries)  (\q -> (\entry -> (q, KB.entryRef entry)) <$> headFormula q Set.empty)
          groundedEvidence <- forM (Set.toList evidence) (\e -> KB.entryRef <$> headFormula e Set.empty)
@@ -52,7 +54,7 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
     )
     IdNrMap.empty
     where
-    headFormula :: GroundedAST.RuleBodyElement
+    headFormula :: RuleBodyElement
                 -> Set GroundedAST.PredicateLabel
                 -> CState s cachedInfo (KB.RefWithNode cachedInfo)
     headFormula (GroundedAST.UserPredicate label) excludedGoals = do
@@ -71,14 +73,14 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
             children       = Map.findWithDefault (error "not in predChildren") label predChildren
 
             ruleFormulas :: ([KB.RefWithNode cachedInfo], Int)
-                         -> GroundedAST.RuleBody
+                         -> RuleBody
                          -> CState s cachedInfo ([KB.RefWithNode cachedInfo], Int)
             ruleFormulas (fBodies, counter) body = do
                 newChild <- bodyFormula counter body
                 return (newChild : fBodies, succ counter)
 
             bodyFormula :: Int
-                        -> GroundedAST.RuleBody
+                        -> RuleBody
                         -> CState s cachedInfo (KB.RefWithNode cachedInfo)
             bodyFormula counter (GroundedAST.RuleBody elements)
                 | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] =
@@ -159,3 +161,4 @@ convert GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = eviden
     directChildren :: GroundedAST.PredicateLabel -> Set GroundedAST.PredicateLabel
     directChildren goal = Set.unions [ Set.fromList [child | GroundedAST.UserPredicate child <- Set.toList elements]
                                      | GroundedAST.RuleBody elements <- Set.toList $ Map.findWithDefault Set.empty goal rules ]
+

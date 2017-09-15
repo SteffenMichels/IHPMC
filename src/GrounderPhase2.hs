@@ -19,7 +19,7 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-module AstPreprocessor
+module GrounderPhase2
     ( substitutePfsWithPfArgs
     ) where
 import AST (AST)
@@ -36,8 +36,12 @@ import Data.Monoid ((<>))
 import qualified Data.List as List
 import Data.Traversable (mapAccumR)
 import Data.Foldable (foldl')
+import qualified GroundedAST
 
-substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)
+substitutePfsWithPfArgs :: GroundedAST.GroundedASTPhase1 -> GroundedAST.GroundedASTPhase2
+substitutePfsWithPfArgs = undefined
+
+{-substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)
 substitutePfsWithPfArgs ast identIds = (ast', identIds')
     where
     (ast', identIds') = Map.foldWithKey addUsagePreds (ast2, identIds2) pfsWithPfArgsUsages
@@ -178,5 +182,5 @@ mapAccumAddRuleElemsPfs f acc ast = (acc', ast{AST.rules = rules})
     mapAccumAddRuleElemsPfs'''' (acc'', toAdd) (AST.PFunc label args) = ((acc''', toAdd ++ toAdd'), AST.PFunc label args')
         where
         (args', acc''', toAdd') = f acc'' ((label, length args), args)
-    mapAccumAddRuleElemsPfs'''' acc'' expr = (acc'', expr)
+    mapAccumAddRuleElemsPfs'''' acc'' expr = (acc'', expr)-}
 

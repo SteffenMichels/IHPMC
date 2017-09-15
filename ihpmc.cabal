@@ -30,7 +30,6 @@ executable ihpmc_float
                 OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
-        AstPreprocessor
         GroundedAST
         IdNrMap
         Options
@@ -40,7 +39,8 @@ executable ihpmc_float
         KnowledgeBaseConverter
         IHPMC
         AST
-        Grounder
+        GrounderPhase1
+        GrounderPhase2
         Interval
         Exception
         Probability
@@ -70,7 +70,6 @@ executable ihpmc_exact
                 OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
-        AstPreprocessor
         GroundedAST
         IdNrMap
         Options
@@ -80,7 +79,8 @@ executable ihpmc_exact
         KnowledgeBaseConverter
         IHPMC
         AST
-        Grounder
+        GrounderPhase1
+        GrounderPhase2
         Interval
         Exception
         Probability
@@ -115,7 +115,6 @@ test-suite integration
                 OverloadedStrings ParallelListComp
     hs-source-dirs: test src
     other-modules:
-        AstPreprocessor
         IdNrMap
         IntegrationExactProbabilities
         IntegrationPreprocessor
@@ -130,7 +129,8 @@ test-suite integration
         KnowledgeBaseConverter
         IHPMC
         AST
-        Grounder
+        GrounderPhase1
+        GrounderPhase2
         Interval
         Exception
         Probability
