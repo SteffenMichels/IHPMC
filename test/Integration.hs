@@ -22,7 +22,8 @@
 module Integration (tests, IntegrationTest(..)) where
 import Distribution.TestSuite
 import qualified Parser
-import qualified Grounder
+import qualified GrounderPhase1
+import qualified GrounderPhase2
 import qualified KnowledgeBaseConverter as KBConverter
 import qualified KnowledgeBase as KB
 import Exception
@@ -46,7 +47,6 @@ import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy as LT
 import Data.Monoid ((<>))
 import TextShow
-import qualified AstPreprocessor
 
 allTests :: [(String, [IntegrationTest])]
 allTests = [IntegrationGrounding.tests, IntegrationExactProbabilities.tests, IntegrationPreprocessor.tests]
@@ -80,16 +80,16 @@ checkResults src expRes = do
     checkResults' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO Result
     checkResults' = do
         (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
-        let (ast', identIds') = AstPreprocessor.substitutePfsWithPfArgs ast identIds
-        let ids2str = IdNrMap.fromIdNrMap identIds'
-        let strs2id = IdNrMap.toIdNrMap   identIds'
-        assertT (((,ids2str, Map.empty) . TestException) "No queries in source expected.") $ null $ AST.queries ast'
-        assertT (((,ids2str, Map.empty) . TestException) "No evidence expected.")          $ null $ AST.evidence ast'
+        let ids2str = IdNrMap.fromIdNrMap identIds
+        let strs2id = IdNrMap.toIdNrMap   identIds
+        assertT (((,ids2str, Map.empty) . TestException) "No queries in source expected.") $ null $ AST.queries ast
+        assertT (((,ids2str, Map.empty) . TestException) "No evidence expected.")          $ null $ AST.evidence ast
         results <- forM expRes $ \(query, isExp) -> do
             let query' = query strs2id
             res <- lift $ runExceptionalT $ do
-                let ast'' = ast'{AST.queries = [query']}
-                (groundedAst, _) <- returnExceptional $ mapException ((, Map.empty) . GrounderException) $ Grounder.ground ast''
+                let ast' = ast{AST.queries = [query']}
+                (groundedAst1, _) <- returnExceptional $ mapException ((, Map.empty) . GrounderException) $ GrounderPhase1.ground ast'
+                let groundedAst = GrounderPhase2.substitutePfsWithPfArgs groundedAst1
                 mapExceptionT ((, Map.empty) . IOException) $ KB.runKBState IHPMC.heuristicsCacheComputations $ do
                     (([(_, qRef)], _), _) <- KBConverter.convert groundedAst
                     (_, _, bounds) <-  IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing)
