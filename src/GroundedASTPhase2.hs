@@ -36,6 +36,7 @@ module GroundedASTPhase2 ( GroundedAST
                          , exprProbabilisticFunctions
                          , checkRealIneqPred
                          , pFuncLabelToText
+                         , ruleBodyElementToText
                          ) where
 import qualified GroundedAST
 import qualified AST
@@ -101,4 +102,7 @@ checkRealIneqPred op left right point = case op of
     eval (GroundedAST.PFuncExpr pf) point              = Map.findWithDefault (error "AST.checkRealIneqPred: no point") (GroundedAST.probabilisticFuncLabel pf) point
     eval (GroundedAST.ConstantExpr (GroundedAST.RealConstant r)) _ = Interval.rat2IntervLimPoint r
     eval (GroundedAST.Sum x y) point                   = eval x point + eval y point
+
+ruleBodyElementToText :: RuleBodyElement -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+ruleBodyElementToText = undefined
 

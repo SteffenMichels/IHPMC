@@ -25,7 +25,6 @@ import qualified Parser
 import qualified GrounderPhase1
 import qualified GrounderPhase2
 import qualified KnowledgeBaseConverter as KBConverter
-import qualified GroundedAST
 import qualified GroundedASTPhase2 as GAST2
 import Exception
 import qualified IHPMC
@@ -120,7 +119,7 @@ main' = do
                 -> Map Int (Int, [AST.ConstantExpr])
                 -> ExceptionalT IOException IO ()
     printResult qLabel n t mbBounds ids2str ids2label = doIO $ LTIO.putStrLn $ toLazyText $
-        GroundedAST.ruleBodyElementToText qLabel ids2str ids2label <>
+        GAST2.ruleBodyElementToText qLabel ids2str ids2label <>
         " (iteration " <> showb n <>
         ", after " <> showb t <> "ms): " <>
         case mbBounds of
