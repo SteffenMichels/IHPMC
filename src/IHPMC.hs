@@ -37,6 +37,7 @@ import qualified Data.HashSet as Set
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
 import qualified GroundedAST
+import qualified GroundedASTPhase2 as GAST
 import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~>), (~<))
 import qualified Interval
 import Data.Maybe (fromMaybe)
@@ -52,9 +53,6 @@ import Data.Ratio
 import Data.List (foldl1')
 
 type KBState = KB.KBState HPT.CachedSplitPoints
-type PFunc a = GroundedAST.PFuncPhase2 a
-type TypedBuildInPred a = GroundedAST.TypedBuildInPredPhase2 a
-type Expr a = GroundedAST.ExprPhase2 a
 
 -- | The actual IHPMC inference algorithm.
 -- Computes bounds on the probability of a query given evidence.
@@ -281,7 +279,7 @@ splitNode f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.proba
     KB.Conditions _ _ _ oConds = KB.entryChoices f
 splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
     GroundedAST.UniformObjDist _ -> splitObjNode $ 1 / nPossibilities
-    GroundedAST.UniformOtherObjDist otherPf -> case possibleValues otherPf oConds of
+    GroundedAST.UniformOtherObjDist otherPf -> let otherPf = undefined in case possibleValues otherPf oConds of
         KB.Object otherObj
             | otherObj == splitObj -> splitObjNode 0.0
             | otherwise -> splitObjNode $
@@ -319,15 +317,15 @@ splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilist
         KB.InInterval from upto               -> intToProb $ upto - from + 1
         KB.AnyExceptInInterval excl from upto -> intToProb $ upto - from + 1 - fromIntegral (Set.size excl)
 
-    nr :: PFunc GroundedAST.Object -> Integer
+    nr :: GAST.PFunc GroundedAST.Object -> Integer
     nr pf = case GroundedAST.probabilisticFuncDef pf of
         GroundedAST.UniformObjDist nr'          -> nr'
-        GroundedAST.UniformOtherObjDist otherPf -> nr otherPf
+        GroundedAST.UniformOtherObjDist otherPf -> nr undefined--otherPf
 
     KB.Conditions _ _ _ oConds = KB.entryChoices f
 
-    possibleValues :: PFunc GroundedAST.Object
-                   -> Map GroundedAST.PFuncLabel KB.ObjCondition
+    possibleValues :: GAST.PFunc GroundedAST.Object
+                   -> Map GAST.PFuncLabel KB.ObjCondition
                    -> KB.ObjCondition
     possibleValues pf = Map.findWithDefault
         (KB.AnyExcept Set.empty)
@@ -340,7 +338,7 @@ splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilist
         KB.InInterval from upto               -> from <= obj && obj <= upto
         KB.AnyExceptInInterval excl from upto -> from <= obj && obj <= upto && not (Set.member obj excl)
 
-    splitPfInPossibleValuesOf :: PFunc GroundedAST.Object -> Bool
+    splitPfInPossibleValuesOf :: GAST.PFunc GroundedAST.Object -> Bool
     splitPfInPossibleValuesOf pf = case possibleValues pf oConds of
         KB.Object _                           -> undefined
         KB.AnyExcept excl                     -> not $ Set.member splitObj excl
@@ -388,7 +386,7 @@ splitNodeCommon f lf pLeft addCond leftCond rightCond = do
            , pLeft
            )
 
-addCondObj :: PFunc a -> KB.ObjCondition -> KB.Conditions -> KB.Conditions
+addCondObj :: GAST.PFunc a -> KB.ObjCondition -> KB.Conditions -> KB.Conditions
 addCondObj pf val conds = conds{KB.objConds = Map.insert pfLabel val $ KB.objConds conds}
     where
     pfLabel = GroundedAST.probabilisticFuncLabel pf
@@ -406,7 +404,7 @@ heuristicsCacheComputations = KB.CacheComputations
 heuristicDeterministic :: Bool -> HPT.CachedSplitPoints
 heuristicDeterministic = const $ HPT.CachedSplitPoints Set.empty Set.empty $ HPT.Primitive Set.empty
 
-heuristicBuildInPredBool :: TypedBuildInPred Bool -> HPT.CachedSplitPoints
+heuristicBuildInPredBool :: GAST.TypedBuildInPred Bool -> HPT.CachedSplitPoints
 heuristicBuildInPredBool prd = HPT.CachedSplitPoints
     proofsT
     proofsF
@@ -446,10 +444,10 @@ heuristicBuildInPredBool prd = HPT.CachedSplitPoints
         , Set.singleton $ HPT.Proof $ Map.singleton (HPT.BoolSplit pf) $ if eq == cnst then HPT.Right else HPT.Left
         )
 
-    pFuncs = GroundedAST.predProbabilisticFunctions prd
+    pFuncs = GAST.predProbabilisticFunctions prd
 
-heuristicBuildInPredString :: Map GroundedAST.PFuncLabel (Set Text)
-                           -> TypedBuildInPred Text
+heuristicBuildInPredString :: Map GAST.PFuncLabel (Set Text)
+                           -> GAST.TypedBuildInPred Text
                            -> HPT.CachedSplitPoints
 heuristicBuildInPredString _ prd = case prd of
     GroundedAST.Equality eq (GroundedAST.PFuncExpr pf)      (GroundedAST.ConstantExpr cnst) -> splitPointsStringPfConst eq pf cnst
@@ -457,7 +455,7 @@ heuristicBuildInPredString _ prd = case prd of
     GroundedAST.Equality _ (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)      -> splitPointsStringPfs pfX pfY
     _                                                                                       -> undefined
     where
-    splitPointsStringPfConst :: Bool -> PFunc Text -> GroundedAST.ConstantExpr Text -> HPT.CachedSplitPoints
+    splitPointsStringPfConst :: Bool -> GAST.PFunc Text -> GroundedAST.ConstantExpr Text -> HPT.CachedSplitPoints
     splitPointsStringPfConst eq pf (GroundedAST.StrConstant cnst) = HPT.CachedSplitPoints
         (Set.singleton $ HPT.Proof $ Map.singleton splitPt $ if eq then HPT.Left else HPT.Right)
         (Set.singleton $ HPT.Proof $ Map.singleton splitPt $ if eq then HPT.Right else HPT.Left)
@@ -466,8 +464,8 @@ heuristicBuildInPredString _ prd = case prd of
         splitPt = HPT.StringSplit pf $ Set.singleton cnst
     splitPointsStringPfs _ _ = error "equality between two string-valued PFs not implemented"
 
-heuristicBuildInPredReal :: Map GroundedAST.PFuncLabel Interval
-                         -> TypedBuildInPred GroundedAST.RealN
+heuristicBuildInPredReal :: Map GAST.PFuncLabel Interval
+                         -> GAST.TypedBuildInPred GroundedAST.RealN
                          -> HPT.CachedSplitPoints
 heuristicBuildInPredReal prevChoicesReal prd = case prd of
     GroundedAST.Equality{}          -> error "IHPMC: real equality not implemented"
@@ -483,7 +481,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
         proofsF = keepOnlyMinimal proofsF'
 
         -- per PF only keep solutions requiring the minimal number of splits
-        keepOnlyMinimal :: [([PFunc GroundedAST.RealN], [HPT.Proof])] -> Set HPT.Proof
+        keepOnlyMinimal :: [([GAST.PFunc GroundedAST.RealN], [HPT.Proof])] -> Set HPT.Proof
         keepOnlyMinimal proofs = snd $ foldl'
             ( \(nSols, proofs') (pfs, proofs'') ->
                   let nPfs' = length pfs
@@ -499,7 +497,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
             ([], [])
             [(pfSubset,) $ findProofs pfSubset | pfSubset <- List.subsequences $ Set.toList predPfs, not $ null pfSubset]
 
-        findProofs :: [PFunc GroundedAST.RealN] -> ([HPT.Proof], [HPT.Proof])
+        findProofs :: [GAST.PFunc GroundedAST.RealN] -> ([HPT.Proof], [HPT.Proof])
         findProofs pfs = (proofs True, proofs False)
             where
             -- TODO: does filter 'insideCurrentSpace' prevent wrong proofs here?
@@ -512,7 +510,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 | corner <- remRfsCorners
                 ]
 
-            spPoint :: PFunc GroundedAST.RealN -> Map (PFunc GroundedAST.RealN) Rational -> (Rational, Bool)
+            spPoint :: GAST.PFunc GroundedAST.RealN -> Map (GAST.PFunc GroundedAST.RealN) Rational -> (Rational, Bool)
             spPoint pf remRfsCornerPts = ( ( (fromIntegral nPfs' - 1.0) * equalSplit pf +
                                              (if pfOnLeft then 1.0 else -1.0) * (sumExpr exprY evalVals - sumExpr exprX evalVals)
                                            )
@@ -521,10 +519,10 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                                          )
                 where
                 evalVals = Map.union remRfsCornerPts equalSplits
-                pfOnLeft = Set.member pf $ GroundedAST.exprProbabilisticFunctions exprX
+                pfOnLeft = Set.member pf $ GAST.exprProbabilisticFunctions exprX
                 equalSplit pf' = Map.findWithDefault (error "IHPMC.spPoint") pf' equalSplits
 
-                sumExpr :: Expr GroundedAST.RealN -> Map.Map (PFunc GroundedAST.RealN) Rational-> Rational
+                sumExpr :: GAST.Expr GroundedAST.RealN -> Map.Map (GAST.PFunc GroundedAST.RealN) Rational-> Rational
                 sumExpr (GroundedAST.ConstantExpr (GroundedAST.RealConstant c)) _ = c
                 sumExpr (GroundedAST.PFuncExpr pf') vals
                     | pf' == pf = 0
@@ -532,7 +530,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 sumExpr (GroundedAST.Sum x y) vals = sumExpr x vals + sumExpr y vals
 
             -- coners of all PFs not in current subset
-            remRfsCorners :: [Map (PFunc GroundedAST.RealN) Rational]
+            remRfsCorners :: [Map (GAST.PFunc GroundedAST.RealN) Rational]
             remRfsCorners = Set.fold
                 (\pf corners -> let Interval.Interval l u = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
                                     mbX                   = Interval.pointRational (Interval.toPoint Lower l)
@@ -557,7 +555,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
 
             nPfs' = length pfs
 
-        predPfs = GroundedAST.predProbabilisticFunctions prd
+        predPfs = GAST.predProbabilisticFunctions prd
         nPfs = Set.size predPfs
         opIsLt = case op of
             GroundedAST.Lt   -> True
@@ -565,7 +563,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
             GroundedAST.Gt   -> False
             GroundedAST.GtEq -> False
 
-        equalSplits :: Map (PFunc GroundedAST.RealN) Rational
+        equalSplits :: Map (GAST.PFunc GroundedAST.RealN) Rational
         equalSplits = Map.fromList [(pf,equalSplit pf) | pf <- Set.toList predPfs]
             where
             equalSplit pf = icdf ((pUntilLower + pUntilUpper) / 2.0)
@@ -575,8 +573,8 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
                 GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
 
-heuristicBuildInPredObject :: Map GroundedAST.PFuncLabel KB.ObjCondition
-                           -> TypedBuildInPred GroundedAST.Object
+heuristicBuildInPredObject :: Map GAST.PFuncLabel KB.ObjCondition
+                           -> GAST.TypedBuildInPred GroundedAST.Object
                            -> HPT.CachedSplitPoints
 heuristicBuildInPredObject prevChoicesObjects prd = case prd of
     GroundedAST.Equality eq (GroundedAST.PFuncExpr pf)      (GroundedAST.ConstantExpr cnst) -> splitPointsObjPfConst eq pf cnst
@@ -585,7 +583,7 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
     _                                                                                       -> undefined
     where
     splitPointsObjPfConst :: Bool
-                          -> PFunc GroundedAST.Object
+                          -> GAST.PFunc GroundedAST.Object
                           -> GroundedAST.ConstantExpr GroundedAST.Object
                           -> HPT.CachedSplitPoints
     splitPointsObjPfConst eq pf (GroundedAST.ObjConstant cnst) = HPT.CachedSplitPoints
@@ -596,8 +594,8 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
         splitPt = HPT.ObjectSplit pf cnst
 
     splitPointsObjPfs :: Bool
-                      -> PFunc GroundedAST.Object
-                      -> PFunc GroundedAST.Object
+                      -> GAST.PFunc GroundedAST.Object
+                      -> GAST.PFunc GroundedAST.Object
                       -> HPT.CachedSplitPoints
     splitPointsObjPfs eq pfX pfY = HPT.CachedSplitPoints
         proofsT
@@ -678,7 +676,7 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
             (from, upto, _) = corners pf
         validSplitPoint _ = undefined
 
-        corners :: PFunc GroundedAST.Object -> (Integer, Integer, Set Integer)
+        corners :: GAST.PFunc GroundedAST.Object -> (Integer, Integer, Set Integer)
         corners pf = case Map.lookup (GroundedAST.probabilisticFuncLabel pf) prevChoicesObjects of
             Nothing                             -> (0, lastObj, Set.empty)
             Just (KB.Object obj)           -> (obj, obj, Set.empty)
@@ -695,7 +693,7 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
             where
             lastObj = GroundedAST.objectPfNrObjects pf - 1
 
-        equalSplit :: PFunc GroundedAST.Object -> Integer
+        equalSplit :: GAST.PFunc GroundedAST.Object -> Integer
         equalSplit pf = appNTimes (nObjects `div` 2 - 1) increment lCorner
             where
             (lCorner, uCorner, excl) = corners pf

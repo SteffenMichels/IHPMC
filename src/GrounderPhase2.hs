@@ -37,8 +37,10 @@ import qualified Data.List as List
 import Data.Traversable (mapAccumR)
 import Data.Foldable (foldl')
 import qualified GroundedAST
+import qualified GroundedASTPhase1 as GAST1
+import qualified GroundedASTPhase2 as GAST2
 
-substitutePfsWithPfArgs :: GroundedAST.GroundedASTPhase1 -> GroundedAST.GroundedASTPhase2
+substitutePfsWithPfArgs :: GAST1.GroundedAST-> GAST2.GroundedAST
 substitutePfsWithPfArgs = undefined
 
 {-substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)

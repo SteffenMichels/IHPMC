@@ -26,6 +26,7 @@ import qualified GrounderPhase1
 import qualified GrounderPhase2
 import qualified KnowledgeBaseConverter as KBConverter
 import qualified GroundedAST
+import qualified GroundedASTPhase2 as GAST2
 import Exception
 import qualified IHPMC
 import Options (Options(..))
@@ -111,7 +112,7 @@ main' = do
                   when (isJust repInterval) $ lift $ doIO $ putStrLn ""
             )
     where
-    printResult :: GroundedAST.RuleBodyElementPhase2
+    printResult :: GAST2.RuleBodyElement
                 -> Int
                 -> Int
                 -> Maybe ProbabilityBounds

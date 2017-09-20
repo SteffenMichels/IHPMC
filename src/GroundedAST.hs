@@ -25,17 +25,9 @@
 #endif
 
 module GroundedAST ( GroundedAST(..)
-                   , GroundedASTPhase1
-                   , GroundedASTPhase2
                    , BuildInPredicate(..)
-                   , BuildInPredicatePhase1
-                   , BuildInPredicatePhase2
                    , TypedBuildInPred(..)
-                   , TypedBuildInPredPhase1
-                   , TypedBuildInPredPhase2
-                   , PFuncLabel(..)
                    , PFunc
-                   , PFuncPhase2
                    , probabilisticFuncLabel
                    , probabilisticFuncDef
                    , objectPfNrObjects
@@ -45,8 +37,6 @@ module GroundedAST ( GroundedAST(..)
                    , makePFuncObj
                    , makePFuncObjOther
                    , Expr(..)
-                   , ExprPhase1
-                   , ExprPhase2
                    , PredicateLabel(..)
                    , ConstantExpr(..)
                    , PFuncDef(..)
@@ -57,25 +47,17 @@ module GroundedAST ( GroundedAST(..)
                    , Object
                    , Placeholder
                    , RuleBody(..)
-                   , RuleBodyPhase1
-                   , RuleBodyPhase2
                    , RuleBodyElement(..)
-                   , RuleBodyElementPhase1
-                   , RuleBodyElementPhase2
                    , negatePred
-                   , predProbabilisticFunctions
-                   , exprProbabilisticFunctions
                    , deterministicValue
                    , deterministicValueTyped
                    , possibleValuesStr
-                   , checkRealIneqPred
                    , simplifiedBuildInPred
                    , simplifiedExpr
                    , groundedAstToText
                    , exprToText
                    , typedBuildInPredToText
                    , pFuncToText
-                   , pFuncLabelToText
                    , ruleBodyElementToText
                    , predicateLabelToText
                    ) where
@@ -100,8 +82,6 @@ import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy as LT
 
 -- use sets here to avoid duplicate elements
-type GroundedASTPhase1 = GroundedAST (AST.PFuncLabel, [AST.ConstantExpr])
-type GroundedASTPhase2 = GroundedAST PFuncLabel
 data GroundedAST pFuncLabel = GroundedAST
     { rules     :: Map PredicateLabel (Set (RuleBody pFuncLabel))
     , queries   :: Set (RuleBodyElement pFuncLabel)
@@ -128,8 +108,6 @@ predicateLabelToText (PredicateLabel idNr) ids2str ids2label =
 instance Hashable PredicateLabel
 
 data PFunc pFuncLabel a = PFunc pFuncLabel (PFuncDef a)
-type PFuncPhase1 = PFunc (AST.PFuncLabel, [AST.ConstantExpr])
-type PFuncPhase2 = PFunc PFuncLabel
 -- there should never be more than one PF with the same label, so compare/hash only label and ignore definition
 instance Eq pFuncLabel => Eq (PFunc pFuncLabel a) where
     PFunc x _ == PFunc y _ = x == y
@@ -146,12 +124,12 @@ data PFuncDef a where
     RealDist            :: (Rational -> Probability) -> (Probability -> Rational) -> PFuncDef GroundedAST.RealN
     StrDist             :: [(Probability, Text)]                                  -> PFuncDef Text
     UniformObjDist      :: Integer                                                -> PFuncDef Object
-    UniformOtherObjDist :: PFuncPhase2 Object                                     -> PFuncDef Object
+    UniformOtherObjDist :: Int{-PFuncPhase2 Object-}                                     -> PFuncDef Object
 
 objectPfNrObjects :: PFunc pFuncLabel Object -> Integer
 objectPfNrObjects pf = case GroundedAST.probabilisticFuncDef pf of
     GroundedAST.UniformObjDist n        -> n
-    GroundedAST.UniformOtherObjDist pf' -> objectPfNrObjects pf'
+    GroundedAST.UniformOtherObjDist pf' -> undefined--objectPfNrObjects pf'
 
 probabilisticFuncLabel :: PFunc pFuncLabel a -> pFuncLabel
 probabilisticFuncLabel (PFunc label _) = label
@@ -171,22 +149,9 @@ makePFuncString label dist = PFunc label $ StrDist dist
 makePFuncObj :: pFuncLabel -> Integer -> PFunc pFuncLabel Object
 makePFuncObj label nr = PFunc label $ UniformObjDist nr
 
-makePFuncObjOther :: pFuncLabel -> PFuncPhase1 Object -> PFunc pFuncLabel Object
-makePFuncObjOther label other = PFunc label $ UniformOtherObjDist undefined--other
+makePFuncObjOther :: pFuncLabel -> a{-PFuncPhase1 Object-} -> PFunc pFuncLabel Object
+makePFuncObjOther label other = PFunc undefined{-label-} $ UniformOtherObjDist undefined--other
 
--- keep argument information to be able to transform PFs as args of PFs
-newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
-pFuncLabelToText :: PFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
-pFuncLabelToText (PFuncLabel idNr) ids2str ids2label =
-    "~" <>
-    TB.fromText (Map.findWithDefault undefined label ids2str) <>
-    if null args then "" else "(" <> showbLst args <> ")"
-    where
-    (label, args) = Map.findWithDefault (0, []) idNr ids2label
-instance Hashable PFuncLabel
-
-type RuleBodyPhase1 = RuleBody (AST.PFuncLabel, [AST.ConstantExpr])
-type RuleBodyPhase2 = RuleBody PFuncLabel
 newtype RuleBody pFuncLabel = RuleBody (Set (RuleBodyElement pFuncLabel)) deriving (Eq, Generic, Ord)
 
 ruleBodyToText :: RuleBody pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
@@ -194,8 +159,6 @@ ruleBodyToText (RuleBody elements) ids2str ids2label = ""
     --toTextLst (Set.toList elements) (\x -> ruleBodyElementToText x ids2str ids2label)
 instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (RuleBody pFuncLabel)
 
-type RuleBodyElementPhase1 = RuleBodyElement (AST.PFuncLabel, [AST.ConstantExpr])
-type RuleBodyElementPhase2 = RuleBodyElement PFuncLabel
 data RuleBodyElement pFuncLabel = UserPredicate    PredicateLabel
                                 | BuildInPredicate (BuildInPredicate pFuncLabel)
                                 deriving (Eq, Generic, Ord)
@@ -205,8 +168,6 @@ ruleBodyElementToText (UserPredicate label)  ids2str ids2label = ""--predicateLa
 ruleBodyElementToText (BuildInPredicate prd) ids2str ids2label = ""--buildInPredToText    prd   ids2str ids2label
 instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (RuleBodyElement pFuncLabel)
 
-type BuildInPredicatePhase1 = BuildInPredicate (AST.PFuncLabel, [AST.ConstantExpr])
-type BuildInPredicatePhase2 = BuildInPredicate PFuncLabel
 data BuildInPredicate pFuncLabel = BuildInPredicateBool (TypedBuildInPred pFuncLabel Bool)
                                  | BuildInPredicateReal (TypedBuildInPred pFuncLabel RealN)
                                  | BuildInPredicateStr  (TypedBuildInPred pFuncLabel Text)
@@ -226,8 +187,6 @@ buildInPredToText (BuildInPredicateInt  i) = undefined--typedBuildInPredToText i
 buildInPredToText (BuildInPredicateObj  o) = undefined--typedBuildInPredToText o
 buildInPredToText (BuildInPredicatePh   p) = undefined--typedBuildInPredToText p
 
-type TypedBuildInPredPhase1 a = TypedBuildInPred (AST.PFuncLabel, [AST.ConstantExpr]) a
-type TypedBuildInPredPhase2 a = TypedBuildInPred PFuncLabel a
 data TypedBuildInPred pFuncLabel a
     where
     Equality ::           Bool       -> Expr pFuncLabel a -> Expr pFuncLabel a -> TypedBuildInPred pFuncLabel a
@@ -248,8 +207,6 @@ instance Hashable pFuncLabel => Hashable (TypedBuildInPred pFuncLabel a)
     hashWithSalt salt (Ineq     op exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt op) exprX) exprY
     hashWithSalt salt (Constant b)              = Hashable.hashWithSalt salt b
 
-type ExprPhase1 a = Expr (AST.PFuncLabel, [AST.ConstantExpr]) a
-type ExprPhase2 a = Expr PFuncLabel a
 data Expr pFuncLabel a
     where
     ConstantExpr ::               ConstantExpr a                         -> Expr pFuncLabel a
@@ -318,18 +275,6 @@ class Ineq a
 instance Ineq Integer
 instance Ineq RealN
 
-predProbabilisticFunctions :: TypedBuildInPredPhase2 a -> Set (PFuncPhase2 a)
-predProbabilisticFunctions (Equality _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
-predProbabilisticFunctions (Ineq     _ left right) = Set.union (exprProbabilisticFunctions left) (exprProbabilisticFunctions right)
-predProbabilisticFunctions (Constant _)            = Set.empty
-
-exprProbabilisticFunctions :: ExprPhase2 a -> Set (PFuncPhase2 a)
-exprProbabilisticFunctions (PFuncExpr pf) = case probabilisticFuncDef pf of
-    GroundedAST.UniformOtherObjDist otherPf -> Set.insert pf $ exprProbabilisticFunctions $ PFuncExpr otherPf
-    _                                       -> Set.singleton pf
-exprProbabilisticFunctions (ConstantExpr _) = Set.empty
-exprProbabilisticFunctions (Sum x y)        = Set.union (exprProbabilisticFunctions x) (exprProbabilisticFunctions y)
-
 negatePred :: TypedBuildInPred pFuncLabel a -> TypedBuildInPred pFuncLabel a
 negatePred (Equality eq exprX exprY) = Equality (not eq) exprX exprY
 negatePred (Ineq     op exprX exprY) = Ineq (AST.negateOp op) exprX exprY
@@ -361,25 +306,6 @@ possibleValuesStr (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
 possibleValuesStr (PFuncExpr (PFunc pfLabel (StrDist elements))) sConds =
     Map.findWithDefault (Set.fromList $ snd <$> elements) pfLabel sConds
 possibleValuesStr _ _ = undefined
-
-checkRealIneqPred :: AST.IneqOp
-                  -> ExprPhase2 RealN
-                  -> ExprPhase2 RealN
-                  -> Map PFuncLabel Interval.IntervalLimitPoint
-                  -> Maybe Bool -- result may be undetermined -> Nothing
-checkRealIneqPred op left right point = case op of
-    AST.Lt   -> evalLeft ~<  evalRight
-    AST.LtEq -> evalLeft ~<= evalRight
-    AST.Gt   -> evalLeft ~>  evalRight
-    AST.GtEq -> evalLeft ~>= evalRight
-    where
-    evalLeft  = eval left  point
-    evalRight = eval right point
-
-eval :: ExprPhase2 RealN -> Map PFuncLabel Interval.IntervalLimitPoint -> Interval.IntervalLimitPoint
-eval (PFuncExpr pf) point              = Map.findWithDefault (error "AST.checkRealIneqPred: no point") (probabilisticFuncLabel pf) point
-eval (ConstantExpr (RealConstant r)) _ = Interval.rat2IntervLimPoint r
-eval (Sum x y) point                   = eval x point + eval y point
 
 simplifiedBuildInPred :: BuildInPredicate pFuncLabel -> BuildInPredicate pFuncLabel
 simplifiedBuildInPred (BuildInPredicateBool prd) = BuildInPredicateBool $ simplifiedTypedBuildInPred prd

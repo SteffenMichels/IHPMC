@@ -26,7 +26,8 @@ module GrounderPhase1
     ) where
 import AST (AST)
 import qualified AST
-import GroundedAST (GroundedAST(..), GroundedASTPhase1)
+import GroundedAST (GroundedAST(..))
+import qualified GroundedASTPhase1 as GAST
 import qualified GroundedAST
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
@@ -51,12 +52,6 @@ import TextShow
 type PQ        = PQ.Set
 type GState    = StateT GroundingState (Exceptional Exception)
 data GoalDepth = Depth Integer | Infinite deriving Eq -- infininte = goal with cycle
-type RuleBody = GroundedAST.RuleBodyPhase1
-type Expr a = GroundedAST.ExprPhase1 a
-type RuleBodyElement = GroundedAST.RuleBodyElementPhase1
-type BuildInPredicate = GroundedAST.BuildInPredicatePhase1
-type TypedBuildInPred a = GroundedAST.TypedBuildInPredPhase1 a
-type PFuncLabel = (AST.PFuncLabel, [AST.ConstantExpr])
 
 instance Ord GoalDepth where
     _        <= Infinite = True
@@ -73,7 +68,7 @@ data Exception = NonGroundPreds        [AST.RuleBodyElement] AST.PredicateLabel 
                | UnsolvableConstraints [Constraint]
                | NonGroundQuery        AST.RuleBodyElement
                | NonGroundEvidence     AST.RuleBodyElement
-               | DefArgShouldBeObjPf   PFuncLabel PropExprWithType
+               | DefArgShouldBeObjPf   GAST.PFuncLabel PropExprWithType
 
 exceptionToText :: Exception -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 exceptionToText (NonGroundPreds prds headLabel headNArgs) ids2str _ =
@@ -143,11 +138,11 @@ constraintToText (EqConstraint exprX exprY) ids2str = AST.exprToText exprX ids2s
 instance Hashable Constraint
 
 data GroundingState = GroundingState
-    { groundedRules     :: Map GroundedAST.PredicateLabel [RuleBody]
-    , groundedRfDefs    :: Map PFuncLabel AST.PFuncDef
+    { groundedRules     :: Map GroundedAST.PredicateLabel [GAST.RuleBody]
+    , groundedRfDefs    :: Map GAST.PFuncLabel AST.PFuncDef
     , varCounter        :: Int
     -- keep non-ground rule body elements and ground elements as soon as all vars have a value
-    , rulesInProof      :: Map (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)]
+    , rulesInProof      :: Map (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)]
     -- rules for which is it unknown whether they had to be selected for the proof
     -- as soon as it is known that the rule should not have been selected, all children are pruned
     , rulesMaybeInProof :: [RuleMaybeInProof]
@@ -161,7 +156,7 @@ data RuleMaybeInProof = RuleMaybeInProof
     , label         :: AST.PredicateLabel
     , args          :: [AST.Expr]
     , nonGroundBody :: AST.RuleBody
-    , groundBody    :: RuleBody
+    , groundBody    :: GAST.RuleBody
     , ruleParents   :: Set GoalId
     }
 
@@ -170,7 +165,7 @@ instance Hashable GoalId
 
 -- | Converts an AST go a grounded AST.
 -- Additionally, produces ID numbers for each constant expression, ocurring in the grounding.
-ground :: AST -> Exceptional Exception (GroundedASTPhase1, IdNrMap (Int, [AST.ConstantExpr]))
+ground :: AST -> Exceptional Exception (GAST.GroundedAST, IdNrMap (Int, [AST.ConstantExpr]))
 ground ast = evalStateT
     (do
         (queries', evidence') <- computeResultState
@@ -197,7 +192,7 @@ ground ast = evalStateT
 
     -- | Computes a state which contains all ground rules.
     -- Returns all queries and evidence as grounded elements.
-    computeResultState :: GState (Set RuleBodyElement, Set RuleBodyElement)
+    computeResultState :: GState (Set GAST.RuleBodyElement, Set GAST.RuleBodyElement)
     computeResultState = do
         queries'  <- forM queries  $ toPropQueryEvidence NonGroundQuery
         evidence' <- forM evidence $ toPropQueryEvidence NonGroundEvidence
@@ -208,7 +203,7 @@ ground ast = evalStateT
             -- | Converts query or evidence elements into grounded elements.
             toPropQueryEvidence :: (AST.RuleBodyElement -> Exception) -- the exception in case the element is not ground
                                 -> AST.RuleBodyElement                -- query/evidence which should be ground
-                                -> GState RuleBodyElement
+                                -> GState GAST.RuleBodyElement
             toPropQueryEvidence exception x
                 | AST.varsInRuleBodyElement x = lift $ throw $ exception x
                 | otherwise                   = toPropRuleElement x pfDefs
@@ -405,24 +400,22 @@ addGroundings = do
     else
         lift $ throw $ UnsolvableConstraints $ Set.toList constrs
     where
-    checkAllElementsGrounded :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)])
-                             -> Exceptional Exception (AST.PredicateLabel, Int, [([AST.Expr], RuleBody)])
+    checkAllElementsGrounded :: ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)])
+                             -> Exceptional Exception (AST.PredicateLabel, Int, [([AST.Expr], GAST.RuleBody)])
     checkAllElementsGrounded ((label, nArgs), bodies) = do
         bodies' <- forM bodies checkAllElementsGrounded'
         return (label, nArgs, bodies')
         where
-        checkAllElementsGrounded' :: ([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)
-                                  -> Exceptional Exception ([AST.Expr], RuleBody)
+        checkAllElementsGrounded' :: ([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)
+                                  -> Exceptional Exception ([AST.Expr], GAST.RuleBody)
         checkAllElementsGrounded' (args, AST.RuleBody nonGroundBody, groundedBody, _)
             | null nonGroundBody = return (args, groundedBody)
             | otherwise          = throw $ NonGroundPreds nonGroundBody label nArgs
 
-    addGroundingsHead :: (AST.PredicateLabel, Int, [([AST.Expr], RuleBody)])
-                      -> GState ()
+    addGroundingsHead :: (AST.PredicateLabel, Int, [([AST.Expr], GAST.RuleBody)]) -> GState ()
     addGroundingsHead (label, _, bodies) = forM_ bodies addGroundingBody
         where
-        addGroundingBody :: ([AST.Expr], RuleBody)
-                         -> GState ()
+        addGroundingBody :: ([AST.Expr], GAST.RuleBody) -> GState ()
         addGroundingBody (args, groundedBody) = do
             args'  <- lift $ toPropArgs args
             pLabel <- toPropPredLabel label args'
@@ -442,7 +435,7 @@ toPropPredLabel (AST.PredicateLabel label) args =
               )
 
 -- TODO: doesn't have to be a monadic function
-toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GState PFuncLabel
+toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GState GAST.PFuncLabel
 toPropPFuncLabel label{-(AST.PFuncLabel label)-} args = return (label, args)
     {-GroundedAST.PFuncLabel <$>
     state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
@@ -485,19 +478,19 @@ toPropArg expr = do
 -- precondition: no vars left in rule element
 toPropRuleElement :: AST.RuleBodyElement
                   -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
-                  -> GState RuleBodyElement
+                  -> GState GAST.RuleBodyElement
 toPropRuleElement (AST.UserPredicate label args) _ = do
     args'  <- lift $ toPropArgs args
     pLabel <- toPropPredLabel label args'
     return $ GroundedAST.UserPredicate pLabel
 toPropRuleElement (AST.BuildInPredicate bip) pfDefs = GroundedAST.BuildInPredicate <$> toPropBuildInPred bip pfDefs
 
-data PropExprWithType = ExprBool (Expr Bool)
-                      | ExprReal (Expr GroundedAST.RealN)
-                      | ExprStr  (Expr Text)
-                      | ExprInt  (Expr Integer)
-                      | ExprObj  (Expr GroundedAST.Object)
-                      | ExprPh   (Expr GroundedAST.Placeholder)
+data PropExprWithType = ExprBool (GAST.Expr Bool)
+                      | ExprReal (GAST.Expr GroundedAST.RealN)
+                      | ExprStr  (GAST.Expr Text)
+                      | ExprInt  (GAST.Expr Integer)
+                      | ExprObj  (GAST.Expr GroundedAST.Object)
+                      | ExprPh   (GAST.Expr GroundedAST.Placeholder)
 
 propExprWithTypeToText :: PropExprWithType -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " <> typeStr <> ")"
@@ -510,7 +503,7 @@ propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " 
         ExprObj  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Object")
         ExprPh   expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Placeholder")
 
-mapPropExprWithType :: (forall a. Expr a -> Expr a) -> PropExprWithType -> PropExprWithType
+mapPropExprWithType :: (forall a. GAST.Expr a -> GAST.Expr a) -> PropExprWithType -> PropExprWithType
 mapPropExprWithType f (ExprBool expr) = ExprBool $ f expr
 mapPropExprWithType f (ExprReal expr) = ExprReal $ f expr
 mapPropExprWithType f (ExprStr  expr) = ExprStr  $ f expr
@@ -521,15 +514,15 @@ mapPropExprWithType f (ExprPh   expr) = ExprPh   $ f expr
 -- precondition: no vars left in 'bip'
 toPropBuildInPred :: AST.BuildInPredicate
                   -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
-                  -> GState BuildInPredicate
+                  -> GState GAST.BuildInPredicate
 toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
     AST.Equality eq exprX exprY -> toPropBuildInPred'     (GroundedAST.Equality eq) exprX exprY
     AST.Ineq     op exprX exprY -> toPropBuildInPredIneq' (GroundedAST.Ineq     op) exprX exprY
     where
-    toPropBuildInPred' :: (forall a. Expr a -> Expr a -> TypedBuildInPred a)
+    toPropBuildInPred' :: (forall a. GAST.Expr a -> GAST.Expr a -> GAST.TypedBuildInPred a)
                        -> AST.Expr
                        -> AST.Expr
-                       -> GState BuildInPredicate
+                       -> GState GAST.BuildInPredicate
     toPropBuildInPred' bipConstructor exprX exprY = do
         exprX' <- toPropExpr exprX pfDefs
         exprY' <- toPropExpr exprY pfDefs
@@ -542,10 +535,10 @@ toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
             (ExprPh   exprX'', ExprPh   exprY'') -> return $ GroundedAST.BuildInPredicatePh   $ bipConstructor exprX'' exprY''
             _                                    -> lift $ throw $ TypeError exprX' exprY'
 
-    toPropBuildInPredIneq' :: (forall a. GroundedAST.Ineq a => Expr a -> Expr a -> TypedBuildInPred a)
+    toPropBuildInPredIneq' :: (forall a. GroundedAST.Ineq a => GAST.Expr a -> GAST.Expr a -> GAST.TypedBuildInPred a)
                            -> AST.Expr
                            -> AST.Expr
-                           -> GState BuildInPredicate
+                           -> GState GAST.BuildInPredicate
     toPropBuildInPredIneq' bipConstructor exprX exprY = do
         exprX' <- toPropExpr exprX pfDefs
         exprY' <- toPropExpr exprY pfDefs
@@ -602,7 +595,7 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 valu' = Map.map AST.ConstantExpr valu
     AST.Sum exprX exprY -> toPropExprPairAdd GroundedAST.Sum exprX exprY
         where
-        toPropExprPairAdd :: (forall a. GroundedAST.Addition a => Expr a -> Expr a -> Expr a)
+        toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GAST.Expr a -> GAST.Expr a -> GAST.Expr a)
                           -> AST.Expr
                           -> AST.Expr
                           -> GState PropExprWithType
@@ -719,16 +712,16 @@ applyValuation valu pfDefs = do
         _ ->
             return False
     where
-    applyValuRule :: Map (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)]
-                  -> ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)])
-                  -> MaybeT GState (Map (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)])
+    applyValuRule :: Map (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)]
+                  -> ((AST.PredicateLabel, Int), [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)])
+                  -> MaybeT GState (Map (AST.PredicateLabel, Int) [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)])
     applyValuRule rules (signature, sigRules) = do
         sigRules' <- foldlM applyValu' [] sigRules
         return $ Map.insert signature sigRules' rules
 
-    applyValu' :: [([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)]
-               -> ([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)
-               -> MaybeT GState [([AST.Expr], AST.RuleBody, RuleBody, Set GoalId)]
+    applyValu' :: [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)]
+               -> ([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)
+               -> MaybeT GState [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)]
     applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements, parents) = do
         args' <- lift $ lift $ forM args $ fmap snd . applyValuArg valu
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
@@ -784,9 +777,9 @@ applyValuationMaybeInProof valu pfDefs = do
 
 applyValuBodyEl :: Map AST.VarName AST.Expr
                 -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
-                -> ([AST.RuleBodyElement], Set RuleBodyElement)
+                -> ([AST.RuleBodyElement], Set GAST.RuleBodyElement)
                 -> AST.RuleBodyElement
-                -> MaybeT GState ([AST.RuleBodyElement], Set RuleBodyElement)
+                -> MaybeT GState ([AST.RuleBodyElement], Set GAST.RuleBodyElement)
 applyValuBodyEl valu pfDefs (elements, gElements) el = do
     let (varPresent, el') = AST.mapAccExprsInRuleBodyElement
             (\varPresent' expr -> let (varPresent'', expr') = applyValuExpr valu expr

@@ -31,6 +31,8 @@ executable ihpmc_float
     hs-source-dirs: src
     other-modules:
         GroundedAST
+        GroundedASTPhase1
+        GroundedASTPhase2
         IdNrMap
         Options
         Parser
@@ -71,6 +73,8 @@ executable ihpmc_exact
     hs-source-dirs: src
     other-modules:
         GroundedAST
+        GroundedASTPhase1
+        GroundedASTPhase2
         IdNrMap
         Options
         Parser
@@ -120,6 +124,8 @@ test-suite integration
         IntegrationPreprocessor
         Main
         GroundedAST
+        GroundedASTPhase1
+        GroundedASTPhase2
         IntegrationGrounding
         IntegrationTest
         Options
