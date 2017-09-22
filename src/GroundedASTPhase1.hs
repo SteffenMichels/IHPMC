@@ -25,22 +25,62 @@
 #endif
 
 module GroundedASTPhase1 ( GroundedAST
+                         , GroundedAST.GroundedASTCommon(..)
                          , Expr
+                         , GroundedAST.ExprCommon(..)
+                         , GroundedAST.ConstantExpr(..)
                          , BuildInPredicate
+                         , GroundedAST.BuildInPredicateCommon(..)
                          , TypedBuildInPred
+                         , GroundedAST.TypedBuildInPredCommon(..)
                          , RuleBody
+                         , GroundedAST.RuleBodyCommon(..)
                          , RuleBodyElement
+                         , GroundedAST.RuleBodyElementCommon(..)
                          , PFuncLabel
+                         , GroundedAST.RealN
+                         , GroundedAST.Object
+                         , GroundedAST.Placeholder
+                         , GroundedAST.Addition
+                         , GroundedAST.Ineq
+                         , GroundedAST.PredicateLabel(..)
+                         , GroundedAST.simplifiedExpr
+                         , GroundedAST.exprToText
+                         , GroundedAST.simplifiedBuildInPred
+                         , GroundedAST.deterministicValue
+                         , makePFuncBool
+                         , makePFuncReal
+                         , makePFuncString
+                         , makePFuncObj
+                         , makePFuncObjOther
                          ) where
 import qualified GroundedAST
 import qualified AST
+import Probability
+import Data.Text (Text)
 
 -- TODO: type for (AST.PFuncLabel, [AST.ConstantExpr])
 type PFuncLabel = (AST.PFuncLabel, [AST.ConstantExpr])
-type GroundedAST = GroundedAST.GroundedAST PFuncLabel
-type BuildInPredicate = GroundedAST.BuildInPredicate PFuncLabel
-type TypedBuildInPred a = GroundedAST.TypedBuildInPred PFuncLabel a
-type Expr a = GroundedAST.Expr PFuncLabel a
-type RuleBody = GroundedAST.RuleBody PFuncLabel
-type RuleBodyElement = GroundedAST.RuleBodyElement PFuncLabel
+type GroundedAST = GroundedAST.GroundedASTCommon PFuncLabel
+type BuildInPredicate = GroundedAST.BuildInPredicateCommon PFuncLabel
+type TypedBuildInPred a = GroundedAST.TypedBuildInPredCommon PFuncLabel a
+type Expr a = GroundedAST.ExprCommon PFuncLabel a
+type RuleBody = GroundedAST.RuleBodyCommon PFuncLabel
+type RuleBodyElement = GroundedAST.RuleBodyElementCommon PFuncLabel
+type PFunc = GroundedAST.PFunc PFuncLabel
+
+makePFuncBool :: PFuncLabel -> Probability-> PFunc Bool
+makePFuncBool label p = GroundedAST.PFunc label $ GroundedAST.Flip p
+
+makePFuncReal :: PFuncLabel ->  (Rational -> Probability) -> (Probability -> Rational) -> PFunc GroundedAST.RealN
+makePFuncReal label cdf cdf' = GroundedAST.PFunc label $ GroundedAST.RealDist cdf cdf'
+
+makePFuncString :: PFuncLabel -> [(Probability, Text)] -> PFunc Text
+makePFuncString label dist = GroundedAST.PFunc label $ GroundedAST.StrDist dist
+
+makePFuncObj :: PFuncLabel -> Integer -> PFunc GroundedAST.Object
+makePFuncObj label nr = GroundedAST.PFunc label $ GroundedAST.UniformObjDist nr
+
+makePFuncObjOther :: PFuncLabel -> a{-PFuncPhase1 Object-} -> PFunc GroundedAST.Object
+makePFuncObjOther label other = GroundedAST.PFunc label $ GroundedAST.UniformOtherObjDist undefined--other
 

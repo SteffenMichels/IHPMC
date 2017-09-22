@@ -26,9 +26,7 @@ module GrounderPhase1
     ) where
 import AST (AST)
 import qualified AST
-import GroundedAST (GroundedAST(..))
 import qualified GroundedASTPhase1 as GAST
-import qualified GroundedAST
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
 import Data.HashSet (Set)
@@ -129,7 +127,7 @@ exceptionToText (NonGroundEvidence e) ids2str _ =
     "Argument '" <>
     propExprWithTypeToText arg ids2str ids2label <>
     "' of definition of random function '" -- <>
-    GroundedAST.pFuncLabelToText pf ids2str ids2label <>
+    GAST.pFuncLabelToText pf ids2str ids2label <>
     "' should be a random function of type 'Object'."-}
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Ord)
@@ -138,7 +136,7 @@ constraintToText (EqConstraint exprX exprY) ids2str = AST.exprToText exprX ids2s
 instance Hashable Constraint
 
 data GroundingState = GroundingState
-    { groundedRules     :: Map GroundedAST.PredicateLabel [GAST.RuleBody]
+    { groundedRules     :: Map GAST.PredicateLabel [GAST.RuleBody]
     , groundedRfDefs    :: Map GAST.PFuncLabel AST.PFuncDef
     , varCounter        :: Int
     -- keep non-ground rule body elements and ground elements as soon as all vars have a value
@@ -171,10 +169,11 @@ ground ast = evalStateT
         (queries', evidence') <- computeResultState
         gRules <- gets groundedRules
         pIds   <- gets labelIdentifiers
-        return ( GroundedAST { rules    = Map.map Set.fromList gRules
-                             , queries  = queries'
-                             , evidence = evidence'
-                             }
+        return ( GAST.GroundedAST
+                     { GAST.rules    = Map.map Set.fromList gRules
+                     , GAST.queries  = queries'
+                     , GAST.evidence = evidence'
+                     }
                , pIds
                )
     )
@@ -313,7 +312,7 @@ ground ast = evalStateT
                 addRuleToProof elements' = modify' (\st -> st{rulesInProof = Map.insertWith
                     (\[x] -> (x :))
                     (label, nArgs)
-                    [(givenArgs, AST.RuleBody elements', GroundedAST.RuleBody Set.empty, parents)]
+                    [(givenArgs, AST.RuleBody elements', GAST.RuleBody Set.empty, parents)]
                     (rulesInProof st)
                 })
 
@@ -325,7 +324,7 @@ ground ast = evalStateT
                                    , label         = label
                                    , args          = givenArgs
                                    , nonGroundBody = AST.RuleBody elements'
-                                   , groundBody    = GroundedAST.RuleBody Set.empty
+                                   , groundBody    = GAST.RuleBody Set.empty
                                    , ruleParents   = parents'
                                    } : rulesMaybeInProof st
                              , nextId = GoalId $ succ next
@@ -427,9 +426,9 @@ addGroundings = do
             })
 
 -- turn constructs from ordinary ones (with arguments) to propositional ones (after grounding)
-toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> GState GroundedAST.PredicateLabel
+toPropPredLabel :: AST.PredicateLabel -> [AST.ConstantExpr] -> GState GAST.PredicateLabel
 toPropPredLabel (AST.PredicateLabel label) args =
-        GroundedAST.PredicateLabel
+        GAST.PredicateLabel
     <$> state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
                        in  (idNr, st{labelIdentifiers = lIdents})
               )
@@ -437,7 +436,7 @@ toPropPredLabel (AST.PredicateLabel label) args =
 -- TODO: doesn't have to be a monadic function
 toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GState GAST.PFuncLabel
 toPropPFuncLabel label{-(AST.PFuncLabel label)-} args = return (label, args)
-    {-GroundedAST.PFuncLabel <$>
+    {-GAST.PFuncLabel <$>
     state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
                    in  (idNr, st{labelIdentifiers = lIdents})
           )-}
@@ -454,24 +453,24 @@ toPropArg :: AST.Expr -> Exceptional Exception AST.ConstantExpr
 toPropArg expr = do
     expr' <- toPropArgExpr expr
     case expr' of
-        ExprBool (GroundedAST.ConstantExpr (GroundedAST.BoolConstant cnst)) -> return $ AST.BoolConstant cnst
-        ExprReal (GroundedAST.ConstantExpr (GroundedAST.RealConstant cnst)) -> return $ AST.RealConstant cnst
-        ExprInt  (GroundedAST.ConstantExpr (GroundedAST.IntConstant  cnst)) -> return $ AST.IntConstant  cnst
-        ExprStr  (GroundedAST.ConstantExpr (GroundedAST.StrConstant  cnst)) -> return $ AST.StrConstant  cnst
-        ExprObj  (GroundedAST.ConstantExpr (GroundedAST.ObjConstant  cnst)) -> return $ AST.ObjConstant  cnst
-        ExprPh   (GroundedAST.ConstantExpr (GroundedAST.Placeholder  ph  )) -> return $ AST.Placeholder  ph
+        ExprBool (GAST.ConstantExpr (GAST.BoolConstant cnst)) -> return $ AST.BoolConstant cnst
+        ExprReal (GAST.ConstantExpr (GAST.RealConstant cnst)) -> return $ AST.RealConstant cnst
+        ExprInt  (GAST.ConstantExpr (GAST.IntConstant  cnst)) -> return $ AST.IntConstant  cnst
+        ExprStr  (GAST.ConstantExpr (GAST.StrConstant  cnst)) -> return $ AST.StrConstant  cnst
+        ExprObj  (GAST.ConstantExpr (GAST.ObjConstant  cnst)) -> return $ AST.ObjConstant  cnst
+        ExprPh   (GAST.ConstantExpr (GAST.Placeholder  ph  )) -> return $ AST.Placeholder  ph
         _                                                                   -> error "precondition"
     where
     toPropArgExpr :: AST.Expr -> Exceptional Exception PropExprWithType
-    toPropArgExpr expr' = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr' of
+    toPropArgExpr expr' = mapPropExprWithType GAST.simplifiedExpr <$> case expr' of
         AST.ConstantExpr cnst -> return $ toPropExprConst cnst
         AST.PFunc _ _ -> throw ProbabilisticFuncUsedAsArg
         AST.Sum exprX exprY -> do
             exprX' <- toPropArgExpr exprX
             exprY' <- toPropArgExpr exprY
             case (exprX', exprY') of
-                (ExprReal exprX''', ExprReal exprY''') -> return $ ExprReal $ GroundedAST.Sum exprX''' exprY'''
-                (ExprInt  exprX''', ExprInt  exprY''') -> return $ ExprInt  $ GroundedAST.Sum exprX''' exprY'''
+                (ExprReal exprX''', ExprReal exprY''') -> return $ ExprReal $ GAST.Sum exprX''' exprY'''
+                (ExprInt  exprX''', ExprInt  exprY''') -> return $ ExprInt  $ GAST.Sum exprX''' exprY'''
                 _                                      -> throw $ TypeError exprX' exprY'
         AST.Variable _ -> error "precondition"
 
@@ -482,26 +481,26 @@ toPropRuleElement :: AST.RuleBodyElement
 toPropRuleElement (AST.UserPredicate label args) _ = do
     args'  <- lift $ toPropArgs args
     pLabel <- toPropPredLabel label args'
-    return $ GroundedAST.UserPredicate pLabel
-toPropRuleElement (AST.BuildInPredicate bip) pfDefs = GroundedAST.BuildInPredicate <$> toPropBuildInPred bip pfDefs
+    return $ GAST.UserPredicate pLabel
+toPropRuleElement (AST.BuildInPredicate bip) pfDefs = GAST.BuildInPredicate <$> toPropBuildInPred bip pfDefs
 
 data PropExprWithType = ExprBool (GAST.Expr Bool)
-                      | ExprReal (GAST.Expr GroundedAST.RealN)
+                      | ExprReal (GAST.Expr GAST.RealN)
                       | ExprStr  (GAST.Expr Text)
                       | ExprInt  (GAST.Expr Integer)
-                      | ExprObj  (GAST.Expr GroundedAST.Object)
-                      | ExprPh   (GAST.Expr GroundedAST.Placeholder)
+                      | ExprObj  (GAST.Expr GAST.Object)
+                      | ExprPh   (GAST.Expr GAST.Placeholder)
 
 propExprWithTypeToText :: PropExprWithType -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 propExprWithTypeToText expr ids2str ids2label = "'" <> exprStr <> "' (of type " <> typeStr <> ")"
     where
     (exprStr, typeStr) = case expr of
-        ExprBool expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Bool")
-        ExprReal expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Real")
-        ExprStr  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "String")
-        ExprInt  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Integer")
-        ExprObj  expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Object")
-        ExprPh   expr' -> (GroundedAST.exprToText expr' ids2str ids2label, "Placeholder")
+        ExprBool expr' -> (GAST.exprToText expr' ids2str ids2label, "Bool")
+        ExprReal expr' -> (GAST.exprToText expr' ids2str ids2label, "Real")
+        ExprStr  expr' -> (GAST.exprToText expr' ids2str ids2label, "String")
+        ExprInt  expr' -> (GAST.exprToText expr' ids2str ids2label, "Integer")
+        ExprObj  expr' -> (GAST.exprToText expr' ids2str ids2label, "Object")
+        ExprPh   expr' -> (GAST.exprToText expr' ids2str ids2label, "Placeholder")
 
 mapPropExprWithType :: (forall a. GAST.Expr a -> GAST.Expr a) -> PropExprWithType -> PropExprWithType
 mapPropExprWithType f (ExprBool expr) = ExprBool $ f expr
@@ -515,9 +514,9 @@ mapPropExprWithType f (ExprPh   expr) = ExprPh   $ f expr
 toPropBuildInPred :: AST.BuildInPredicate
                   -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
                   -> GState GAST.BuildInPredicate
-toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
-    AST.Equality eq exprX exprY -> toPropBuildInPred'     (GroundedAST.Equality eq) exprX exprY
-    AST.Ineq     op exprX exprY -> toPropBuildInPredIneq' (GroundedAST.Ineq     op) exprX exprY
+toPropBuildInPred bip pfDefs = GAST.simplifiedBuildInPred <$> case bip of
+    AST.Equality eq exprX exprY -> toPropBuildInPred'     (GAST.Equality eq) exprX exprY
+    AST.Ineq     op exprX exprY -> toPropBuildInPredIneq' (GAST.Ineq     op) exprX exprY
     where
     toPropBuildInPred' :: (forall a. GAST.Expr a -> GAST.Expr a -> GAST.TypedBuildInPred a)
                        -> AST.Expr
@@ -527,15 +526,15 @@ toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
         exprX' <- toPropExpr exprX pfDefs
         exprY' <- toPropExpr exprY pfDefs
         case (exprX', exprY') of
-            (ExprReal exprX'', ExprReal exprY'') -> return $ GroundedAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
-            (ExprBool exprX'', ExprBool exprY'') -> return $ GroundedAST.BuildInPredicateBool $ bipConstructor exprX'' exprY''
-            (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
-            (ExprStr  exprX'', ExprStr  exprY'') -> return $ GroundedAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
-            (ExprObj  exprX'', ExprObj  exprY'') -> return $ GroundedAST.BuildInPredicateObj  $ bipConstructor exprX'' exprY''
-            (ExprPh   exprX'', ExprPh   exprY'') -> return $ GroundedAST.BuildInPredicatePh   $ bipConstructor exprX'' exprY''
+            (ExprReal exprX'', ExprReal exprY'') -> return $ GAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
+            (ExprBool exprX'', ExprBool exprY'') -> return $ GAST.BuildInPredicateBool $ bipConstructor exprX'' exprY''
+            (ExprInt  exprX'', ExprInt  exprY'') -> return $ GAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
+            (ExprStr  exprX'', ExprStr  exprY'') -> return $ GAST.BuildInPredicateStr  $ bipConstructor exprX'' exprY''
+            (ExprObj  exprX'', ExprObj  exprY'') -> return $ GAST.BuildInPredicateObj  $ bipConstructor exprX'' exprY''
+            (ExprPh   exprX'', ExprPh   exprY'') -> return $ GAST.BuildInPredicatePh   $ bipConstructor exprX'' exprY''
             _                                    -> lift $ throw $ TypeError exprX' exprY'
 
-    toPropBuildInPredIneq' :: (forall a. GroundedAST.Ineq a => GAST.Expr a -> GAST.Expr a -> GAST.TypedBuildInPred a)
+    toPropBuildInPredIneq' :: (forall a. GAST.Ineq a => GAST.Expr a -> GAST.Expr a -> GAST.TypedBuildInPred a)
                            -> AST.Expr
                            -> AST.Expr
                            -> GState GAST.BuildInPredicate
@@ -543,15 +542,15 @@ toPropBuildInPred bip pfDefs = GroundedAST.simplifiedBuildInPred <$> case bip of
         exprX' <- toPropExpr exprX pfDefs
         exprY' <- toPropExpr exprY pfDefs
         case (exprX', exprY') of
-            (ExprReal exprX'', ExprReal exprY'') -> return $ GroundedAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
-            (ExprInt  exprX'', ExprInt  exprY'') -> return $ GroundedAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
+            (ExprReal exprX'', ExprReal exprY'') -> return $ GAST.BuildInPredicateReal $ bipConstructor exprX'' exprY''
+            (ExprInt  exprX'', ExprInt  exprY'') -> return $ GAST.BuildInPredicateInt  $ bipConstructor exprX'' exprY''
             _                                    -> lift $ throw $ TypeError exprX' exprY'
 
 -- precondition: no vars left in 'expr' (PF defs with vars result in exceptions)
 toPropExpr :: AST.Expr
            -> Map (AST.PFuncLabel, Int) [([AST.HeadArgument], AST.PFuncDef)]
            -> GState PropExprWithType
-toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case expr of
+toPropExpr expr pfDefs = mapPropExprWithType GAST.simplifiedExpr <$> case expr of
     AST.ConstantExpr cnst -> return $ toPropExprConst cnst
     AST.PFunc label args -> toPropPFunc label args
         where
@@ -570,15 +569,15 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                     })
                     return def'
             case pfDef of
-                AST.Flip p            -> return $ ExprBool $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncBool   propPFuncLabel p
-                AST.RealDist cdf cdf' -> return $ ExprReal $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncReal   propPFuncLabel cdf cdf'
-                AST.StrDist dist      -> return $ ExprStr  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncString propPFuncLabel dist
-                AST.UniformObjDist nr -> return $ ExprObj  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncObj    propPFuncLabel nr
+                AST.Flip p            -> return $ ExprBool $ GAST.PFuncExpr $ GAST.makePFuncBool   propPFuncLabel p
+                AST.RealDist cdf cdf' -> return $ ExprReal $ GAST.PFuncExpr $ GAST.makePFuncReal   propPFuncLabel cdf cdf'
+                AST.StrDist dist      -> return $ ExprStr  $ GAST.PFuncExpr $ GAST.makePFuncString propPFuncLabel dist
+                AST.UniformObjDist nr -> return $ ExprObj  $ GAST.PFuncExpr $ GAST.makePFuncObj    propPFuncLabel nr
                 AST.UniformOtherObjDist labelOther argsOther -> do
                     otherPf <- toPropPFunc labelOther argsOther
                     case otherPf of
-                        ExprObj (GroundedAST.PFuncExpr otherPf') ->
-                            return $ ExprObj  $ GroundedAST.PFuncExpr $ GroundedAST.makePFuncObjOther propPFuncLabel otherPf'
+                        ExprObj (GAST.PFuncExpr otherPf') ->
+                            return $ ExprObj  $ GAST.PFuncExpr $ GAST.makePFuncObjOther propPFuncLabel otherPf'
                         _ ->
                             lift $ throw $ DefArgShouldBeObjPf propPFuncLabel otherPf
             where
@@ -593,9 +592,9 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
                 _ -> return def
                 where
                 valu' = Map.map AST.ConstantExpr valu
-    AST.Sum exprX exprY -> toPropExprPairAdd GroundedAST.Sum exprX exprY
+    AST.Sum exprX exprY -> toPropExprPairAdd GAST.Sum exprX exprY
         where
-        toPropExprPairAdd :: (forall a. GroundedAST.Addition a => GAST.Expr a -> GAST.Expr a -> GAST.Expr a)
+        toPropExprPairAdd :: (forall a. GAST.Addition a => GAST.Expr a -> GAST.Expr a -> GAST.Expr a)
                           -> AST.Expr
                           -> AST.Expr
                           -> GState PropExprWithType
@@ -609,12 +608,12 @@ toPropExpr expr pfDefs = mapPropExprWithType GroundedAST.simplifiedExpr <$> case
     AST.Variable _ -> error "precondition"
 
 toPropExprConst :: AST.ConstantExpr -> PropExprWithType
-toPropExprConst (AST.BoolConstant cnst) = ExprBool $ GroundedAST.ConstantExpr $ GroundedAST.BoolConstant cnst
-toPropExprConst (AST.RealConstant cnst) = ExprReal $ GroundedAST.ConstantExpr $ GroundedAST.RealConstant cnst
-toPropExprConst (AST.StrConstant  cnst) = ExprStr  $ GroundedAST.ConstantExpr $ GroundedAST.StrConstant  cnst
-toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ GroundedAST.ConstantExpr $ GroundedAST.IntConstant  cnst
-toPropExprConst (AST.ObjConstant  cnst) = ExprObj  $ GroundedAST.ConstantExpr $ GroundedAST.ObjConstant  cnst
-toPropExprConst (AST.Placeholder  ph)   = ExprPh   $ GroundedAST.ConstantExpr $ GroundedAST.Placeholder  ph
+toPropExprConst (AST.BoolConstant cnst) = ExprBool $ GAST.ConstantExpr $ GAST.BoolConstant cnst
+toPropExprConst (AST.RealConstant cnst) = ExprReal $ GAST.ConstantExpr $ GAST.RealConstant cnst
+toPropExprConst (AST.StrConstant  cnst) = ExprStr  $ GAST.ConstantExpr $ GAST.StrConstant  cnst
+toPropExprConst (AST.IntConstant  cnst) = ExprInt  $ GAST.ConstantExpr $ GAST.IntConstant  cnst
+toPropExprConst (AST.ObjConstant  cnst) = ExprObj  $ GAST.ConstantExpr $ GAST.ObjConstant  cnst
+toPropExprConst (AST.Placeholder  ph)   = ExprPh   $ GAST.ConstantExpr $ GAST.Placeholder  ph
 
 inCurProof :: AST.RuleBodyElement -> GState Bool3
 inCurProof (AST.BuildInPredicate _) = return False3
@@ -722,10 +721,10 @@ applyValuation valu pfDefs = do
     applyValu' :: [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)]
                -> ([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)
                -> MaybeT GState [([AST.Expr], AST.RuleBody, GAST.RuleBody, Set GoalId)]
-    applyValu' rules (args, AST.RuleBody elements, GroundedAST.RuleBody gElements, parents) = do
+    applyValu' rules (args, AST.RuleBody elements, GAST.RuleBody gElements, parents) = do
         args' <- lift $ lift $ forM args $ fmap snd . applyValuArg valu
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
-        return $ (args', AST.RuleBody elements', GroundedAST.RuleBody gElements', parents) : rules
+        return $ (args', AST.RuleBody elements', GAST.RuleBody gElements', parents) : rules
 
     applyValuConstraint :: Set Constraint -> Constraint -> MaybeT (Exceptional Exception) (Set Constraint)
     applyValuConstraint constraints (EqConstraint exprX exprY)
@@ -755,7 +754,7 @@ applyValuationMaybeInProof valu pfDefs = do
     applyValuRule :: ([RuleMaybeInProof], Set GoalId)
                   -> RuleMaybeInProof
                   -> MaybeT GState ([RuleMaybeInProof], Set GoalId)
-    applyValuRule (rules, toPrune) rule@RuleMaybeInProof{goalId, label, args, nonGroundBody = AST.RuleBody elements, groundBody = GroundedAST.RuleBody gElements, ruleParents} = do
+    applyValuRule (rules, toPrune) rule@RuleMaybeInProof{goalId, label, args, nonGroundBody = AST.RuleBody elements, groundBody = GAST.RuleBody gElements, ruleParents} = do
         args' <- lift $ lift $ forM args $ fmap snd . applyValuArg valu
         (elements', gElements') <- foldlM (applyValuBodyEl valu pfDefs) ([], gElements) elements
         inCProof <- lift $ inCurProof $ AST.UserPredicate label args'
@@ -764,7 +763,7 @@ applyValuationMaybeInProof valu pfDefs = do
                 modify' ( \st -> st { rulesInProof = Map.insertWith
                         (++)
                         (label, length args')
-                        [(args', AST.RuleBody elements', GroundedAST.RuleBody gElements', ruleParents)]
+                        [(args', AST.RuleBody elements', GAST.RuleBody gElements', ruleParents)]
                         (rulesInProof st)
                     } )
                 return (rules, toPrune)
@@ -772,7 +771,7 @@ applyValuationMaybeInProof valu pfDefs = do
             Unknown3 -> return (rule
                 { args          = args'
                 , nonGroundBody = AST.RuleBody elements'
-                , groundBody    = GroundedAST.RuleBody gElements'
+                , groundBody    = GAST.RuleBody gElements'
                 } : rules, toPrune)
 
 applyValuBodyEl :: Map AST.VarName AST.Expr
@@ -792,7 +791,7 @@ applyValuBodyEl valu pfDefs (elements, gElements) el = do
     else do
         gEl <- lift $ toPropRuleElement el' pfDefs
         case gEl of
-            GroundedAST.BuildInPredicate bip -> case GroundedAST.deterministicValue bip of
+            GAST.BuildInPredicate bip -> case GAST.deterministicValue bip of
                 Just True  -> return (elements, gElements)                -- true predicate can just be left out
                 Just False -> mzero                                       -- false predicate means proof becomes inconsistent
                 Nothing    -> return (elements, Set.insert gEl gElements) -- truthfullness depends on probabilistic functions

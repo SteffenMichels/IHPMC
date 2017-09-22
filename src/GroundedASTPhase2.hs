@@ -25,18 +25,38 @@
 #endif
 
 module GroundedASTPhase2 ( GroundedAST
+                         , GroundedAST.GroundedASTCommon(..)
                          , Expr
+                         , GroundedAST.ExprCommon(..)
                          , BuildInPredicate
+                         , GroundedAST.BuildInPredicateCommon(..)
                          , TypedBuildInPred
+                         , GroundedAST.TypedBuildInPredCommon(..)
                          , RuleBody
+                         , GroundedAST.RuleBodyCommon(..)
                          , RuleBodyElement
+                         , GroundedAST.RuleBodyElementCommon(..)
                          , PFuncLabel
                          , PFunc
+                         , GroundedAST.PFuncDef(..)
+                         , GroundedAST.ConstantExpr(..)
+                         , GroundedAST.IneqOp(..)
+                         , GroundedAST.PredicateLabel(..)
                          , predProbabilisticFunctions
                          , exprProbabilisticFunctions
                          , checkRealIneqPred
                          , pFuncLabelToText
                          , ruleBodyElementToText
+                         , probabilisticFuncLabel
+                         , GroundedAST.deterministicValueTyped
+                         , GroundedAST.possibleValuesStr
+                         , GroundedAST.typedBuildInPredToText
+                         , GroundedAST.predicateLabelToText
+                         , GroundedAST.deterministicValue
+                         , GroundedAST.probabilisticFuncDef
+                         , GroundedAST.objectPfNrObjects
+                         , GroundedAST.Object
+                         , GroundedAST.RealN
                          ) where
 import qualified GroundedAST
 import qualified AST
@@ -54,12 +74,12 @@ import qualified Interval
 import Interval ((~<), (~>), (~<=), (~>=))
 import Data.Monoid ((<>))
 
-type GroundedAST = GroundedAST.GroundedAST PFuncLabel
-type BuildInPredicate = GroundedAST.BuildInPredicate PFuncLabel
-type TypedBuildInPred a = GroundedAST.TypedBuildInPred PFuncLabel a
-type Expr a = GroundedAST.Expr PFuncLabel a
-type RuleBody = GroundedAST.RuleBody PFuncLabel
-type RuleBodyElement = GroundedAST.RuleBodyElement PFuncLabel
+type GroundedAST = GroundedAST.GroundedASTCommon PFuncLabel
+type BuildInPredicate = GroundedAST.BuildInPredicateCommon PFuncLabel
+type TypedBuildInPred a = GroundedAST.TypedBuildInPredCommon PFuncLabel a
+type Expr a = GroundedAST.ExprCommon PFuncLabel a
+type RuleBody = GroundedAST.RuleBodyCommon PFuncLabel
+type RuleBodyElement = GroundedAST.RuleBodyElementCommon PFuncLabel
 type PFunc a = GroundedAST.PFunc PFuncLabel a
 
 newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)
@@ -105,4 +125,7 @@ checkRealIneqPred op left right point = case op of
 
 ruleBodyElementToText :: RuleBodyElement -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 ruleBodyElementToText = undefined
+
+probabilisticFuncLabel :: PFunc a -> PFuncLabel
+probabilisticFuncLabel = undefined
 

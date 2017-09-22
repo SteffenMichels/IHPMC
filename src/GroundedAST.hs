@@ -24,19 +24,14 @@
 {-# LANGUAGE Strict#-}
 #endif
 
-module GroundedAST ( GroundedAST(..)
-                   , BuildInPredicate(..)
-                   , TypedBuildInPred(..)
-                   , PFunc
+module GroundedAST ( GroundedASTCommon(..)
+                   , BuildInPredicateCommon(..)
+                   , TypedBuildInPredCommon(..)
+                   , PFunc(..)
                    , probabilisticFuncLabel
                    , probabilisticFuncDef
                    , objectPfNrObjects
-                   , makePFuncBool
-                   , makePFuncReal
-                   , makePFuncString
-                   , makePFuncObj
-                   , makePFuncObjOther
-                   , Expr(..)
+                   , ExprCommon(..)
                    , PredicateLabel(..)
                    , ConstantExpr(..)
                    , PFuncDef(..)
@@ -46,8 +41,8 @@ module GroundedAST ( GroundedAST(..)
                    , RealN
                    , Object
                    , Placeholder
-                   , RuleBody(..)
-                   , RuleBodyElement(..)
+                   , RuleBodyCommon(..)
+                   , RuleBodyElementCommon(..)
                    , negatePred
                    , deterministicValue
                    , deterministicValueTyped
@@ -82,13 +77,13 @@ import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy as LT
 
 -- use sets here to avoid duplicate elements
-data GroundedAST pFuncLabel = GroundedAST
-    { rules     :: Map PredicateLabel (Set (RuleBody pFuncLabel))
-    , queries   :: Set (RuleBodyElement pFuncLabel)
-    , evidence  :: Set (RuleBodyElement pFuncLabel)
+data GroundedASTCommon pFuncLabel = GroundedAST
+    { rules     :: Map PredicateLabel (Set (RuleBodyCommon pFuncLabel))
+    , queries   :: Set (RuleBodyElementCommon pFuncLabel)
+    , evidence  :: Set (RuleBodyElementCommon pFuncLabel)
     }
 
-groundedAstToText :: GroundedAST pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+groundedAstToText :: GroundedASTCommon pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 groundedAstToText ast ids2str ids2label = ""{-rulesStr <> queryStr <> evStr
     where
     rulesStr     = mconcat $ mconcat [
@@ -100,6 +95,7 @@ groundedAstToText ast ids2str ids2label = ""{-rulesStr <> queryStr <> evStr
 
 -- propositional version of data types, similarly present in AST (without argument, after grounding)
 newtype PredicateLabel = PredicateLabel Int deriving (Eq, Generic, Ord)
+--2
 predicateLabelToText :: PredicateLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 predicateLabelToText (PredicateLabel idNr) ids2str ids2label =
     AST.predicateLabelToText (AST.PredicateLabel label) ids2str <>
@@ -126,60 +122,49 @@ data PFuncDef a where
     UniformObjDist      :: Integer                                                -> PFuncDef Object
     UniformOtherObjDist :: Int{-PFuncPhase2 Object-}                                     -> PFuncDef Object
 
+-- 2
 objectPfNrObjects :: PFunc pFuncLabel Object -> Integer
 objectPfNrObjects pf = case GroundedAST.probabilisticFuncDef pf of
     GroundedAST.UniformObjDist n        -> n
     GroundedAST.UniformOtherObjDist pf' -> undefined--objectPfNrObjects pf'
 
+--2
 probabilisticFuncLabel :: PFunc pFuncLabel a -> pFuncLabel
 probabilisticFuncLabel (PFunc label _) = label
 
+--2
 probabilisticFuncDef :: PFunc pFuncLabel a -> PFuncDef a
 probabilisticFuncDef (PFunc _ def) = def
 
-makePFuncBool :: pFuncLabel -> Probability-> PFunc pFuncLabel Bool
-makePFuncBool label p = PFunc label $ Flip p
+newtype RuleBodyCommon pFuncLabel = RuleBody (Set (RuleBodyElementCommon pFuncLabel)) deriving (Eq, Generic, Ord)
 
-makePFuncReal :: pFuncLabel ->  (Rational -> Probability) -> (Probability -> Rational) -> PFunc pFuncLabel GroundedAST.RealN
-makePFuncReal label cdf cdf' = PFunc label $ RealDist cdf cdf'
-
-makePFuncString :: pFuncLabel -> [(Probability, Text)] -> PFunc pFuncLabel Text
-makePFuncString label dist = PFunc label $ StrDist dist
-
-makePFuncObj :: pFuncLabel -> Integer -> PFunc pFuncLabel Object
-makePFuncObj label nr = PFunc label $ UniformObjDist nr
-
-makePFuncObjOther :: pFuncLabel -> a{-PFuncPhase1 Object-} -> PFunc pFuncLabel Object
-makePFuncObjOther label other = PFunc undefined{-label-} $ UniformOtherObjDist undefined--other
-
-newtype RuleBody pFuncLabel = RuleBody (Set (RuleBodyElement pFuncLabel)) deriving (Eq, Generic, Ord)
-
-ruleBodyToText :: RuleBody pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+ruleBodyToText :: RuleBodyCommon pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 ruleBodyToText (RuleBody elements) ids2str ids2label = ""
     --toTextLst (Set.toList elements) (\x -> ruleBodyElementToText x ids2str ids2label)
-instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (RuleBody pFuncLabel)
+instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (RuleBodyCommon pFuncLabel)
 
-data RuleBodyElement pFuncLabel = UserPredicate    PredicateLabel
-                                | BuildInPredicate (BuildInPredicate pFuncLabel)
-                                deriving (Eq, Generic, Ord)
+data RuleBodyElementCommon pFuncLabel = UserPredicate    PredicateLabel
+                                      | BuildInPredicate (BuildInPredicateCommon pFuncLabel)
+                                      deriving (Eq, Generic, Ord)
 
-ruleBodyElementToText :: RuleBodyElement pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+--2
+ruleBodyElementToText :: RuleBodyElementCommon pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 ruleBodyElementToText (UserPredicate label)  ids2str ids2label = ""--predicateLabelToText label ids2str ids2label
 ruleBodyElementToText (BuildInPredicate prd) ids2str ids2label = ""--buildInPredToText    prd   ids2str ids2label
-instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (RuleBodyElement pFuncLabel)
+instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (RuleBodyElementCommon pFuncLabel)
 
-data BuildInPredicate pFuncLabel = BuildInPredicateBool (TypedBuildInPred pFuncLabel Bool)
-                                 | BuildInPredicateReal (TypedBuildInPred pFuncLabel RealN)
-                                 | BuildInPredicateStr  (TypedBuildInPred pFuncLabel Text)
-                                 | BuildInPredicateInt  (TypedBuildInPred pFuncLabel Integer)
-                                 | BuildInPredicateObj  (TypedBuildInPred pFuncLabel Object)
-                                 | BuildInPredicatePh   (TypedBuildInPred pFuncLabel Placeholder)
+data BuildInPredicateCommon pFuncLabel = BuildInPredicateBool (TypedBuildInPredCommon pFuncLabel Bool)
+                                       | BuildInPredicateReal (TypedBuildInPredCommon pFuncLabel RealN)
+                                       | BuildInPredicateStr  (TypedBuildInPredCommon pFuncLabel Text)
+                                       | BuildInPredicateInt  (TypedBuildInPredCommon pFuncLabel Integer)
+                                       | BuildInPredicateObj  (TypedBuildInPredCommon pFuncLabel Object)
+                                       | BuildInPredicatePh   (TypedBuildInPredCommon pFuncLabel Placeholder)
 
-deriving instance Eq      pFuncLabel => Eq      (BuildInPredicate pFuncLabel)
-deriving instance Generic pFuncLabel => Generic (BuildInPredicate pFuncLabel)
-deriving instance Ord     pFuncLabel => Ord     (BuildInPredicate pFuncLabel)
-instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (BuildInPredicate pFuncLabel)
-buildInPredToText :: BuildInPredicate pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+deriving instance Eq      pFuncLabel => Eq      (BuildInPredicateCommon pFuncLabel)
+deriving instance Generic pFuncLabel => Generic (BuildInPredicateCommon pFuncLabel)
+deriving instance Ord     pFuncLabel => Ord     (BuildInPredicateCommon pFuncLabel)
+instance (Generic pFuncLabel, Hashable pFuncLabel) => Hashable (BuildInPredicateCommon pFuncLabel)
+buildInPredToText :: BuildInPredicateCommon pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 buildInPredToText (BuildInPredicateBool b) = undefined--typedBuildInPredToText b
 buildInPredToText (BuildInPredicateReal r) = undefined--typedBuildInPredToText r
 buildInPredToText (BuildInPredicateStr  s) = undefined--typedBuildInPredToText s
@@ -187,40 +172,42 @@ buildInPredToText (BuildInPredicateInt  i) = undefined--typedBuildInPredToText i
 buildInPredToText (BuildInPredicateObj  o) = undefined--typedBuildInPredToText o
 buildInPredToText (BuildInPredicatePh   p) = undefined--typedBuildInPredToText p
 
-data TypedBuildInPred pFuncLabel a
+data TypedBuildInPredCommon pFuncLabel a
     where
-    Equality ::           Bool       -> Expr pFuncLabel a -> Expr pFuncLabel a -> TypedBuildInPred pFuncLabel a
-    Ineq     :: Ineq a => AST.IneqOp -> Expr pFuncLabel a -> Expr pFuncLabel a -> TypedBuildInPred pFuncLabel a
-    Constant ::           Bool                                                 -> TypedBuildInPred pFuncLabel a
+    Equality ::           Bool       -> ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a -> TypedBuildInPredCommon pFuncLabel a
+    Ineq     :: Ineq a => AST.IneqOp -> ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a -> TypedBuildInPredCommon pFuncLabel a
+    Constant ::           Bool                                                 -> TypedBuildInPredCommon pFuncLabel a
 
-deriving instance Eq pFuncLabel  => Eq  (TypedBuildInPred pFuncLabel a)
-deriving instance Ord pFuncLabel => Ord (TypedBuildInPred pFuncLabel a)
-typedBuildInPredToText :: TypedBuildInPred pFuncLabel a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+deriving instance Eq pFuncLabel  => Eq  (TypedBuildInPredCommon pFuncLabel a)
+deriving instance Ord pFuncLabel => Ord (TypedBuildInPredCommon pFuncLabel a)
+--2
+typedBuildInPredToText :: TypedBuildInPredCommon pFuncLabel a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 typedBuildInPredToText (Equality eq exprX exprY) ids2str ids2label = ""
     --exprToText exprX ids2str ids2label <> " " <> (if eq then "=" else "/=") <> " " <> exprToText exprY ids2str ids2label
 typedBuildInPredToText (Ineq     op exprX exprY) ids2str ids2label = ""
     --exprToText exprX ids2str ids2label <> " " <> showb op <> " " <> exprToText exprY ids2str ids2label
 typedBuildInPredToText (Constant cnst)           _       _ = ""--showb cnst
-instance Hashable pFuncLabel => Hashable (TypedBuildInPred pFuncLabel a)
+instance Hashable pFuncLabel => Hashable (TypedBuildInPredCommon pFuncLabel a)
     where
     hashWithSalt salt (Equality eq exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt eq) exprX) exprY
     hashWithSalt salt (Ineq     op exprX exprY) = Hashable.hashWithSalt (Hashable.hashWithSalt (Hashable.hashWithSalt salt op) exprX) exprY
     hashWithSalt salt (Constant b)              = Hashable.hashWithSalt salt b
 
-data Expr pFuncLabel a
+data ExprCommon pFuncLabel a
     where
-    ConstantExpr ::               ConstantExpr a                         -> Expr pFuncLabel a
-    PFuncExpr    ::               PFunc pFuncLabel a                     -> Expr pFuncLabel a
-    Sum          :: Addition a => Expr pFuncLabel a -> Expr pFuncLabel a -> Expr pFuncLabel a
+    ConstantExpr ::               ConstantExpr a                                     -> ExprCommon pFuncLabel a
+    PFuncExpr    ::               PFunc pFuncLabel a                                 -> ExprCommon pFuncLabel a
+    Sum          :: Addition a => ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a
 
-deriving instance Eq pFuncLabel  => Eq  (Expr pFuncLabel a)
-deriving instance Ord pFuncLabel => Ord (Expr pFuncLabel a)
-exprToText :: Expr pFuncLabel a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+deriving instance Eq pFuncLabel  => Eq  (ExprCommon pFuncLabel a)
+deriving instance Ord pFuncLabel => Ord (ExprCommon pFuncLabel a)
+--1
+exprToText :: ExprCommon pFuncLabel a -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 exprToText (ConstantExpr cExpr) _       _         = ""--showb cExpr
 exprToText (PFuncExpr pf)       ids2str ids2label = ""--pFuncToText pf ids2str ids2label
 exprToText (Sum x y)            ids2str ids2label = ""
     --xprToText x ids2str ids2label <> " + " <> exprToText y ids2str ids2label
-instance Hashable pFuncLabel => Hashable (Expr pFuncLabel a)
+instance Hashable pFuncLabel => Hashable (ExprCommon pFuncLabel a)
     where
     hashWithSalt salt (ConstantExpr cExpr) = Hashable.hashWithSalt salt cExpr
     hashWithSalt salt (PFuncExpr r)        = Hashable.hashWithSalt salt r
@@ -263,24 +250,30 @@ instance Ord (ConstantExpr a)
     _              <= _              = undefined
 #endif
 
+--2,1
 data RealN       -- phantom for real numbered expression etc.
+--2,1
 data Object      -- phantom for expressions about objects
+--1
 data Placeholder -- phantom type for placeholder expressions in AstPreprocessor
 
+--1
 class Addition a
 instance Addition Integer
 instance Addition RealN
 
+--1
 class Ineq a
 instance Ineq Integer
 instance Ineq RealN
 
-negatePred :: TypedBuildInPred pFuncLabel a -> TypedBuildInPred pFuncLabel a
+negatePred :: TypedBuildInPredCommon pFuncLabel a -> TypedBuildInPredCommon pFuncLabel a
 negatePred (Equality eq exprX exprY) = Equality (not eq) exprX exprY
 negatePred (Ineq     op exprX exprY) = Ineq (AST.negateOp op) exprX exprY
 negatePred (Constant cnst)           = Constant $ not cnst
 
-deterministicValue :: Eq pFuncLabel => BuildInPredicate pFuncLabel -> Maybe Bool
+--1,2
+deterministicValue :: Eq pFuncLabel => BuildInPredicateCommon pFuncLabel -> Maybe Bool
 deterministicValue (BuildInPredicateBool b) = deterministicValueTyped b
 deterministicValue (BuildInPredicateReal r) = deterministicValueTyped r
 deterministicValue (BuildInPredicateStr  s) = deterministicValueTyped s
@@ -288,7 +281,8 @@ deterministicValue (BuildInPredicateInt  i) = deterministicValueTyped i
 deterministicValue (BuildInPredicateObj  o) = deterministicValueTyped o
 deterministicValue (BuildInPredicatePh   p) = deterministicValueTyped p
 
-deterministicValueTyped :: Eq pFuncLabel => TypedBuildInPred pFuncLabel a -> Maybe Bool
+-- 2
+deterministicValueTyped :: Eq pFuncLabel => TypedBuildInPredCommon pFuncLabel a -> Maybe Bool
 deterministicValueTyped (Equality eq (ConstantExpr left) (ConstantExpr right))              = Just $ (if eq then (==) else (/=)) left right
 deterministicValueTyped (Equality eq (PFuncExpr left)    (PFuncExpr right)) | left == right = Just eq
 deterministicValueTyped (Ineq     op (ConstantExpr left) (ConstantExpr right))              = Just evalPred
@@ -301,13 +295,15 @@ deterministicValueTyped (Ineq     op (ConstantExpr left) (ConstantExpr right))  
 deterministicValueTyped (Constant val) = Just val
 deterministicValueTyped _              = Nothing
 
-possibleValuesStr :: (Hashable pFuncLabel, Ord pFuncLabel) => Expr pFuncLabel Text -> Map pFuncLabel (Set Text) -> Set Text
+--2
+possibleValuesStr :: (Hashable pFuncLabel, Ord pFuncLabel) => ExprCommon pFuncLabel Text -> Map pFuncLabel (Set Text) -> Set Text
 possibleValuesStr (ConstantExpr (StrConstant cnst)) _ = Set.singleton cnst
 possibleValuesStr (PFuncExpr (PFunc pfLabel (StrDist elements))) sConds =
     Map.findWithDefault (Set.fromList $ snd <$> elements) pfLabel sConds
 possibleValuesStr _ _ = undefined
 
-simplifiedBuildInPred :: BuildInPredicate pFuncLabel -> BuildInPredicate pFuncLabel
+--1
+simplifiedBuildInPred :: BuildInPredicateCommon pFuncLabel -> BuildInPredicateCommon pFuncLabel
 simplifiedBuildInPred (BuildInPredicateBool prd) = BuildInPredicateBool $ simplifiedTypedBuildInPred prd
 simplifiedBuildInPred (BuildInPredicateReal prd) = BuildInPredicateReal $ simplifiedTypedBuildInPred prd
 simplifiedBuildInPred (BuildInPredicateInt  prd) = BuildInPredicateInt  $ simplifiedTypedBuildInPred prd
@@ -315,12 +311,12 @@ simplifiedBuildInPred (BuildInPredicateStr  prd) = BuildInPredicateStr  $ simpli
 simplifiedBuildInPred (BuildInPredicateObj  prd) = BuildInPredicateObj  $ simplifiedTypedBuildInPred prd
 simplifiedBuildInPred (BuildInPredicatePh   prd) = BuildInPredicatePh   $ simplifiedTypedBuildInPred prd
 
-simplifiedTypedBuildInPred :: TypedBuildInPred pFuncLabel a -> TypedBuildInPred pFuncLabel a
+simplifiedTypedBuildInPred :: TypedBuildInPredCommon pFuncLabel a -> TypedBuildInPredCommon pFuncLabel a
 simplifiedTypedBuildInPred (Equality eq exprX exprY) = Equality eq (simplifiedExpr exprX) (simplifiedExpr exprY)
 simplifiedTypedBuildInPred (Ineq     op exprX exprY) = Ineq     op (simplifiedExpr exprX) (simplifiedExpr exprY)
 simplifiedTypedBuildInPred prd'                      = prd'
-
-simplifiedExpr :: Expr pFuncLabel a -> Expr pFuncLabel a
+ --1
+simplifiedExpr :: ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a
 simplifiedExpr (Sum exprX exprY) = case (simplifiedExpr exprX, simplifiedExpr exprY) of
     (ConstantExpr x, ConstantExpr y) -> ConstantExpr (add x y)
     (exprX',        exprY')          -> Sum exprX' exprY'
@@ -329,5 +325,4 @@ simplifiedExpr expr = expr
 add :: Addition a => ConstantExpr a -> ConstantExpr a -> ConstantExpr a
 add (RealConstant x) (RealConstant y) = RealConstant (x + y)
 add (IntConstant  x) (IntConstant  y) = IntConstant  (x + y)
-add _                            _    = error "Formula.refBuildInPredicate"
 

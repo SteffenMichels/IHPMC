@@ -27,7 +27,6 @@
 module KnowledgeBaseConverter
     ( convert
     ) where
-import qualified GroundedAST
 import qualified GroundedASTPhase2 as GAST
 import qualified KnowledgeBase as KB
 import Data.HashSet (Set)
@@ -45,7 +44,7 @@ type CState s cachedInfo = StateT (IdNrMap KB.PredicateLabel) (KB.KBState cached
 
 convert :: GAST.GroundedAST
         -> KB.KBState cachedInfo (([(GAST.RuleBodyElement, KB.NodeRef cachedInfo)], [KB.NodeRef cachedInfo]), IdNrMap KB.PredicateLabel)
-convert GroundedAST.GroundedAST{GroundedAST.queries = queries, GroundedAST.evidence = evidence, GroundedAST.rules = rules} = runStateT
+convert GAST.GroundedAST{GAST.queries = queries, GAST.evidence = evidence, GAST.rules = rules} = runStateT
     ( do groundedQueries  <- forM (Set.toList queries)  (\q -> (\entry -> (q, KB.entryRef entry)) <$> headFormula q Set.empty)
          groundedEvidence <- forM (Set.toList evidence) (\e -> KB.entryRef <$> headFormula e Set.empty)
          return (groundedQueries, groundedEvidence)
@@ -53,9 +52,9 @@ convert GroundedAST.GroundedAST{GroundedAST.queries = queries, GroundedAST.evide
     IdNrMap.empty
     where
     headFormula :: GAST.RuleBodyElement
-                -> Set GroundedAST.PredicateLabel
+                -> Set GAST.PredicateLabel
                 -> CState s cachedInfo (KB.RefWithNode cachedInfo)
-    headFormula (GroundedAST.UserPredicate label) excludedGoals = do
+    headFormula (GAST.UserPredicate label) excludedGoals = do
             flabel <- KB.uncondComposedLabel . KB.PredicateId <$> state (IdNrMap.getIdNr plabel)
             mbNodeId <- lift $ KB.labelId flabel
             case mbNodeId of
@@ -80,8 +79,8 @@ convert GroundedAST.GroundedAST{GroundedAST.queries = queries, GroundedAST.evide
             bodyFormula :: Int
                         -> GAST.RuleBody
                         -> CState s cachedInfo (KB.RefWithNode cachedInfo)
-            bodyFormula counter (GroundedAST.RuleBody elements)
-                | any (`Set.member` excludedGoals'') [p | GroundedAST.UserPredicate p <- Set.toList elements] =
+            bodyFormula counter (GAST.RuleBody elements)
+                | any (`Set.member` excludedGoals'') [p | GAST.UserPredicate p <- Set.toList elements] =
                     lift $ KB.augmentWithEntry $ KB.refDeterministic False
                 | otherwise = case Set.size elements of
                         0 -> lift $ KB.augmentWithEntry $ KB.refDeterministic True
@@ -97,31 +96,31 @@ convert GroundedAST.GroundedAST{GroundedAST.queries = queries, GroundedAST.evide
                excludedGoals''
                    | Set.member label children = Set.insert label excludedGoals'
                    | otherwise                 = excludedGoals'
-    headFormula (GroundedAST.BuildInPredicate bip) _ = lift $ KB.augmentWithEntry $ KB.refBuildInPredicate bip
+    headFormula (GAST.BuildInPredicate bip) _ = lift $ KB.augmentWithEntry $ KB.refBuildInPredicate bip
 
     predChildren = execState
-        (do forM_ [q | GroundedAST.UserPredicate q <- Set.toList queries]  (\q -> (\ref -> (q, ref)) <$> determinePredChildren q)
-            forM_ [e | GroundedAST.UserPredicate e <- Set.toList evidence] determinePredChildren
+        (do forM_ [q | GAST.UserPredicate q <- Set.toList queries]  (\q -> (\ref -> (q, ref)) <$> determinePredChildren q)
+            forM_ [e | GAST.UserPredicate e <- Set.toList evidence] determinePredChildren
         ) Map.empty
 
     -- determins pred children for each query/evidence
-    determinePredChildren :: GroundedAST.PredicateLabel
-                          -> State (Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel)) ()
+    determinePredChildren :: GAST.PredicateLabel
+                          -> State (Map GAST.PredicateLabel (Set GAST.PredicateLabel)) ()
     determinePredChildren goal = do
         alreadyKnown <- get
         let childrAndDeps = childrAndDependencies goal alreadyKnown
         fillInDependencies goal childrAndDeps
 
-    childrAndDependencies :: GroundedAST.PredicateLabel
-                          -> Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel)
-                          -> Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel, Set GroundedAST.PredicateLabel)
+    childrAndDependencies :: GAST.PredicateLabel
+                          -> Map GAST.PredicateLabel (Set GAST.PredicateLabel)
+                          -> Map GAST.PredicateLabel (Set GAST.PredicateLabel, Set GAST.PredicateLabel)
     childrAndDependencies goal pChildren = execState (determineChildrAndDeps goal Set.empty) Map.empty
         where
-        determineChildrAndDeps :: GroundedAST.PredicateLabel
-                               -> Set GroundedAST.PredicateLabel
+        determineChildrAndDeps :: GAST.PredicateLabel
+                               -> Set GAST.PredicateLabel
                                -> State
-                                      (Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel, Set GroundedAST.PredicateLabel))
-                                      (Set GroundedAST.PredicateLabel)
+                                      (Map GAST.PredicateLabel (Set GAST.PredicateLabel, Set GAST.PredicateLabel))
+                                      (Set GAST.PredicateLabel)
         determineChildrAndDeps goal' activeGoals = case Map.lookup goal' pChildren of
             Just children -> return children
             Nothing -> do
@@ -143,9 +142,9 @@ convert GroundedAST.GroundedAST{GroundedAST.queries = queries, GroundedAST.evide
                         modify' $ Map.insert goal' curChildrAndDeps
                         return $ fst curChildrAndDeps
 
-    fillInDependencies :: GroundedAST.PredicateLabel
-                       -> Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel, Set GroundedAST.PredicateLabel)
-                       -> State (Map GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel)) ()
+    fillInDependencies :: GAST.PredicateLabel
+                       -> Map GAST.PredicateLabel (Set GAST.PredicateLabel, Set GAST.PredicateLabel)
+                       -> State (Map GAST.PredicateLabel (Set GAST.PredicateLabel)) ()
     fillInDependencies goal childrAndDeps = do
         pChildren <- get
         unless (isJust $ Map.lookup goal pChildren) $ do
@@ -156,7 +155,7 @@ convert GroundedAST.GroundedAST{GroundedAST.queries = queries, GroundedAST.evide
             return ()
         return ()
 
-    directChildren :: GroundedAST.PredicateLabel -> Set GroundedAST.PredicateLabel
-    directChildren goal = Set.unions [ Set.fromList [child | GroundedAST.UserPredicate child <- Set.toList elements]
-                                     | GroundedAST.RuleBody elements <- Set.toList $ Map.findWithDefault Set.empty goal rules ]
+    directChildren :: GAST.PredicateLabel -> Set GAST.PredicateLabel
+    directChildren goal = Set.unions [ Set.fromList [child | GAST.UserPredicate child <- Set.toList elements]
+                                     | GAST.RuleBody elements <- Set.toList $ Map.findWithDefault Set.empty goal rules ]
 

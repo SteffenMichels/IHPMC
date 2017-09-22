@@ -58,7 +58,6 @@ import qualified Data.HashSet as Set
 import System.IO
 import Exception
 import Data.Maybe (fromJust)
-import qualified GroundedAST
 import qualified GroundedASTPhase2 as GAST
 import qualified AST
 import GHC.Generics (Generic)
@@ -92,8 +91,8 @@ data Node cachedInfo
     = Composed !NodeType ![NodeRef cachedInfo]
     | BuildInPredicateBool   (GAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted
     | BuildInPredicateString (GAST.TypedBuildInPred Text)               (Map GAST.PFuncLabel (Set Text))
-    | BuildInPredicateReal   (GAST.TypedBuildInPred GroundedAST.RealN)  (Map GAST.PFuncLabel Interval)
-    | BuildInPredicateObject (GAST.TypedBuildInPred GroundedAST.Object) (Map GAST.PFuncLabel ObjCondition)
+    | BuildInPredicateReal   (GAST.TypedBuildInPred GAST.RealN)  (Map GAST.PFuncLabel Interval)
+    | BuildInPredicateObject (GAST.TypedBuildInPred GAST.Object) (Map GAST.PFuncLabel ObjCondition)
     | Deterministic Bool
 
 data RefWithNode cachedInfo = RefWithNode
@@ -224,14 +223,14 @@ predRefWithNodeString :: GAST.TypedBuildInPred Text
 predRefWithNodeString prd sConds =
     predRefWithNode prd (RefBuildInPredicateString prd sConds) (BuildInPredicateString prd sConds)
 
-predRefWithNodeReal :: GAST.TypedBuildInPred GroundedAST.RealN
+predRefWithNodeReal :: GAST.TypedBuildInPred GAST.RealN
                     -> Map GAST.PFuncLabel Interval
                     -> cachedInfo
                     -> RefWithNode cachedInfo
 predRefWithNodeReal prd rConds =
     predRefWithNode prd (RefBuildInPredicateReal prd rConds) (BuildInPredicateReal prd rConds)
 
-predRefWithNodeObject :: GAST.TypedBuildInPred GroundedAST.Object
+predRefWithNodeObject :: GAST.TypedBuildInPred GAST.Object
                       -> Map GAST.PFuncLabel ObjCondition
                       -> cachedInfo
                       -> RefWithNode cachedInfo
@@ -247,7 +246,7 @@ predRefWithNode prd ref node cachedInfo = RefWithNode
     { entryRef        = ref
     , entryNode       = node
     , entryLabel      = Nothing
-    , entryPFuncs     = Set.map GroundedAST.probabilisticFuncLabel $ GAST.predProbabilisticFunctions prd
+    , entryPFuncs     = Set.map GAST.probabilisticFuncLabel $ GAST.predProbabilisticFunctions prd
     , entryCachedInfo = cachedInfo
     }
 
@@ -309,24 +308,24 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                     (\lbl (pf, cond) -> if Set.member pf pFuncs then lblCondFunc pf cond lbl else lbl)
                     label
                     (Map.toList conds)
-            RefBuildInPredicateBool (GroundedAST.Equality eq exprL exprR) -> do
+            RefBuildInPredicateBool (GAST.Equality eq exprL exprR) -> do
                 kb <- ask
-                let condPred = GroundedAST.Equality eq (conditionExpr exprL) (conditionExpr exprR)
+                let condPred = GAST.Equality eq (conditionExpr exprL) (conditionExpr exprR)
                 let cComps = cacheComps kb
-                return $ case GroundedAST.deterministicValueTyped condPred of
+                return $ case GAST.deterministicValueTyped condPred of
                     Just val' -> deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
                     Nothing   -> predRefWithNodeBool condPred $ cachedInfoBuildInPredBool cComps condPred
                 where
                 conditionExpr :: GAST.Expr Bool -> GAST.Expr Bool
-                conditionExpr expr@(GroundedAST.PFuncExpr exprPFunc) =
-                    case Map.lookup (GroundedAST.probabilisticFuncLabel exprPFunc) boolConds of
-                        Just val -> GroundedAST.ConstantExpr $ GroundedAST.BoolConstant val
+                conditionExpr expr@(GAST.PFuncExpr exprPFunc) =
+                    case Map.lookup (GAST.probabilisticFuncLabel exprPFunc) boolConds of
+                        Just val -> GAST.ConstantExpr $ GAST.BoolConstant val
                         Nothing  -> expr
                 conditionExpr expr = expr
-            RefBuildInPredicateString prd@(GroundedAST.Equality eq exprL exprR) sConds -> do
+            RefBuildInPredicateString prd@(GAST.Equality eq exprL exprR) sConds -> do
                 kb <- ask
                 let cComps = cacheComps kb
-                case GroundedAST.deterministicValueTyped condPred of
+                case GAST.deterministicValueTyped condPred of
                     Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
                     Nothing -> do
                         cachedInfo <- cachedInfoBuildInPredCached sConds' condPred (cachedInfoBuildInPredString cComps) (buildinCacheStringRef kb)
@@ -343,16 +342,16 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                 condPred :: GAST.TypedBuildInPred Text
                 condPred
                     | Set.size possibleLeft == 1 && Set.size possibleRight == 1 =
-                        GroundedAST.Constant $ eq == (getFirst possibleLeft == getFirst possibleRight)
-                    | Set.null $ Set.intersection possibleLeft possibleRight = GroundedAST.Constant $ not eq
+                        GAST.Constant $ eq == (getFirst possibleLeft == getFirst possibleRight)
+                    | Set.null $ Set.intersection possibleLeft possibleRight = GAST.Constant $ not eq
                     | otherwise = prd
                     where
-                    possibleLeft  = GroundedAST.possibleValuesStr exprL sConds'
-                    possibleRight = GroundedAST.possibleValuesStr exprR sConds'
-            RefBuildInPredicateReal prd@(GroundedAST.Ineq op left right) rConds -> do
+                    possibleLeft  = GAST.possibleValuesStr exprL sConds'
+                    possibleRight = GAST.possibleValuesStr exprR sConds'
+            RefBuildInPredicateReal prd@(GAST.Ineq op left right) rConds -> do
                 kb <- ask
                 let cComps = cacheComps kb
-                case GroundedAST.deterministicValueTyped condPred of
+                case GAST.deterministicValueTyped condPred of
                     Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
                     Nothing -> do
                         cachedInfo<- cachedInfoBuildInPredCached rConds' condPred (cachedInfoBuildInPredReal cComps) (buildinCacheRealRef kb)
@@ -366,24 +365,24 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                     rConds
                     pFuncs
 
-                condPred :: GAST.TypedBuildInPred GroundedAST.RealN
+                condPred :: GAST.TypedBuildInPred GAST.RealN
                 condPred
                     -- check if choice is made for all 'pFuncs' in 'prd'
                     | length conditions == Set.size pFuncs = conditionPred'
                     | otherwise = prd
                     where
                     conditionPred'
-                        | all ((==) $ Just True)  checkedPreds = GroundedAST.Constant True
-                        | all ((==) $ Just False) checkedPreds = GroundedAST.Constant False
+                        | all ((==) $ Just True)  checkedPreds = GAST.Constant True
+                        | all ((==) $ Just False) checkedPreds = GAST.Constant False
                         | otherwise                            = prd
 
                     checkedPreds = map (GAST.checkRealIneqPred op left right) crns
                     conditions   = [(pf',interv') | (pf',interv') <- Map.toList rConds', Set.member pf' pFuncs]
                     crns         = Interval.corners conditions
-            RefBuildInPredicateObject prd@(GroundedAST.Equality eq exprL exprR) oConds -> do
+            RefBuildInPredicateObject prd@(GAST.Equality eq exprL exprR) oConds -> do
                 kb <- ask
                 let cComps = cacheComps kb
-                case GroundedAST.deterministicValueTyped condPred of
+                case GAST.deterministicValueTyped condPred of
                     Just val' -> return $ deterministicRefWithNode val' $ cachedInfoDeterministic cComps val'
                     Nothing -> do
                         cachedInfo <- cachedInfoBuildInPredCached oConds' condPred (cachedInfoBuildInPredObject cComps) (buildinCacheObjectRef kb)
@@ -397,17 +396,17 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                     oConds
                     pFuncs
 
-                condPred :: GAST.TypedBuildInPred GroundedAST.Object
+                condPred :: GAST.TypedBuildInPred GAST.Object
                 condPred
-                    | lFrom == lUpto && rFrom == rUpto = GroundedAST.Constant $ (lFrom == rFrom) == eq
+                    | lFrom == lUpto && rFrom == rUpto = GAST.Constant $ (lFrom == rFrom) == eq
                     | otherwise = case intervIntersection lFrom lUpto rFrom rUpto of
-                        Nothing -> GroundedAST.Constant $ not eq -- disjoint intervals
+                        Nothing -> GAST.Constant $ not eq -- disjoint intervals
                         Just (from, upto)
                             -- optimisation: no need to go through all values in case of no excluded values
                             | Set.null lExcl && Set.null rExcl -> prd
                             -- all possible values excluded
                             | all (\o -> Set.member o lExcl || Set.member o rExcl) [from..upto] ->
-                                GroundedAST.Constant $ not eq
+                                GAST.Constant $ not eq
                             | otherwise -> prd
                     where
                     (lFrom, lUpto, lExcl) = possibleObjects exprL
@@ -420,12 +419,12 @@ condition rootNodeEntry Conditions{boolConds, stringConds, realConds, objConds} 
                         from = max lFrom' rFrom'
                         upto = min lUpto' rUpto'
 
-                possibleObjects :: GAST.Expr GroundedAST.Object -> (Integer, Integer, Set Integer)
-                possibleObjects (GroundedAST.ConstantExpr (GroundedAST.ObjConstant cnst)) = (cnst, cnst, Set.empty)
-                possibleObjects (GroundedAST.PFuncExpr pf') = case Map.lookup (GroundedAST.probabilisticFuncLabel pf') oConds' of
-                    Nothing                                   -> (0, GroundedAST.objectPfNrObjects pf' - 1, Set.empty)
+                possibleObjects :: GAST.Expr GAST.Object -> (Integer, Integer, Set Integer)
+                possibleObjects (GAST.ConstantExpr (GAST.ObjConstant cnst)) = (cnst, cnst, Set.empty)
+                possibleObjects (GAST.PFuncExpr pf') = case Map.lookup (GAST.probabilisticFuncLabel pf') oConds' of
+                    Nothing                                   -> (0, GAST.objectPfNrObjects pf' - 1, Set.empty)
                     Just (Object o)                           -> (o , o, Set.empty)
-                    Just (AnyExcept excl)                     -> (0, GroundedAST.objectPfNrObjects pf' - 1, excl)
+                    Just (AnyExcept excl)                     -> (0, GAST.objectPfNrObjects pf' - 1, excl)
                     Just (InInterval from upto)               -> (from, upto, Set.empty)
                     Just (AnyExceptInInterval excl from upto) -> (from, upto, excl)
                 possibleObjects _ = undefined
@@ -500,7 +499,7 @@ exportAsDot path ids2str ids2label ids2predlbl = do
                                ";\n" <>
                                showb h <>
                                "[label=\"" <>
-                               TB.fromLazyText (LT.replace "\"" "\\\"" $ TB.toLazyText $ GroundedAST.typedBuildInPredToText prd ids2str ids2label) <>
+                               TB.fromLazyText (LT.replace "\"" "\\\"" $ TB.toLazyText $ GAST.typedBuildInPredToText prd ids2str ids2label) <>
                                "\"]"
                     where
                     h = Hashable.hashWithSalt (Hashable.hash i) prd
@@ -510,8 +509,8 @@ data KnowledgeBase cachedInfo = KB
     { freshCounterRef       :: IORef Int                                                                                                       -- counter for fresh nodes
     , labels2idsRef         :: HashTable ComposedLabel (ComposedId cachedInfo)                                                                           -- map from composed label to composed ids (ids are used for performance, as ints are most effecient as keys in the graph map)
     , buildinCacheStringRef :: HashTable (GAST.TypedBuildInPred Text,               Map GAST.PFuncLabel (Set Text))   cachedInfo -- cache for buildin predicates
-    , buildinCacheRealRef   :: HashTable (GAST.TypedBuildInPred GroundedAST.RealN,  Map GAST.PFuncLabel Interval)     cachedInfo -- cache for buildin predicates
-    , buildinCacheObjectRef :: HashTable (GAST.TypedBuildInPred GroundedAST.Object, Map GAST.PFuncLabel ObjCondition) cachedInfo -- cache for buildin predicates
+    , buildinCacheRealRef   :: HashTable (GAST.TypedBuildInPred GAST.RealN,  Map GAST.PFuncLabel Interval)     cachedInfo -- cache for buildin predicates
+    , buildinCacheObjectRef :: HashTable (GAST.TypedBuildInPred GAST.Object, Map GAST.PFuncLabel ObjCondition) cachedInfo -- cache for buildin predicates
     , cacheComps            :: CacheComputations cachedInfo                                                                                    -- how cached information attached to KB nodes is computed
     }
 
@@ -532,7 +531,7 @@ data ComposedLabel = ComposedLabel
 instance Hashable ComposedLabel where
     hashWithSalt salt (ComposedLabel _ _ hash) = Hashable.hashWithSalt salt hash
 
-data PredicateLabel = PredicateLabel GroundedAST.PredicateLabel (Set GroundedAST.PredicateLabel) (Maybe Int) deriving (Eq, Ord, Generic)
+data PredicateLabel = PredicateLabel GAST.PredicateLabel (Set GAST.PredicateLabel) (Maybe Int) deriving (Eq, Ord, Generic)
 instance Hashable PredicateLabel
 
 newtype PredicateId = PredicateId Int deriving (Eq, Ord, Generic)
@@ -559,9 +558,9 @@ noConditions = Conditions Map.empty Map.empty Map.empty Map.empty
 
 composedLabelToText :: ComposedLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Map Int PredicateLabel -> Builder
 composedLabelToText (ComposedLabel (PredicateId cid) Conditions{boolConds, stringConds, realConds} _) ids2str ids2label ids2predlbl =
-    GroundedAST.predicateLabelToText label ids2str ids2label <>
+    GAST.predicateLabelToText label ids2str ids2label <>
     "-" <>
-    toTextLst (Set.toList excluded) (\x -> GroundedAST.predicateLabelToText x ids2str ids2label) <>
+    toTextLst (Set.toList excluded) (\x -> GAST.predicateLabelToText x ids2str ids2label) <>
     (case mbNr of Just nr -> "#" <> showb nr; Nothing -> "") <>
     "|" <>
     showbLst (
@@ -629,8 +628,8 @@ data NodeRef cachedInfo
     = RefComposed Bool (ComposedId cachedInfo)
     | RefBuildInPredicateBool   (GAST.TypedBuildInPred Bool) -- don't have to store choices, as rfs are always substituted on split
     | RefBuildInPredicateString (GAST.TypedBuildInPred Text)               (Map GAST.PFuncLabel (Set Text))
-    | RefBuildInPredicateReal   (GAST.TypedBuildInPred GroundedAST.RealN)  (Map GAST.PFuncLabel Interval)
-    | RefBuildInPredicateObject (GAST.TypedBuildInPred GroundedAST.Object) (Map GAST.PFuncLabel ObjCondition)
+    | RefBuildInPredicateReal   (GAST.TypedBuildInPred GAST.RealN)  (Map GAST.PFuncLabel Interval)
+    | RefBuildInPredicateObject (GAST.TypedBuildInPred GAST.Object) (Map GAST.PFuncLabel ObjCondition)
     | RefDeterministic Bool
     deriving (Eq, Ord, Generic)
 
@@ -638,17 +637,17 @@ instance Hashable (NodeRef cachedInfo)
 
 nodeRefToText :: NodeRef cachedInfo -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 nodeRefToText (RefComposed sign (ComposedId cid _)) _ _ = if sign then "" else "-" <> showb cid
-nodeRefToText (RefBuildInPredicateBool prd) ids2str ids2label = GroundedAST.typedBuildInPredToText prd ids2str ids2label
+nodeRefToText (RefBuildInPredicateBool prd) ids2str ids2label = GAST.typedBuildInPredToText prd ids2str ids2label
 nodeRefToText (RefBuildInPredicateString prd sConds) ids2str ids2label =
-   GroundedAST.typedBuildInPredToText prd ids2str ids2label <>
+   GAST.typedBuildInPredToText prd ids2str ids2label <>
    "|\n  " <>
    toTextLstEnc "" ",\n" (Map.toList sConds) (\x -> showCondString x ids2str ids2label)
 nodeRefToText (RefBuildInPredicateReal prd rConds) ids2str ids2label =
-   GroundedAST.typedBuildInPredToText prd ids2str ids2label <>
+   GAST.typedBuildInPredToText prd ids2str ids2label <>
    "|\n " <>
    toTextLstEnc "" ",\n" (Map.toList rConds) (\x -> showCondReal x ids2str ids2label)
 nodeRefToText (RefBuildInPredicateObject prd oConds) ids2str ids2label =
-   GroundedAST.typedBuildInPredToText prd ids2str ids2label <>
+   GAST.typedBuildInPredToText prd ids2str ids2label <>
    "|\n  " <>
    toTextLstEnc "" ",\n" (Map.toList oConds) (\x -> showCondObject x ids2str ids2label)
 nodeRefToText (RefDeterministic val) _ _ = showb val
@@ -675,15 +674,15 @@ refDeterministic :: Bool -> NodeRef cachedInfo
 refDeterministic = RefDeterministic
 
 refBuildInPredicate :: GAST.BuildInPredicate -> NodeRef cachedInfo
-refBuildInPredicate prd = case GroundedAST.deterministicValue prd of
+refBuildInPredicate prd = case GAST.deterministicValue prd of
     Just val -> RefDeterministic val
     Nothing  -> case prd of
-        GroundedAST.BuildInPredicateBool prd' -> RefBuildInPredicateBool   prd'
-        GroundedAST.BuildInPredicateReal prd' -> RefBuildInPredicateReal   prd' Map.empty
-        GroundedAST.BuildInPredicateStr  prd' -> RefBuildInPredicateString prd' Map.empty
-        GroundedAST.BuildInPredicateObj  prd' -> RefBuildInPredicateObject prd' Map.empty
-        GroundedAST.BuildInPredicatePh   _    -> undefined
-        GroundedAST.BuildInPredicateInt  _    -> undefined
+        GAST.BuildInPredicateBool prd' -> RefBuildInPredicateBool   prd'
+        GAST.BuildInPredicateReal prd' -> RefBuildInPredicateReal   prd' Map.empty
+        GAST.BuildInPredicateStr  prd' -> RefBuildInPredicateString prd' Map.empty
+        GAST.BuildInPredicateObj  prd' -> RefBuildInPredicateObject prd' Map.empty
+        GAST.BuildInPredicatePh   _    -> undefined
+        GAST.BuildInPredicateInt  _    -> undefined
 
 refComposed :: ComposedId cachedInfo -> NodeRef cachedInfo
 refComposed = RefComposed True
@@ -693,12 +692,12 @@ deterministicNodeRef (RefDeterministic val) = Just val
 deterministicNodeRef _                      = Nothing
 
 data CacheComputations cachedInfo = CacheComputations
-    { cachedInfoComposed          :: NodeType -> Int -> [cachedInfo]                                                            -> cachedInfo
-    , cachedInfoBuildInPredBool   ::                                            GAST.TypedBuildInPred Bool               -> cachedInfo
-    , cachedInfoBuildInPredString :: Map GAST.PFuncLabel (Set Text)   -> GAST.TypedBuildInPred Text               -> cachedInfo
-    , cachedInfoBuildInPredReal   :: Map GAST.PFuncLabel Interval     -> GAST.TypedBuildInPred GroundedAST.RealN  -> cachedInfo
-    , cachedInfoBuildInPredObject :: Map GAST.PFuncLabel ObjCondition -> GAST.TypedBuildInPred GroundedAST.Object -> cachedInfo
-    , cachedInfoDeterministic     :: Bool                                                                                       -> cachedInfo
+    { cachedInfoComposed          :: NodeType -> Int -> [cachedInfo]                                       -> cachedInfo
+    , cachedInfoBuildInPredBool   ::                                     GAST.TypedBuildInPred Bool        -> cachedInfo
+    , cachedInfoBuildInPredString :: Map GAST.PFuncLabel (Set Text)   -> GAST.TypedBuildInPred Text        -> cachedInfo
+    , cachedInfoBuildInPredReal   :: Map GAST.PFuncLabel Interval     -> GAST.TypedBuildInPred GAST.RealN  -> cachedInfo
+    , cachedInfoBuildInPredObject :: Map GAST.PFuncLabel ObjCondition -> GAST.TypedBuildInPred GAST.Object -> cachedInfo
+    , cachedInfoDeterministic     :: Bool                                                                  -> cachedInfo
     }
 
 -- to avoid recomputation

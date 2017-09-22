@@ -36,7 +36,6 @@ import Data.Monoid ((<>))
 import qualified Data.List as List
 import Data.Traversable (mapAccumR)
 import Data.Foldable (foldl')
-import qualified GroundedAST
 import qualified GroundedASTPhase1 as GAST1
 import qualified GroundedASTPhase2 as GAST2
 

@@ -36,7 +36,6 @@ import Data.HashSet (Set)
 import qualified Data.HashSet as Set
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
-import qualified GroundedAST
 import qualified GroundedASTPhase2 as GAST
 import Interval (Interval, IntervalLimit(..), LowerUpper(..), (~>), (~<))
 import qualified Interval
@@ -212,28 +211,28 @@ splitNode :: RefWithNode
           -> KBState (KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, KB.NodeRef HPT.CachedSplitPoints, Maybe HPT.LazyNode, Probability)
 splitNode f lf (HPT.BoolSplit splitPF) = splitNodeCommon f lf pLeft addCond True False
     where
-    GroundedAST.Flip pLeft = GroundedAST.probabilisticFuncDef splitPF
-    pfLabel = GroundedAST.probabilisticFuncLabel splitPF
+    GAST.Flip pLeft = GAST.probabilisticFuncDef splitPF
+    pfLabel = GAST.probabilisticFuncLabel splitPF
     addCond val conds = conds{KB.boolConds = Map.insert pfLabel val $ KB.boolConds conds}
 splitNode f lf (HPT.StringSplit splitPF splitSet) = splitNodeCommon f lf pLeft addCond splitSet splitSetCompl
     where
     splitSetCompl                   = Set.difference curSet splitSet
     curSet                          = Map.findWithDefault
                                           (Set.fromList $ snd <$> elements)
-                                          (GroundedAST.probabilisticFuncLabel splitPF)
+                                          (GAST.probabilisticFuncLabel splitPF)
                                           sConds
     KB.Conditions _ sConds _ _ = KB.entryChoices f
-    GroundedAST.StrDist elements    = GroundedAST.probabilisticFuncDef splitPF
+    GAST.StrDist elements    = GAST.probabilisticFuncDef splitPF
     pLeft                           = List.sum [p | (p, val) <- curElements, Set.member val splitSet] / z
     z                               = List.sum $ fst <$> curElements
     curElements                     = List.filter ((`Set.member` curSet) . snd) elements
-    pfLabel                         = GroundedAST.probabilisticFuncLabel splitPF
+    pfLabel                         = GAST.probabilisticFuncLabel splitPF
     addCond val conds               = conds{KB.stringConds = Map.insert pfLabel val $ KB.stringConds conds}
 -- we assume here that the splitObj is within the set given by the current conditions,
 -- otherwise the KB node would have already been simplified
-splitNode f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
-    GroundedAST.UniformObjDist _ -> splitNodeCommon f lf pLeft (addCondObj splitPf) leftCond rightCond -- TODO: can probabilties become 1.0/0.0?
-    GroundedAST.UniformOtherObjDist _ -> error "not implemented"
+splitNode f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GAST.probabilisticFuncDef splitPf of
+    GAST.UniformObjDist _ -> splitNodeCommon f lf pLeft (addCondObj splitPf) leftCond rightCond -- TODO: can probabilties become 1.0/0.0?
+    GAST.UniformOtherObjDist _ -> error "not implemented"
     where
     pLeft = case possibleValues of
         KB.Object _                           -> error "object PF restricted to single object should never be selected to split on"
@@ -265,10 +264,10 @@ splitNode f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.proba
 
     possibleValues = Map.findWithDefault
         (KB.InInterval 0 $ nrObjects - 1)
-        (GroundedAST.probabilisticFuncLabel splitPf)
+        (GAST.probabilisticFuncLabel splitPf)
         oConds
 
-    nrObjects = GroundedAST.objectPfNrObjects splitPf
+    nrObjects = GAST.objectPfNrObjects splitPf
     anyExceptInInterval from upto excl | from == upto = if Set.member from excl then error "TODO: deal with inconsistency"
                                                                                 else KB.Object from
                                        | otherwise = KB.AnyExceptInInterval (filterExcl from upto excl) from upto
@@ -277,9 +276,9 @@ splitNode f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GroundedAST.proba
                          | otherwise    = KB.InInterval from upto
     filterExcl from upto = Set.filter (\e -> e >= from && e <= upto)
     KB.Conditions _ _ _ oConds = KB.entryChoices f
-splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilisticFuncDef splitPf of
-    GroundedAST.UniformObjDist _ -> splitObjNode $ 1 / nPossibilities
-    GroundedAST.UniformOtherObjDist otherPf -> let otherPf = undefined in case possibleValues otherPf oConds of
+splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GAST.probabilisticFuncDef splitPf of
+    GAST.UniformObjDist _ -> splitObjNode $ 1 / nPossibilities
+    GAST.UniformOtherObjDist otherPf -> let otherPf = undefined in case possibleValues otherPf oConds of
         KB.Object otherObj
             | otherObj == splitObj -> splitObjNode 0.0
             | otherwise -> splitObjNode $
@@ -317,19 +316,19 @@ splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilist
         KB.InInterval from upto               -> intToProb $ upto - from + 1
         KB.AnyExceptInInterval excl from upto -> intToProb $ upto - from + 1 - fromIntegral (Set.size excl)
 
-    nr :: GAST.PFunc GroundedAST.Object -> Integer
-    nr pf = case GroundedAST.probabilisticFuncDef pf of
-        GroundedAST.UniformObjDist nr'          -> nr'
-        GroundedAST.UniformOtherObjDist otherPf -> nr undefined--otherPf
+    nr :: GAST.PFunc GAST.Object -> Integer
+    nr pf = case GAST.probabilisticFuncDef pf of
+        GAST.UniformObjDist nr'          -> nr'
+        GAST.UniformOtherObjDist otherPf -> nr undefined--otherPf
 
     KB.Conditions _ _ _ oConds = KB.entryChoices f
 
-    possibleValues :: GAST.PFunc GroundedAST.Object
+    possibleValues :: GAST.PFunc GAST.Object
                    -> Map GAST.PFuncLabel KB.ObjCondition
                    -> KB.ObjCondition
     possibleValues pf = Map.findWithDefault
         (KB.AnyExcept Set.empty)
-        (GroundedAST.probabilisticFuncLabel pf)
+        (GAST.probabilisticFuncLabel pf)
 
     inCurPossibleValues :: Integer -> Bool
     inCurPossibleValues obj = case possibleValues splitPf oConds of
@@ -338,7 +337,7 @@ splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GroundedAST.probabilist
         KB.InInterval from upto               -> from <= obj && obj <= upto
         KB.AnyExceptInInterval excl from upto -> from <= obj && obj <= upto && not (Set.member obj excl)
 
-    splitPfInPossibleValuesOf :: GAST.PFunc GroundedAST.Object -> Bool
+    splitPfInPossibleValuesOf :: GAST.PFunc GAST.Object -> Bool
     splitPfInPossibleValuesOf pf = case possibleValues pf oConds of
         KB.Object _                           -> undefined
         KB.AnyExcept excl                     -> not $ Set.member splitObj excl
@@ -362,11 +361,11 @@ splitNode f lf (HPT.ContinuousSplit splitPF spPoint) = splitNodeCommon f lf pLef
     pUntilSplit = cdf spPoint
     Interval.Interval curLower curUpper = Map.findWithDefault
                                               (Interval.Interval Inf Inf)
-                                              (GroundedAST.probabilisticFuncLabel splitPF)
+                                              (GAST.probabilisticFuncLabel splitPF)
                                               rConds
     rConds = KB.realConds $ KB.entryChoices f
-    GroundedAST.RealDist cdf _ = GroundedAST.probabilisticFuncDef splitPF
-    pfLabel           = GroundedAST.probabilisticFuncLabel splitPF
+    GAST.RealDist cdf _ = GAST.probabilisticFuncDef splitPF
+    pfLabel           = GAST.probabilisticFuncLabel splitPF
     addCond val conds = conds{KB.realConds = Map.insert pfLabel val $ KB.realConds conds}
 
 splitNodeCommon :: RefWithNode
@@ -389,7 +388,7 @@ splitNodeCommon f lf pLeft addCond leftCond rightCond = do
 addCondObj :: GAST.PFunc a -> KB.ObjCondition -> KB.Conditions -> KB.Conditions
 addCondObj pf val conds = conds{KB.objConds = Map.insert pfLabel val $ KB.objConds conds}
     where
-    pfLabel = GroundedAST.probabilisticFuncLabel pf
+    pfLabel = GAST.probabilisticFuncLabel pf
 
 heuristicsCacheComputations :: KB.CacheComputations HPT.CachedSplitPoints
 heuristicsCacheComputations = KB.CacheComputations
@@ -411,11 +410,11 @@ heuristicBuildInPredBool prd = HPT.CachedSplitPoints
     (HPT.Primitive $ Set.map HPT.BoolSplit pFuncs)
     where
     (proofsT, proofsF) = case prd of
-        GroundedAST.Equality eq (GroundedAST.ConstantExpr (GroundedAST.BoolConstant cnst)) (GroundedAST.PFuncExpr pf) ->
+        GAST.Equality eq (GAST.ConstantExpr (GAST.BoolConstant cnst)) (GAST.PFuncExpr pf) ->
             proofsSinglePf eq cnst pf
-        GroundedAST.Equality eq (GroundedAST.PFuncExpr pf) (GroundedAST.ConstantExpr (GroundedAST.BoolConstant cnst)) ->
+        GAST.Equality eq (GAST.PFuncExpr pf) (GAST.ConstantExpr (GAST.BoolConstant cnst)) ->
             proofsSinglePf eq cnst pf
-        GroundedAST.Equality eq (GroundedAST.PFuncExpr pfX) (GroundedAST.PFuncExpr pfY) ->
+        GAST.Equality eq (GAST.PFuncExpr pfX) (GAST.PFuncExpr pfY) ->
             ( Set.fromList
                 [ HPT.Proof $ Map.fromList
                     [ (HPT.BoolSplit pfX, HPT.Left)
@@ -450,13 +449,13 @@ heuristicBuildInPredString :: Map GAST.PFuncLabel (Set Text)
                            -> GAST.TypedBuildInPred Text
                            -> HPT.CachedSplitPoints
 heuristicBuildInPredString _ prd = case prd of
-    GroundedAST.Equality eq (GroundedAST.PFuncExpr pf)      (GroundedAST.ConstantExpr cnst) -> splitPointsStringPfConst eq pf cnst
-    GroundedAST.Equality eq (GroundedAST.ConstantExpr cnst) (GroundedAST.PFuncExpr pf)      -> splitPointsStringPfConst eq pf cnst
-    GroundedAST.Equality _ (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)      -> splitPointsStringPfs pfX pfY
+    GAST.Equality eq (GAST.PFuncExpr pf)      (GAST.ConstantExpr cnst) -> splitPointsStringPfConst eq pf cnst
+    GAST.Equality eq (GAST.ConstantExpr cnst) (GAST.PFuncExpr pf)      -> splitPointsStringPfConst eq pf cnst
+    GAST.Equality _ (GAST.PFuncExpr pfX)     (GAST.PFuncExpr pfY)      -> splitPointsStringPfs pfX pfY
     _                                                                                       -> undefined
     where
-    splitPointsStringPfConst :: Bool -> GAST.PFunc Text -> GroundedAST.ConstantExpr Text -> HPT.CachedSplitPoints
-    splitPointsStringPfConst eq pf (GroundedAST.StrConstant cnst) = HPT.CachedSplitPoints
+    splitPointsStringPfConst :: Bool -> GAST.PFunc Text -> GAST.ConstantExpr Text -> HPT.CachedSplitPoints
+    splitPointsStringPfConst eq pf (GAST.StrConstant cnst) = HPT.CachedSplitPoints
         (Set.singleton $ HPT.Proof $ Map.singleton splitPt $ if eq then HPT.Left else HPT.Right)
         (Set.singleton $ HPT.Proof $ Map.singleton splitPt $ if eq then HPT.Right else HPT.Left)
         (HPT.Primitive $ Set.singleton splitPt)
@@ -465,12 +464,12 @@ heuristicBuildInPredString _ prd = case prd of
     splitPointsStringPfs _ _ = error "equality between two string-valued PFs not implemented"
 
 heuristicBuildInPredReal :: Map GAST.PFuncLabel Interval
-                         -> GAST.TypedBuildInPred GroundedAST.RealN
+                         -> GAST.TypedBuildInPred GAST.RealN
                          -> HPT.CachedSplitPoints
 heuristicBuildInPredReal prevChoicesReal prd = case prd of
-    GroundedAST.Equality{}          -> error "IHPMC: real equality not implemented"
-    GroundedAST.Constant _          -> undefined
-    GroundedAST.Ineq op exprX exprY -> HPT.CachedSplitPoints
+    GAST.Equality{}          -> error "IHPMC: real equality not implemented"
+    GAST.Constant _          -> undefined
+    GAST.Ineq op exprX exprY -> HPT.CachedSplitPoints
         proofsT
         proofsF
         ( HPT.Primitive $ Set.unions
@@ -481,7 +480,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
         proofsF = keepOnlyMinimal proofsF'
 
         -- per PF only keep solutions requiring the minimal number of splits
-        keepOnlyMinimal :: [([GAST.PFunc GroundedAST.RealN], [HPT.Proof])] -> Set HPT.Proof
+        keepOnlyMinimal :: [([GAST.PFunc GAST.RealN], [HPT.Proof])] -> Set HPT.Proof
         keepOnlyMinimal proofs = snd $ foldl'
             ( \(nSols, proofs') (pfs, proofs'') ->
                   let nPfs' = length pfs
@@ -497,7 +496,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
             ([], [])
             [(pfSubset,) $ findProofs pfSubset | pfSubset <- List.subsequences $ Set.toList predPfs, not $ null pfSubset]
 
-        findProofs :: [GAST.PFunc GroundedAST.RealN] -> ([HPT.Proof], [HPT.Proof])
+        findProofs :: [GAST.PFunc GAST.RealN] -> ([HPT.Proof], [HPT.Proof])
         findProofs pfs = (proofs True, proofs False)
             where
             -- TODO: does filter 'insideCurrentSpace' prevent wrong proofs here?
@@ -510,7 +509,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 | corner <- remRfsCorners
                 ]
 
-            spPoint :: GAST.PFunc GroundedAST.RealN -> Map (GAST.PFunc GroundedAST.RealN) Rational -> (Rational, Bool)
+            spPoint :: GAST.PFunc GAST.RealN -> Map (GAST.PFunc GAST.RealN) Rational -> (Rational, Bool)
             spPoint pf remRfsCornerPts = ( ( (fromIntegral nPfs' - 1.0) * equalSplit pf +
                                              (if pfOnLeft then 1.0 else -1.0) * (sumExpr exprY evalVals - sumExpr exprX evalVals)
                                            )
@@ -522,17 +521,17 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                 pfOnLeft = Set.member pf $ GAST.exprProbabilisticFunctions exprX
                 equalSplit pf' = Map.findWithDefault (error "IHPMC.spPoint") pf' equalSplits
 
-                sumExpr :: GAST.Expr GroundedAST.RealN -> Map.Map (GAST.PFunc GroundedAST.RealN) Rational-> Rational
-                sumExpr (GroundedAST.ConstantExpr (GroundedAST.RealConstant c)) _ = c
-                sumExpr (GroundedAST.PFuncExpr pf') vals
+                sumExpr :: GAST.Expr GAST.RealN -> Map.Map (GAST.PFunc GAST.RealN) Rational-> Rational
+                sumExpr (GAST.ConstantExpr (GAST.RealConstant c)) _ = c
+                sumExpr (GAST.PFuncExpr pf') vals
                     | pf' == pf = 0
                     | otherwise = fromMaybe (error "IHPMC.sumExpr: Just expected") $ Map.lookup pf' vals
-                sumExpr (GroundedAST.Sum x y) vals = sumExpr x vals + sumExpr y vals
+                sumExpr (GAST.Sum x y) vals = sumExpr x vals + sumExpr y vals
 
             -- coners of all PFs not in current subset
-            remRfsCorners :: [Map (GAST.PFunc GroundedAST.RealN) Rational]
+            remRfsCorners :: [Map (GAST.PFunc GAST.RealN) Rational]
             remRfsCorners = Set.fold
-                (\pf corners -> let Interval.Interval l u = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
+                (\pf corners -> let Interval.Interval l u = Map.findWithDefault (Interval.Interval Inf Inf) (GAST.probabilisticFuncLabel pf) prevChoicesReal
                                     mbX                   = Interval.pointRational (Interval.toPoint Lower l)
                                     mbY                   = Interval.pointRational (Interval.toPoint Upper u)
                                     add mbC               = case mbC of Nothing -> []
@@ -550,7 +549,7 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
                                                            (lp ~< Interval.toPoint Upper upper) == Just True
                 where
                 lp = Interval.rat2IntervLimPoint p
-                Interval.Interval lower upper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
+                Interval.Interval lower upper = Map.findWithDefault (Interval.Interval Inf Inf) (GAST.probabilisticFuncLabel pf) prevChoicesReal
             insideCurrentSpace _ = error "IHPMC.heuristicBuildInPred.insideCurrentSpace"
 
             nPfs' = length pfs
@@ -558,35 +557,35 @@ heuristicBuildInPredReal prevChoicesReal prd = case prd of
         predPfs = GAST.predProbabilisticFunctions prd
         nPfs = Set.size predPfs
         opIsLt = case op of
-            GroundedAST.Lt   -> True
-            GroundedAST.LtEq -> True
-            GroundedAST.Gt   -> False
-            GroundedAST.GtEq -> False
+            GAST.Lt   -> True
+            GAST.LtEq -> True
+            GAST.Gt   -> False
+            GAST.GtEq -> False
 
-        equalSplits :: Map (GAST.PFunc GroundedAST.RealN) Rational
+        equalSplits :: Map (GAST.PFunc GAST.RealN) Rational
         equalSplits = Map.fromList [(pf,equalSplit pf) | pf <- Set.toList predPfs]
             where
             equalSplit pf = icdf ((pUntilLower + pUntilUpper) / 2.0)
                 where
                 pUntilLower   = cdf' cdf True  curLower
                 pUntilUpper   = cdf' cdf False curUpper
-                Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GroundedAST.probabilisticFuncLabel pf) prevChoicesReal
-                GroundedAST.RealDist cdf icdf = GroundedAST.probabilisticFuncDef pf
+                Interval.Interval curLower curUpper = Map.findWithDefault (Interval.Interval Inf Inf) (GAST.probabilisticFuncLabel pf) prevChoicesReal
+                GAST.RealDist cdf icdf = GAST.probabilisticFuncDef pf
 
 heuristicBuildInPredObject :: Map GAST.PFuncLabel KB.ObjCondition
-                           -> GAST.TypedBuildInPred GroundedAST.Object
+                           -> GAST.TypedBuildInPred GAST.Object
                            -> HPT.CachedSplitPoints
 heuristicBuildInPredObject prevChoicesObjects prd = case prd of
-    GroundedAST.Equality eq (GroundedAST.PFuncExpr pf)      (GroundedAST.ConstantExpr cnst) -> splitPointsObjPfConst eq pf cnst
-    GroundedAST.Equality eq (GroundedAST.ConstantExpr cnst) (GroundedAST.PFuncExpr pf)      -> splitPointsObjPfConst eq pf cnst
-    GroundedAST.Equality eq (GroundedAST.PFuncExpr pfX)     (GroundedAST.PFuncExpr pfY)     -> splitPointsObjPfs eq pfX pfY
+    GAST.Equality eq (GAST.PFuncExpr pf)      (GAST.ConstantExpr cnst) -> splitPointsObjPfConst eq pf cnst
+    GAST.Equality eq (GAST.ConstantExpr cnst) (GAST.PFuncExpr pf)      -> splitPointsObjPfConst eq pf cnst
+    GAST.Equality eq (GAST.PFuncExpr pfX)     (GAST.PFuncExpr pfY)     -> splitPointsObjPfs eq pfX pfY
     _                                                                                       -> undefined
     where
     splitPointsObjPfConst :: Bool
-                          -> GAST.PFunc GroundedAST.Object
-                          -> GroundedAST.ConstantExpr GroundedAST.Object
+                          -> GAST.PFunc GAST.Object
+                          -> GAST.ConstantExpr GAST.Object
                           -> HPT.CachedSplitPoints
-    splitPointsObjPfConst eq pf (GroundedAST.ObjConstant cnst) = HPT.CachedSplitPoints
+    splitPointsObjPfConst eq pf (GAST.ObjConstant cnst) = HPT.CachedSplitPoints
         (Set.singleton $ HPT.Proof $ Map.singleton splitPt $ if eq then HPT.Left else HPT.Right)
         (Set.singleton $ HPT.Proof $ Map.singleton splitPt $ if eq then HPT.Right else HPT.Left)
         (HPT.Primitive $ Set.singleton splitPt)
@@ -594,8 +593,8 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
         splitPt = HPT.ObjectSplit pf cnst
 
     splitPointsObjPfs :: Bool
-                      -> GAST.PFunc GroundedAST.Object
-                      -> GAST.PFunc GroundedAST.Object
+                      -> GAST.PFunc GAST.Object
+                      -> GAST.PFunc GAST.Object
                       -> HPT.CachedSplitPoints
     splitPointsObjPfs eq pfX pfY = HPT.CachedSplitPoints
         proofsT
@@ -676,8 +675,8 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
             (from, upto, _) = corners pf
         validSplitPoint _ = undefined
 
-        corners :: GAST.PFunc GroundedAST.Object -> (Integer, Integer, Set Integer)
-        corners pf = case Map.lookup (GroundedAST.probabilisticFuncLabel pf) prevChoicesObjects of
+        corners :: GAST.PFunc GAST.Object -> (Integer, Integer, Set Integer)
+        corners pf = case Map.lookup (GAST.probabilisticFuncLabel pf) prevChoicesObjects of
             Nothing                             -> (0, lastObj, Set.empty)
             Just (KB.Object obj)           -> (obj, obj, Set.empty)
             Just (KB.AnyExcept excl)       -> ( head $ List.filter (\i -> not $ Set.member i excl) [0..lastObj]
@@ -691,9 +690,9 @@ heuristicBuildInPredObject prevChoicesObjects prd = case prd of
                 , excl
                 )
             where
-            lastObj = GroundedAST.objectPfNrObjects pf - 1
+            lastObj = GAST.objectPfNrObjects pf - 1
 
-        equalSplit :: GAST.PFunc GroundedAST.Object -> Integer
+        equalSplit :: GAST.PFunc GAST.Object -> Integer
         equalSplit pf = appNTimes (nObjects `div` 2 - 1) increment lCorner
             where
             (lCorner, uCorner, excl) = corners pf
