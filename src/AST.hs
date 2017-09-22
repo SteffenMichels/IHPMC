@@ -212,8 +212,8 @@ varsInRuleBodyElement (UserPredicate _ args) = any varsInExpr args
 varsInRuleBodyElement (BuildInPredicate bip) = varsInBip bip
 
 varsInBip :: BuildInPredicate -> Bool
-varsInBip (AST.Equality _ exprX exprY) = varsInExpr exprX || varsInExpr exprY
-varsInBip (AST.Ineq _     exprX exprY) = varsInExpr exprX || varsInExpr exprY
+varsInBip (Equality _ exprX exprY) = varsInExpr exprX || varsInExpr exprY
+varsInBip (Ineq _     exprX exprY) = varsInExpr exprX || varsInExpr exprY
 
 varsInExpr :: Expr -> Bool
 varsInExpr (Variable _)      = True
@@ -221,70 +221,69 @@ varsInExpr (ConstantExpr _)  = False
 varsInExpr (PFunc _ args)    = any varsInExpr args
 varsInExpr (Sum exprX exprY) = varsInExpr exprX || varsInExpr exprY
 
-exprIsPFunc :: AST.Expr -> Bool
-exprIsPFunc (AST.PFunc _ _) = True
+exprIsPFunc :: Expr -> Bool
+exprIsPFunc (PFunc _ _) = True
 exprIsPFunc _               = False
 
 -- traverses top-down
-mapExprsInRuleBodyElement :: (AST.Expr -> AST.Expr) -> AST.RuleBodyElement -> AST.RuleBodyElement
+mapExprsInRuleBodyElement :: (Expr -> Expr) -> RuleBodyElement -> RuleBodyElement
 mapExprsInRuleBodyElement f el = snd $ mapAccExprsInRuleBodyElement (\a e -> (a, f e)) () el
 
 mapExprsInRuleBodyElementM :: Monad m
-                           => AST.RuleBodyElement
-                           -> (AST.Expr -> m AST.Expr)
-                           -> (AST.Expr -> m AST.Expr)
-                           -> m AST.RuleBodyElement
+                           => RuleBodyElement
+                           -> (Expr -> m Expr)
+                           -> (Expr -> m Expr)
+                           -> m RuleBodyElement
 mapExprsInRuleBodyElementM el userPF bipF = case el of
-    AST.UserPredicate label args -> do
+    UserPredicate label args -> do
         args' <- forM args (`mapExprM` userPF)
-        return $ AST.UserPredicate label args'
-    AST.BuildInPredicate bip -> do
+        return $ UserPredicate label args'
+    BuildInPredicate bip -> do
         bip' <- case bip of
-            AST.Equality eq exprX exprY -> do exprX' <- mapExprM exprX bipF
-                                              exprY' <- mapExprM exprY bipF
-                                              return $ AST.Equality eq exprX' exprY'
-            AST.Ineq op exprX exprY     -> do exprX' <- mapExprM exprX bipF
-                                              exprY' <- mapExprM exprY bipF
-                                              return $ AST.Ineq op exprX' exprY'
-        return $ AST.BuildInPredicate bip'
+            Equality eq exprX exprY -> do exprX' <- mapExprM exprX bipF
+                                          exprY' <- mapExprM exprY bipF
+                                          return $ Equality eq exprX' exprY'
+            Ineq op exprX exprY     -> do exprX' <- mapExprM exprX bipF
+                                          exprY' <- mapExprM exprY bipF
+                                          return $ Ineq op exprX' exprY'
+        return $ BuildInPredicate bip'
 
-mapExprM :: Monad m => AST.Expr -> (AST.Expr -> m AST.Expr) -> m AST.Expr
+mapExprM :: Monad m => Expr -> (Expr -> m Expr) -> m Expr
 mapExprM expr f = do
     expr' <- f expr
     case expr' of
-        AST.Sum exprX exprY -> do exprX' <- mapExprM exprX f
-                                  exprY' <- mapExprM exprY f
-                                  return $ AST.Sum exprX' exprY'
-        AST.PFunc label args -> do
-            args' <- forM args (`mapExprM` f)
-            return $ AST.PFunc label args'
+        Sum exprX exprY -> do exprX' <- mapExprM exprX f
+                              exprY' <- mapExprM exprY f
+                              return $ Sum exprX' exprY'
+        PFunc label args -> do args' <- forM args (`mapExprM` f)
+                               return $ PFunc label args'
         _ -> return expr'
 
-mapAccExprsInRuleBodyElement :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.RuleBodyElement -> (a, AST.RuleBodyElement)
+mapAccExprsInRuleBodyElement :: (a -> Expr -> (a, Expr)) -> a -> RuleBodyElement -> (a, RuleBodyElement)
 mapAccExprsInRuleBodyElement f acc el = case el of
-    AST.UserPredicate label args -> second (AST.UserPredicate label) $ mapAccumL (mapAccExpr f) acc args
-    AST.BuildInPredicate bip -> second AST.BuildInPredicate $ case bip of
-        AST.Equality eq exprX exprY -> let (acc',  exprX') = mapAccExpr f acc  exprX
-                                           (acc'', exprY') = mapAccExpr f acc' exprY
-                                       in  (acc'', AST.Equality eq exprX' exprY')
-        AST.Ineq op exprX exprY     -> let (acc',  exprX') = mapAccExpr f acc  exprX
-                                           (acc'', exprY') = mapAccExpr f acc' exprY
-                                       in  (acc'', AST.Ineq op exprX' exprY')
+    UserPredicate label args -> second (UserPredicate label) $ mapAccumL (mapAccExpr f) acc args
+    BuildInPredicate bip -> second BuildInPredicate $ case bip of
+        Equality eq exprX exprY -> let (acc',  exprX') = mapAccExpr f acc  exprX
+                                       (acc'', exprY') = mapAccExpr f acc' exprY
+                                   in  (acc'', Equality eq exprX' exprY')
+        Ineq op exprX exprY     -> let (acc',  exprX') = mapAccExpr f acc  exprX
+                                       (acc'', exprY') = mapAccExpr f acc' exprY
+                                   in  (acc'', Ineq op exprX' exprY')
 
-mapAccExpr :: (a -> AST.Expr -> (a, AST.Expr)) -> a -> AST.Expr -> (a, AST.Expr)
+mapAccExpr :: (a -> Expr -> (a, Expr)) -> a -> Expr -> (a, Expr)
 mapAccExpr f acc expr = case expr' of
-    AST.Sum exprX exprY -> let (acc'',  exprX') = mapAccExpr f acc'  exprX
-                               (acc''', exprY') = mapAccExpr f acc'' exprY
-                           in (acc''', AST.Sum exprX' exprY')
-    AST.PFunc label args -> second (AST.PFunc label) $ mapAccumL (mapAccExpr f) acc' args
+    Sum exprX exprY -> let (acc'',  exprX') = mapAccExpr f acc'  exprX
+                           (acc''', exprY') = mapAccExpr f acc'' exprY
+                       in (acc''', Sum exprX' exprY')
+    PFunc label args -> second (PFunc label) $ mapAccumL (mapAccExpr f) acc' args
     _ -> (acc', expr')
     where
     (acc', expr') = f acc expr
 
-foldExpr :: (a -> AST.Expr -> a) -> a -> AST.Expr -> a
+foldExpr :: (a -> Expr -> a) -> a -> Expr -> a
 foldExpr f acc expr = case expr of
-    AST.Sum exprX exprY -> foldExpr f (foldExpr f acc' exprX) exprY
-    AST.PFunc _ args    -> foldl' (foldExpr f) acc' args
+    Sum exprX exprY -> foldExpr f (foldExpr f acc' exprX) exprY
+    PFunc _ args    -> foldl' (foldExpr f) acc' args
     _                   -> acc'
     where
     acc' = f acc expr
