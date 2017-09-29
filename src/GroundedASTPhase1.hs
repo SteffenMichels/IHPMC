@@ -37,16 +37,17 @@ module GroundedASTPhase1 ( GroundedAST
                          , GroundedAST.RuleBodyCommon(..)
                          , RuleBodyElement
                          , GroundedAST.RuleBodyElementCommon(..)
-                         , PFuncLabel
+                         , PFuncLabel(..)
                          , GroundedAST.RealN
                          , GroundedAST.Object
                          , GroundedAST.Placeholder
                          , GroundedAST.Addition
                          , GroundedAST.Ineq
                          , GroundedAST.PredicateLabel(..)
-                         , GroundedAST.simplifiedExpr
-                         , GroundedAST.exprToText
-                         , GroundedAST.simplifiedBuildInPred
+                         , simplifiedExpr
+                         , exprToText
+                         , pFuncLabelToText
+                         , simplifiedBuildInPred
                          , GroundedAST.deterministicValue
                          , makePFuncBool
                          , makePFuncReal
@@ -54,13 +55,19 @@ module GroundedASTPhase1 ( GroundedAST
                          , makePFuncObj
                          , makePFuncObjOther
                          ) where
-import qualified GroundedAST
+import qualified GroundedASTCommon as GroundedAST
 import qualified AST
 import Probability
+import TextShow
+import Util
 import Data.Text (Text)
+import Data.HashMap (Map)
+import Data.Monoid ((<>))
+import GHC.Generics (Generic)
+import Data.Hashable (Hashable)
 
--- TODO: type for (AST.PFuncLabel, [AST.ConstantExpr])
-type PFuncLabel = (AST.PFuncLabel, [AST.ConstantExpr])
+data PFuncLabel = PFuncLabel AST.PFuncLabel [AST.ConstantExpr] deriving (Ord, Eq, Generic)
+instance Hashable PFuncLabel
 type GroundedAST = GroundedAST.GroundedASTCommon PFuncLabel
 type BuildInPredicate = GroundedAST.BuildInPredicateCommon PFuncLabel
 type TypedBuildInPred a = GroundedAST.TypedBuildInPredCommon PFuncLabel a
@@ -81,6 +88,42 @@ makePFuncString label dist = GroundedAST.PFunc label $ GroundedAST.StrDist dist
 makePFuncObj :: PFuncLabel -> Integer -> PFunc GroundedAST.Object
 makePFuncObj label nr = GroundedAST.PFunc label $ GroundedAST.UniformObjDist nr
 
-makePFuncObjOther :: PFuncLabel -> a{-PFuncPhase1 Object-} -> PFunc GroundedAST.Object
-makePFuncObjOther label other = GroundedAST.PFunc label $ GroundedAST.UniformOtherObjDist undefined--other
+makePFuncObjOther :: PFuncLabel -> PFunc GroundedAST.Object -> PFunc GroundedAST.Object
+makePFuncObjOther label other = GroundedAST.PFunc label $ GroundedAST.UniformOtherObjDist other
+
+simplifiedBuildInPred :: BuildInPredicate -> BuildInPredicate
+simplifiedBuildInPred (GroundedAST.BuildInPredicateBool prd) = GroundedAST.BuildInPredicateBool $ simplifiedTypedBuildInPred prd
+simplifiedBuildInPred (GroundedAST.BuildInPredicateReal prd) = GroundedAST.BuildInPredicateReal $ simplifiedTypedBuildInPred prd
+simplifiedBuildInPred (GroundedAST.BuildInPredicateInt  prd) = GroundedAST.BuildInPredicateInt  $ simplifiedTypedBuildInPred prd
+simplifiedBuildInPred (GroundedAST.BuildInPredicateStr  prd) = GroundedAST.BuildInPredicateStr  $ simplifiedTypedBuildInPred prd
+simplifiedBuildInPred (GroundedAST.BuildInPredicateObj  prd) = GroundedAST.BuildInPredicateObj  $ simplifiedTypedBuildInPred prd
+simplifiedBuildInPred (GroundedAST.BuildInPredicatePh   prd) = GroundedAST.BuildInPredicatePh   $ simplifiedTypedBuildInPred prd
+
+simplifiedTypedBuildInPred :: TypedBuildInPred a -> TypedBuildInPred a
+simplifiedTypedBuildInPred (GroundedAST.Equality eq exprX exprY) = GroundedAST.Equality eq (simplifiedExpr exprX) (simplifiedExpr exprY)
+simplifiedTypedBuildInPred (GroundedAST.Ineq     op exprX exprY) = GroundedAST.Ineq     op (simplifiedExpr exprX) (simplifiedExpr exprY)
+simplifiedTypedBuildInPred prd'                                  = prd'
+
+simplifiedExpr :: Expr a -> Expr a
+simplifiedExpr (GroundedAST.Sum exprX exprY) = case (simplifiedExpr exprX, simplifiedExpr exprY) of
+    (GroundedAST.ConstantExpr x, GroundedAST.ConstantExpr y) -> GroundedAST.ConstantExpr (add x y)
+    (exprX',        exprY')          -> GroundedAST.Sum exprX' exprY'
+simplifiedExpr expr = expr
+
+add :: GroundedAST.Addition a => GroundedAST.ConstantExpr a -> GroundedAST.ConstantExpr a -> GroundedAST.ConstantExpr a
+add (GroundedAST.RealConstant x) (GroundedAST.RealConstant y) = GroundedAST.RealConstant (x + y)
+add (GroundedAST.IntConstant  x) (GroundedAST.IntConstant  y) = GroundedAST.IntConstant  (x + y)
+
+-- Text functions
+
+pFuncLabelToText :: PFuncLabel -> Map Int Text -> Builder
+pFuncLabelToText (PFuncLabel label args) ids2str =
+    "~" <> AST.pFuncLabelToText label ids2str <>
+    if null args then "" else "(" <> showbLst args <> ")"
+
+exprToText :: Expr a
+           -> Map Int Text
+           -> Map Int (Int, [AST.ConstantExpr])
+           -> Builder
+exprToText expr = GroundedAST.exprToText expr (\label ids2str _ -> pFuncLabelToText label ids2str)
 

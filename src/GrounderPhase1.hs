@@ -123,12 +123,12 @@ exceptionToText (NonGroundEvidence e) ids2str _ =
     "All evidence has to be ground. Evidence '" <>
     AST.ruleBodyElementToText e ids2str <>
     "' is not ground."
-{-exceptionToText (DefArgShouldBeObjPf pf arg) ids2str ids2label =
+exceptionToText (DefArgShouldBeObjPf pf arg) ids2str ids2label =
     "Argument '" <>
     propExprWithTypeToText arg ids2str ids2label <>
-    "' of definition of random function '" -- <>
-    GAST.pFuncLabelToText pf ids2str ids2label <>
-    "' should be a random function of type 'Object'."-}
+    "' of definition of random function '" <>
+    GAST.pFuncLabelToText pf ids2str <>
+    "' should be a random function of type 'Object'."
 
 data Constraint = EqConstraint AST.Expr AST.Expr deriving (Eq, Generic, Ord)
 constraintToText :: Constraint -> Map Int Text -> Builder
@@ -433,13 +433,8 @@ toPropPredLabel (AST.PredicateLabel label) args =
                        in  (idNr, st{labelIdentifiers = lIdents})
               )
 
--- TODO: doesn't have to be a monadic function
-toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GState GAST.PFuncLabel
-toPropPFuncLabel label{-(AST.PFuncLabel label)-} args = return (label, args)
-    {-GAST.PFuncLabel <$>
-    state ( \st -> let (idNr, lIdents) = IdNrMap.getIdNr (label, args) $ labelIdentifiers st
-                   in  (idNr, st{labelIdentifiers = lIdents})
-          )-}
+toPropPFuncLabel :: AST.PFuncLabel -> [AST.ConstantExpr] -> GAST.PFuncLabel
+toPropPFuncLabel label args = GAST.PFuncLabel label args
 
 -- precondition: no vars in expr
 -- throws exception if there are PFs in expressions
@@ -558,7 +553,7 @@ toPropExpr expr pfDefs = mapPropExprWithType GAST.simplifiedExpr <$> case expr o
         toPropPFunc label' args' = do
             gPfDefs <- gets groundedRfDefs
             propArgs <- lift $ toPropArgs args'
-            propPFuncLabel <- toPropPFuncLabel label' propArgs
+            let propPFuncLabel = toPropPFuncLabel label' propArgs
             pfDef <- case Map.lookup propPFuncLabel gPfDefs of
                 Just def -> return def
                 Nothing  -> do

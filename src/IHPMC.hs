@@ -319,7 +319,7 @@ splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GAST.probabilisticFuncD
     nr :: GAST.PFunc GAST.Object -> Integer
     nr pf = case GAST.probabilisticFuncDef pf of
         GAST.UniformObjDist nr'          -> nr'
-        GAST.UniformOtherObjDist otherPf -> nr undefined--otherPf
+        GAST.UniformOtherObjDist otherPf -> nr otherPf
 
     KB.Conditions _ _ _ oConds = KB.entryChoices f
 

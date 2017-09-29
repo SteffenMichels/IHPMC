@@ -30,7 +30,7 @@ executable ihpmc_float
                 OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
-        GroundedAST
+        GroundedASTCommon
         GroundedASTPhase1
         GroundedASTPhase2
         IdNrMap
@@ -72,7 +72,7 @@ executable ihpmc_exact
                 OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
-        GroundedAST
+        GroundedASTCommon
         GroundedASTPhase1
         GroundedASTPhase2
         IdNrMap
@@ -123,7 +123,7 @@ test-suite integration
         IntegrationExactProbabilities
         IntegrationPreprocessor
         Main
-        GroundedAST
+        GroundedASTCommon
         GroundedASTPhase1
         GroundedASTPhase2
         IntegrationGrounding

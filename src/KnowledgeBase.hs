@@ -77,7 +77,6 @@ import Data.Monoid ((<>))
 import Control.Arrow (first)
 import qualified Data.List as List
 import Control.Monad.Reader
--- use IORefs because IO is needed within IHPMC anyhow (for timing, reporting, ...)
 import Data.IORef
 import qualified Data.HashTable.IO as H
 
@@ -103,7 +102,7 @@ data RefWithNode cachedInfo = RefWithNode
     , entryCachedInfo :: cachedInfo
     }
 
--- use ST monad to improve performance
+-- use IORefs because IO is needed within IHPMC anyhow (for timing, reporting, ...)
 type KBState cachedInfo = ReaderT (KnowledgeBase cachedInfo) (ExceptionalT IOException IO)
 
 -- aux functions for KBState monad, resembling functions on State monad
