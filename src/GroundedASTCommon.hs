@@ -27,7 +27,7 @@
 module GroundedASTCommon ( GroundedASTCommon(..)
                          , BuildInPredicateCommon(..)
                          , TypedBuildInPredCommon(..)
-                         , PFunc(..)
+                         , PFuncCommon(..)
                          , ExprCommon(..)
                          , PredicateLabel(..)
                          , ConstantExpr(..)
@@ -100,16 +100,16 @@ predicateLabelToText (PredicateLabel idNr) ids2str ids2label =
     where (label, args) = Map.findWithDefault undefined idNr ids2label
 instance Hashable PredicateLabel
 
-data PFunc pFuncLabel a = PFunc pFuncLabel (PFuncDefCommon pFuncLabel a)
+data PFuncCommon pFuncLabel a = PFunc pFuncLabel (PFuncDefCommon pFuncLabel a)
 -- there should never be more than one PF with the same label, so compare/hash only label and ignore definition
-instance Eq pFuncLabel => Eq (PFunc pFuncLabel a) where
+instance Eq pFuncLabel => Eq (PFuncCommon pFuncLabel a) where
     PFunc x _ == PFunc y _ = x == y
-instance Ord pFuncLabel => Ord (PFunc pFuncLabel a) where
+instance Ord pFuncLabel => Ord (PFuncCommon pFuncLabel a) where
     PFunc x _ <= PFunc y _ = x <= y
-instance Hashable pFuncLabel => Hashable (PFunc pFuncLabel a) where
+instance Hashable pFuncLabel => Hashable (PFuncCommon pFuncLabel a) where
     hashWithSalt salt (PFunc label _) = Hashable.hashWithSalt salt label
 
-pFuncToText :: PFunc pFuncLabel a
+pFuncToText :: PFuncCommon pFuncLabel a
             -> (pFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder)
             -> Map Int Text
             -> Map Int (Int, [AST.ConstantExpr])
@@ -121,7 +121,7 @@ data PFuncDefCommon pFuncLabel a where
     RealDist            :: (Rational -> Probability) -> (Probability -> Rational) -> PFuncDefCommon pFuncLabel RealN
     StrDist             :: [(Probability, Text)]                                  -> PFuncDefCommon pFuncLabel Text
     UniformObjDist      :: Integer                                                -> PFuncDefCommon pFuncLabel Object
-    UniformOtherObjDist :: PFunc pFuncLabel Object                                -> PFuncDefCommon pFuncLabel Object
+    UniformOtherObjDist :: PFuncCommon pFuncLabel Object                          -> PFuncDefCommon pFuncLabel Object
 
 newtype RuleBodyCommon pFuncLabel = RuleBody (Set (RuleBodyElementCommon pFuncLabel)) deriving (Eq, Generic, Ord)
 
@@ -174,9 +174,9 @@ data TypedBuildInPredCommon pFuncLabel a
     where
     Equality ::           Bool       -> ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a -> TypedBuildInPredCommon pFuncLabel a
     Ineq     :: Ineq a => AST.IneqOp -> ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a -> TypedBuildInPredCommon pFuncLabel a
-    Constant ::           Bool                                                 -> TypedBuildInPredCommon pFuncLabel a
+    Constant ::           Bool                                                             -> TypedBuildInPredCommon pFuncLabel a
 
-deriving instance Eq pFuncLabel  => Eq  (TypedBuildInPredCommon pFuncLabel a)
+deriving instance Eq  pFuncLabel => Eq  (TypedBuildInPredCommon pFuncLabel a)
 deriving instance Ord pFuncLabel => Ord (TypedBuildInPredCommon pFuncLabel a)
 
 typedBuildInPredToText :: TypedBuildInPredCommon pFuncLabel a
@@ -198,7 +198,7 @@ instance Hashable pFuncLabel => Hashable (TypedBuildInPredCommon pFuncLabel a)
 data ExprCommon pFuncLabel a
     where
     ConstantExpr ::               ConstantExpr a                                     -> ExprCommon pFuncLabel a
-    PFuncExpr    ::               PFunc pFuncLabel a                                 -> ExprCommon pFuncLabel a
+    PFuncExpr    ::               PFuncCommon pFuncLabel a                           -> ExprCommon pFuncLabel a
     Sum          :: Addition a => ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a -> ExprCommon pFuncLabel a
 
 deriving instance Eq pFuncLabel  => Eq  (ExprCommon pFuncLabel a)

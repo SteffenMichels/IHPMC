@@ -27,6 +27,10 @@
 module GroundedASTPhase1 ( GroundedAST
                          , GroundedAST.GroundedASTCommon(..)
                          , Expr
+                         , PFunc
+                         , GroundedAST.PFuncCommon(..)
+                         , PFuncDef
+                         , GroundedAST.PFuncDefCommon(..)
                          , GroundedAST.ExprCommon(..)
                          , GroundedAST.ConstantExpr(..)
                          , BuildInPredicate
@@ -74,7 +78,8 @@ type TypedBuildInPred a = GroundedAST.TypedBuildInPredCommon PFuncLabel a
 type Expr a = GroundedAST.ExprCommon PFuncLabel a
 type RuleBody = GroundedAST.RuleBodyCommon PFuncLabel
 type RuleBodyElement = GroundedAST.RuleBodyElementCommon PFuncLabel
-type PFunc = GroundedAST.PFunc PFuncLabel
+type PFunc = GroundedAST.PFuncCommon PFuncLabel
+type PFuncDef = GroundedAST.PFuncDefCommon PFuncLabel
 
 makePFuncBool :: PFuncLabel -> Probability-> PFunc Bool
 makePFuncBool label p = GroundedAST.PFunc label $ GroundedAST.Flip p

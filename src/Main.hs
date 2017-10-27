@@ -89,8 +89,8 @@ main' = do
     (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
     let ids2str = IdNrMap.fromIdNrMap identIds
     (groundedAst1, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ GrounderPhase1.ground ast
+    let (groundedAst, labelIds) = GrounderPhase2.substitutePfsWithPfArgs groundedAst1 labelIds
     let ids2label = IdNrMap.fromIdNrMap labelIds
-    let groundedAst = GrounderPhase2.substitutePfsWithPfArgs groundedAst1
     mapExceptionT ((,Map.empty, Map.empty) . IOException) $ KB.runKBState IHPMC.heuristicsCacheComputations $ do
         ((queries, evidence), predIds) <- KBConverter.convert groundedAst
         let ids2predlbl = IdNrMap.fromIdNrMap predIds

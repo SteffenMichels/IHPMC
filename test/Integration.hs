@@ -88,8 +88,8 @@ checkResults src expRes = do
             let query' = query strs2id
             res <- lift $ runExceptionalT $ do
                 let ast' = ast{AST.queries = [query']}
-                (groundedAst1, _) <- returnExceptional $ mapException ((, Map.empty) . GrounderException) $ GrounderPhase1.ground ast'
-                let groundedAst = GrounderPhase2.substitutePfsWithPfArgs groundedAst1
+                (groundedAst1, labelIds) <- returnExceptional $ mapException ((, Map.empty) . GrounderException) $ GrounderPhase1.ground ast'
+                let (groundedAst, _) = GrounderPhase2.substitutePfsWithPfArgs groundedAst1 labelIds
                 mapExceptionT ((, Map.empty) . IOException) $ KB.runKBState IHPMC.heuristicsCacheComputations $ do
                     (([(_, qRef)], _), _) <- KBConverter.convert groundedAst
                     (_, _, bounds) <-  IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing)

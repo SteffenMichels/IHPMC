@@ -36,8 +36,9 @@ module GroundedASTPhase2 ( GroundedAST
                          , GroundedAST.RuleBodyCommon(..)
                          , RuleBodyElement
                          , GroundedAST.RuleBodyElementCommon(..)
-                         , PFuncLabel
+                         , PFuncLabel(..)
                          , PFunc
+                         , GroundedAST.PFuncCommon(..)
                          , probabilisticFuncLabel
                          , probabilisticFuncDef
                          , PFuncDef
@@ -81,7 +82,7 @@ type TypedBuildInPred a = GroundedAST.TypedBuildInPredCommon PFuncLabel a
 type Expr a = GroundedAST.ExprCommon PFuncLabel a
 type RuleBody = GroundedAST.RuleBodyCommon PFuncLabel
 type RuleBodyElement = GroundedAST.RuleBodyElementCommon PFuncLabel
-type PFunc a = GroundedAST.PFunc PFuncLabel a
+type PFunc a = GroundedAST.PFuncCommon PFuncLabel a
 type PFuncDef a = GroundedAST.PFuncDefCommon PFuncLabel a
 
 newtype PFuncLabel = PFuncLabel Int deriving (Eq, Generic, Ord)

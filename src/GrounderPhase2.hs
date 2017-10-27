@@ -22,7 +22,6 @@
 module GrounderPhase2
     ( substitutePfsWithPfArgs
     ) where
-import AST (AST)
 import qualified AST
 import IdNrMap (IdNrMap)
 import qualified IdNrMap
@@ -39,8 +38,109 @@ import Data.Foldable (foldl')
 import qualified GroundedASTPhase1 as GAST1
 import qualified GroundedASTPhase2 as GAST2
 
-substitutePfsWithPfArgs :: GAST1.GroundedAST-> GAST2.GroundedAST
-substitutePfsWithPfArgs = undefined
+substitutePfsWithPfArgs :: GAST1.GroundedAST
+                        -> IdNrMap (Int, [AST.ConstantExpr])
+                        -> (GAST2.GroundedAST, IdNrMap (Int, [AST.ConstantExpr]))
+substitutePfsWithPfArgs GAST1.GroundedAST{GAST1.rules, GAST1.queries, GAST1.evidence} lIds =
+    (GAST2.GroundedAST {GAST2.rules = rules', GAST2.queries = queries', GAST2.evidence = evidence'}, lIds''')
+    where
+    (lIds', rules')      = Map.mapAccum toRuleBodies2 lIds rules
+    (queries',  lIds'')  = toRuleBodyElements2 queries lIds'
+    (evidence', lIds''') = toRuleBodyElements2 evidence lIds''
+
+toRuleBodies2 :: IdNrMap (Int, [AST.ConstantExpr])
+              -> Set GAST1.RuleBody
+              -> (IdNrMap (Int, [AST.ConstantExpr]), Set GAST2.RuleBody)
+toRuleBodies2 lIds ruleBodies = (lIds', Set.fromList ruleBodies')
+    where
+    (lIds', ruleBodies') = mapAccumR toRuleBody2 lIds $ Set.toList ruleBodies
+
+    toRuleBody2 :: IdNrMap (Int, [AST.ConstantExpr])
+                -> GAST1.RuleBody
+                -> (IdNrMap (Int, [AST.ConstantExpr]), GAST2.RuleBody)
+    toRuleBody2 lIds'' (GAST1.RuleBody ruleBody) = (lIds''', GAST2.RuleBody ruleBody') 
+        where
+        (ruleBody', lIds''') = toRuleBodyElements2 ruleBody lIds''
+
+toRuleBodyElements2 :: Set GAST1.RuleBodyElement
+                    -> IdNrMap (Int, [AST.ConstantExpr])
+                    -> (Set GAST2.RuleBodyElement, IdNrMap (Int, [AST.ConstantExpr]))
+toRuleBodyElements2 queries lIds = (Set.fromList qs, lIds')
+    where
+    (lIds', qs) = mapAccumR toRuleBodyElement2 lIds $ Set.toList queries    
+
+    toRuleBodyElement2 :: IdNrMap (Int, [AST.ConstantExpr])
+                       -> GAST1.RuleBodyElement
+                       -> (IdNrMap (Int, [AST.ConstantExpr]), GAST2.RuleBodyElement)
+    toRuleBodyElement2 lIds'' (GAST1.UserPredicate prd) = (lIds'', GAST2.UserPredicate prd)
+    toRuleBodyElement2 lIds'' (GAST1.BuildInPredicate prd) = (lIds''', GAST2.BuildInPredicate prd')
+        where
+        (prd', lIds''') = toBuildInPred2 prd lIds''
+
+    toBuildInPred2 :: GAST1.BuildInPredicate
+                   -> IdNrMap (Int, [AST.ConstantExpr])
+                   -> (GAST2.BuildInPredicate, IdNrMap (Int, [AST.ConstantExpr]))
+    toBuildInPred2 (GAST1.BuildInPredicateBool prd) = toTypedBuildInPred2' GAST2.BuildInPredicateBool prd
+    toBuildInPred2 (GAST1.BuildInPredicateReal prd) = toTypedBuildInPred2' GAST2.BuildInPredicateReal prd
+    toBuildInPred2 (GAST1.BuildInPredicateStr  prd) = toTypedBuildInPred2' GAST2.BuildInPredicateStr  prd
+    toBuildInPred2 (GAST1.BuildInPredicateInt  prd) = toTypedBuildInPred2' GAST2.BuildInPredicateInt  prd
+    toBuildInPred2 (GAST1.BuildInPredicateObj  prd) = toTypedBuildInPred2' GAST2.BuildInPredicateObj  prd
+    toBuildInPred2 (GAST1.BuildInPredicatePh   prd) = toTypedBuildInPred2' GAST2.BuildInPredicatePh   prd
+
+    toTypedBuildInPred2' :: (GAST2.TypedBuildInPred a -> GAST2.BuildInPredicate)
+                         -> GAST1.TypedBuildInPred a
+                         -> IdNrMap (Int, [AST.ConstantExpr])
+                         -> (GAST2.BuildInPredicate, IdNrMap (Int, [AST.ConstantExpr]))
+    toTypedBuildInPred2' constr prd lIds'' = (constr prd', lIds''')
+        where
+        (prd', lIds''') = toTypedBuildInPred2 prd lIds''
+
+    toTypedBuildInPred2 :: GAST1.TypedBuildInPred a
+                        -> IdNrMap (Int, [AST.ConstantExpr])
+                        -> (GAST2.TypedBuildInPred a, IdNrMap (Int, [AST.ConstantExpr]))
+    toTypedBuildInPred2 (GAST1.Equality eq exprX exprY) lIds'' = (GAST2.Equality eq exprX' exprY', lIds'''')
+        where
+        (exprX', lIds''')  = toExpr2 exprX lIds''
+        (exprY', lIds'''') = toExpr2 exprY lIds'''
+    toTypedBuildInPred2 (GAST1.Ineq op exprX exprY) lIds'' = (GAST2.Ineq op exprX' exprY', lIds'''')
+        where
+        (exprX', lIds''')  = toExpr2 exprX lIds''
+        (exprY', lIds'''') = toExpr2 exprY lIds'''
+    toTypedBuildInPred2 (GAST1.Constant cnst) lIds'' = (GAST2.Constant cnst, lIds'')
+
+    toExpr2 :: GAST1.Expr a -> IdNrMap (Int, [AST.ConstantExpr]) -> (GAST2.Expr a, IdNrMap (Int, [AST.ConstantExpr]))
+    toExpr2 (GAST1.ConstantExpr expr) lIds'' = (GAST2.ConstantExpr expr, lIds'')
+    toExpr2 (GAST1.PFuncExpr pf)      lIds'' = (GAST2.PFuncExpr pf', lIds''')
+        where
+        (pf', lIds''') = toPFunc2 pf lIds''
+    toExpr2 (GAST1.Sum exprX exprY)   lIds'' = (GAST2.Sum exprX' exprY', lIds'''')
+        where
+        (exprX', lIds''')  = toExpr2 exprX lIds''
+        (exprY', lIds'''') = toExpr2 exprY lIds'''
+
+    toPFunc2 :: GAST1.PFunc a -> IdNrMap (Int, [AST.ConstantExpr]) -> (GAST2.PFunc a, IdNrMap (Int, [AST.ConstantExpr]))
+    toPFunc2 (GAST1.PFunc label def) lIds'' = (GAST2.PFunc label' def', lIds'''')
+        where
+        (label', lIds''')  = toPFuncLabel2 label lIds''
+        (def',   lIds'''') = toPFuncDef2 def lIds'''
+
+    toPFuncLabel2 :: GAST1.PFuncLabel
+                  -> IdNrMap (Int, [AST.ConstantExpr])
+                  -> (GAST2.PFuncLabel, IdNrMap (Int, [AST.ConstantExpr]))
+    toPFuncLabel2 (GAST1.PFuncLabel (AST.PFuncLabel lbl) args) lIds'' = (GAST2.PFuncLabel idNr, lIds''')
+        where
+        (idNr, lIds''') = IdNrMap.getIdNr (lbl, args) lIds''
+
+    toPFuncDef2 :: GAST1.PFuncDef a
+                -> IdNrMap (Int, [AST.ConstantExpr])
+                -> (GAST2.PFuncDef a, IdNrMap (Int, [AST.ConstantExpr]))
+    toPFuncDef2 (GAST1.Flip p)                      lIds'' = (GAST2.Flip p, lIds'')
+    toPFuncDef2 (GAST1.RealDist cdf cdf')           lIds'' = (GAST2.RealDist cdf cdf', lIds'')
+    toPFuncDef2 (GAST1.StrDist dist)                lIds'' = (GAST2.StrDist dist, lIds'')
+    toPFuncDef2 (GAST1.UniformObjDist objId)        lIds'' = (GAST2.UniformObjDist objId, lIds'')
+    toPFuncDef2 (GAST1.UniformOtherObjDist otherPf) lIds'' = (GAST2.UniformOtherObjDist otherPf', lIds''')
+        where
+        (otherPf', lIds''') = toPFunc2 otherPf lIds''
 
 {-substitutePfsWithPfArgs :: AST -> IdNrMap Text -> (AST, IdNrMap Text)
 substitutePfsWithPfArgs ast identIds = (ast', identIds')
