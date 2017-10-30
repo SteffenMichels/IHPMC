@@ -120,9 +120,6 @@ checkRealIneqPred op left right point = case op of
     eval (GroundedAST.ConstantExpr (GroundedAST.RealConstant r)) _ = Interval.rat2IntervLimPoint r
     eval (GroundedAST.Sum x y) point                   = eval x point + eval y point
 
-ruleBodyElementToText :: RuleBodyElement -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
-ruleBodyElementToText = undefined
-
 objectPfNrObjects :: PFunc GroundedAST.Object -> Integer
 objectPfNrObjects pf = case probabilisticFuncDef pf of
     GroundedAST.UniformObjDist n        -> n
@@ -146,6 +143,9 @@ groundedAstToText :: GroundedAST
                   -> Map Int (Int, [AST.ConstantExpr])
                   -> Builder
 groundedAstToText gast = GroundedAST.groundedAstToText gast pFuncLabelToText
+
+ruleBodyElementToText :: RuleBodyElement -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
+ruleBodyElementToText bElem = GroundedAST.ruleBodyElementToText bElem pFuncLabelToText
 
 pFuncLabelToText :: PFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 pFuncLabelToText (PFuncLabel idNr) ids2str ids2label =

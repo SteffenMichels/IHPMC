@@ -94,8 +94,8 @@ main' = do
                   (GAST1.groundedAstToText groundedAst1 ids2str $ IdNrMap.fromIdNrMap labelIds)
                 )
                 printGAST1
-    let (groundedAst, labelIds) = GrounderPhase2.substitutePfsWithPfArgs groundedAst1 labelIds
-    let ids2label = IdNrMap.fromIdNrMap labelIds
+    let (groundedAst, labelIds') = GrounderPhase2.substitutePfsWithPfArgs groundedAst1 labelIds
+    let ids2label = IdNrMap.fromIdNrMap labelIds'
     printIfTrue ( "\n**** Grounded AST (Phase 2) ****\n" <>
                   (GAST2.groundedAstToText groundedAst ids2str ids2label)
                 )
