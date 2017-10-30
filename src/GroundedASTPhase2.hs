@@ -49,6 +49,7 @@ module GroundedASTPhase2 ( GroundedAST
                          , predProbabilisticFunctions
                          , exprProbabilisticFunctions
                          , checkRealIneqPred
+                         , groundedAstToText
                          , pFuncLabelToText
                          , ruleBodyElementToText
                          , objectPfNrObjects
@@ -140,6 +141,11 @@ possibleValuesStr (GroundedAST.PFuncExpr (GroundedAST.PFunc pfLabel (GroundedAST
 possibleValuesStr _ _ = undefined
 
 -- Text functions
+groundedAstToText :: GroundedAST
+                  -> Map Int Text
+                  -> Map Int (Int, [AST.ConstantExpr])
+                  -> Builder
+groundedAstToText gast = GroundedAST.groundedAstToText gast pFuncLabelToText
 
 pFuncLabelToText :: PFuncLabel -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
 pFuncLabelToText (PFuncLabel idNr) ids2str ids2label =

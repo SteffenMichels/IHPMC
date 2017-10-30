@@ -49,6 +49,7 @@ module GroundedASTPhase1 ( GroundedAST
                          , GroundedAST.Ineq
                          , GroundedAST.PredicateLabel(..)
                          , simplifiedExpr
+                         , groundedAstToText
                          , exprToText
                          , pFuncLabelToText
                          , simplifiedBuildInPred
@@ -120,6 +121,12 @@ add (GroundedAST.RealConstant x) (GroundedAST.RealConstant y) = GroundedAST.Real
 add (GroundedAST.IntConstant  x) (GroundedAST.IntConstant  y) = GroundedAST.IntConstant  (x + y)
 
 -- Text functions
+
+groundedAstToText :: GroundedAST
+                  -> Map Int Text
+                  -> Map Int (Int, [AST.ConstantExpr])
+                  -> Builder
+groundedAstToText gast = GroundedAST.groundedAstToText gast (\pf ids2str _ -> pFuncLabelToText pf ids2str)
 
 pFuncLabelToText :: PFuncLabel -> Map Int Text -> Builder
 pFuncLabelToText (PFuncLabel label args) ids2str =

@@ -25,6 +25,7 @@ import qualified Parser
 import qualified GrounderPhase1
 import qualified GrounderPhase2
 import qualified KnowledgeBaseConverter as KBConverter
+import qualified GroundedASTPhase1 as GAST1
 import qualified GroundedASTPhase2 as GAST2
 import Exception
 import qualified IHPMC
@@ -71,7 +72,7 @@ main = do
 main' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
 main' = do
     args <- doIOException getArgs
-    Options{modelFile, nIterations, errBound, timeout, repInterval, formExpPath} <-
+    Options{modelFile, nIterations, errBound, timeout, repInterval, kbExpPath, printGAST1, printGAST2} <-
         mapExceptionT ((,Map.empty, Map.empty) . CommandLineArgsException) $ Options.parseConsoleArgs args
     assertT
         (ParameterException "Error bound has to be between 0.0 and 0.5.", Map.empty, Map.empty)
@@ -89,12 +90,20 @@ main' = do
     (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
     let ids2str = IdNrMap.fromIdNrMap identIds
     (groundedAst1, labelIds) <- returnExceptional $ mapException ((,ids2str, Map.empty) . GrounderException) $ GrounderPhase1.ground ast
+    printIfTrue ( "\n**** Grounded AST (Phase 1) ****\n" <>
+                  (GAST1.groundedAstToText groundedAst1 ids2str $ IdNrMap.fromIdNrMap labelIds)
+                )
+                printGAST1
     let (groundedAst, labelIds) = GrounderPhase2.substitutePfsWithPfArgs groundedAst1 labelIds
     let ids2label = IdNrMap.fromIdNrMap labelIds
+    printIfTrue ( "\n**** Grounded AST (Phase 2) ****\n" <>
+                  (GAST2.groundedAstToText groundedAst ids2str ids2label)
+                )
+                printGAST2
     mapExceptionT ((,Map.empty, Map.empty) . IOException) $ KB.runKBState IHPMC.heuristicsCacheComputations $ do
         ((queries, evidence), predIds) <- KBConverter.convert groundedAst
         let ids2predlbl = IdNrMap.fromIdNrMap predIds
-        whenJust formExpPath $ \path -> KB.exportAsDot path ids2str ids2label ids2predlbl
+        whenJust kbExpPath $ \path -> KB.exportAsDot path ids2str ids2label ids2predlbl
         let stopPred n (ProbabilityBounds l u) t =  maybe False (<= n)       nIterations
                                                  || maybe False (>= (u-l)/2) errBound
                                                  || maybe False (<= t)       timeout
@@ -133,6 +142,10 @@ doIOException io = mapExceptionT ((,Map.empty, Map.empty) . IOException) $ doIO 
 
 printIfSet :: (a -> Builder) -> Maybe a -> ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
 printIfSet fstr = maybe (return ()) $ doIOException . LTIO.putStrLn . toLazyText . fstr
+
+printIfTrue :: Builder -> Bool -> ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
+printIfTrue str print | print     = doIOException $ LTIO.putStrLn $ toLazyText str
+                      | otherwise = return ()
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust Nothing _   = return ()

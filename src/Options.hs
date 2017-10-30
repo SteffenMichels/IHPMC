@@ -44,7 +44,9 @@ data Options = Options
     , errBound    :: Maybe Probability
     , timeout     :: Maybe Int
     , repInterval :: Maybe Int
-    , formExpPath :: Maybe String
+    , kbExpPath   :: Maybe String
+    , printGAST1  :: Bool
+    , printGAST2  :: Bool
     }
 
 parseConsoleArgs :: Args -> ExceptionalT Builder IO Options
@@ -61,6 +63,8 @@ parseConsoleArgs args = do
         `andBy`    maybeFlag "timeout"             `Descr` "maximal inference runtime (ms)"
         `andBy`    maybeFlag "reporting_interval"  `Descr` "interval in which intermediate results are reported (ms)"
         `andBy`    maybeFlag "kb_export_path"      `Descr` "path to file to which the initial KB is exported (as dot file)"
+        `andBy`    boolFlag  "print_gast1"         `Descr` "print grounded AST (Phase 1)"
+        `andBy`    boolFlag  "print_gast2"         `Descr` "print grounded AST (Phase 2)"
 
 maybeFlag :: ReadArg a => Key -> StdArgParam (Maybe a)
 maybeFlag key = StdArgParam (Optional Nothing) Flag key (SingleArgParser $ readArg' key)
