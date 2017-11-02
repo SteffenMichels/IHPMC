@@ -278,7 +278,7 @@ splitNode f lf (HPT.ObjectIntervSplit splitPf splitObj) = case GAST.probabilisti
     KB.Conditions _ _ _ oConds = KB.entryChoices f
 splitNode f lf (HPT.ObjectSplit splitPf splitObj) = case GAST.probabilisticFuncDef splitPf of
     GAST.UniformObjDist _ -> splitObjNode $ 1 / nPossibilities
-    GAST.UniformOtherObjDist otherPf -> let otherPf = undefined in case possibleValues otherPf oConds of
+    GAST.UniformOtherObjDist otherPf -> case possibleValues otherPf oConds of
         KB.Object otherObj
             | otherObj == splitObj -> splitObjNode 0.0
             | otherwise -> splitObjNode $
