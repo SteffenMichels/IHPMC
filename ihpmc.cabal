@@ -30,6 +30,7 @@ executable ihpmc_float
                 OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
+        MainException
         GroundedASTCommon
         GroundedASTPhase1
         GroundedASTPhase2
@@ -47,7 +48,7 @@ executable ihpmc_float
         Exception
         Probability
         Util
-    ghc-options: -rtsopts -O2 -ferror-spans
+    ghc-options: -rtsopts -O2
 
 executable ihpmc_exact
     main-is: Main.hs
@@ -72,6 +73,7 @@ executable ihpmc_exact
                 OverloadedStrings ParallelListComp
     hs-source-dirs: src
     other-modules:
+        MainException
         GroundedASTCommon
         GroundedASTPhase1
         GroundedASTPhase2
@@ -89,11 +91,11 @@ executable ihpmc_exact
         Exception
         Probability
         Util
-    ghc-options: -rtsopts -O2 -ferror-spans
+    ghc-options: -rtsopts -O2
 
 test-suite integration
-    type: detailed-0.9
-    test-module: Integration
+    type: exitcode-stdio-1.0
+    main-is: Integration.hs
     build-depends:
         base -any,
         Cabal >=1.9.2,
@@ -113,7 +115,9 @@ test-suite integration
         Boolean -any,
         text -any,
         text-show >=3.4.1,
-        hashtables >= 1.2.1.1
+        hashtables >= 1.2.1.1,
+        tasty -any,
+        tasty-hunit -any
     extensions: StandaloneDeriving GADTs DeriveGeneric TupleSections
                 EmptyDataDecls NamedFieldPuns Rank2Types DoAndIfThenElse
                 OverloadedStrings ParallelListComp
@@ -122,7 +126,7 @@ test-suite integration
         IdNrMap
         IntegrationExactProbabilities
         IntegrationPreprocessor
-        Main
+        MainException
         GroundedASTCommon
         GroundedASTPhase1
         GroundedASTPhase2
@@ -141,4 +145,4 @@ test-suite integration
         Exception
         Probability
         Util
-    ghc-options: -Wall -O1 -ferror-spans
+    ghc-options: -Wall -O1

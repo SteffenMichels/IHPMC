@@ -40,7 +40,7 @@ where
 import Probability
 import Exception
 import qualified AST
-import Main (Exception(..))
+import MainException (Exception(..))
 import qualified GrounderPhase1
 import Data.HashMap (Map)
 import qualified Data.HashMap as Map
@@ -79,45 +79,46 @@ preciseProb p (Success (Just (ProbabilityBounds l u))) _ | l == u && l == p = Tr
 preciseProb _ _ _                                                           = False
 
 nonGround :: Text -> Int -> Int -> Exceptional Exception a -> Map Text Int -> Bool
-nonGround expLabel expN expNPreds (Exception (Main.GrounderException (GrounderPhase1.NonGroundPreds prds (AST.PredicateLabel label) n))) strs2id
+nonGround expLabel expN expNPreds (Exception (MainException.GrounderException (GrounderPhase1.NonGroundPreds prds (AST.PredicateLabel label) n))) strs2id
     | label == Map.findWithDefault undefined expLabel strs2id && n == expN && length prds == expNPreds = True
 nonGround _ _ _ _ _                                                                                    = False
 
 nonGroundPfDef :: Exceptional Exception a -> Map Text Int -> Bool
-nonGroundPfDef (Exception (Main.GrounderException GrounderPhase1.NonGroundPfDef{})) _ = True
-nonGroundPfDef _                                                                    _ = False
+nonGroundPfDef (Exception (MainException.GrounderException GrounderPhase1.NonGroundPfDef{})) _ = True
+nonGroundPfDef _                                                                             _ = False
 
 typeError :: Exceptional Exception a -> Map Text Int -> Bool
-typeError (Exception (Main.GrounderException (GrounderPhase1.TypeError _ _))) _ = True
-typeError _                                                                   _ = False
+typeError (Exception (MainException.GrounderException (GrounderPhase1.TypeError _ _))) _ = True
+typeError _                                                                            _ = False
 
 wrongObjOtherArg :: Exceptional Exception a -> Map Text Int -> Bool
-wrongObjOtherArg (Exception (Main.GrounderException (GrounderPhase1.DefArgShouldBeObjPf _ _))) _ = True
-wrongObjOtherArg _                                                                             _ = False
+wrongObjOtherArg (Exception (MainException.GrounderException (GrounderPhase1.DefArgShouldBeObjPf _ _))) _ = True
+wrongObjOtherArg _                                                                                      _ = False
 
 nonGroundQuery :: Exceptional Exception a -> Map Text Int -> Bool
-nonGroundQuery (Exception (Main.GrounderException (GrounderPhase1.NonGroundQuery _))) _ = True
-nonGroundQuery _                                                                      _ = False
+nonGroundQuery (Exception (MainException.GrounderException (GrounderPhase1.NonGroundQuery _))) _ = True
+nonGroundQuery _                                                                               _ = False
 
 unsolvableConstrs :: Exceptional Exception a -> Map Text Int -> Bool
-unsolvableConstrs (Exception (Main.GrounderException (GrounderPhase1.UnsolvableConstraints _))) _ = True
-unsolvableConstrs _                                                                             _ = False
+unsolvableConstrs (Exception (MainException.GrounderException (GrounderPhase1.UnsolvableConstraints _))) _ = True
+unsolvableConstrs _                                                                                      _ = False
 
 undefinedPf :: Text -> Int -> Exceptional Exception a -> Map Text Int -> Bool
-undefinedPf expPf expN (Exception (Main.GrounderException (GrounderPhase1.UndefinedPf pf n))) strs2id
+undefinedPf expPf expN (Exception (MainException.GrounderException (GrounderPhase1.UndefinedPf pf n))) strs2id
     | AST.PFuncLabel (Map.findWithDefault undefined expPf strs2id) == pf && expN == n = True
 undefinedPf _ _ _ _                                                                   = False
 
 undefinedPred :: Text -> Int -> Exceptional Exception a -> Map Text Int -> Bool
-undefinedPred expPred expN  (Exception (Main.GrounderException (GrounderPhase1.UndefinedPred prd n))) strs2id
+undefinedPred expPred expN  (Exception (MainException.GrounderException (GrounderPhase1.UndefinedPred prd n))) strs2id
     | AST.PredicateLabel (Map.findWithDefault undefinedQueryId expPred strs2id) == prd && expN == n = True
 undefinedPred _ _ _ _                                                                               = False
 
 undefinedPfVal :: Text -> Int -> Exceptional Exception a -> Map Text Int -> Bool
-undefinedPfVal expPf expN (Exception (Main.GrounderException (GrounderPhase1.UndefinedPfValue pf args))) strs2id
+undefinedPfVal expPf expN (Exception (MainException.GrounderException (GrounderPhase1.UndefinedPfValue pf args))) strs2id
     | AST.PFuncLabel (Map.findWithDefault undefined expPf strs2id) == pf && expN == length args = True
 undefinedPfVal _ _ _ _                                                                          = False
 
 pfAsArg :: Exceptional Exception a -> Map Text Int -> Bool
-pfAsArg (Exception (Main.GrounderException GrounderPhase1.ProbabilisticFuncUsedAsArg)) _ = True
-pfAsArg _                                                                              _ = False
+pfAsArg (Exception (MainException.GrounderException GrounderPhase1.ProbabilisticFuncUsedAsArg)) _ = True
+pfAsArg _                                                                                       _ = False
+

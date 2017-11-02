@@ -46,21 +46,7 @@ import TextShow
 import qualified Data.Text.Lazy.IO as LTIO
 import Data.Monoid ((<>))
 import Data.Text (Text)
-
-data Exception = GrounderException        GrounderPhase1.Exception
-               | ParameterException       Builder
-               | CommandLineArgsException Builder
-               | ParserException          Parser.Exception
-               | IOException              IOException
-               | TestException            Builder
-
-exceptionToText :: Exception -> Map Int Text -> Map Int (Int, [AST.ConstantExpr]) -> Builder
-exceptionToText (GrounderException e)        ids2str ids2label = "Invalid model: " <> GrounderPhase1.exceptionToText e ids2str ids2label
-exceptionToText (ParameterException e)       _       _         = "Invalid parameter: " <> e
-exceptionToText (CommandLineArgsException e) _       _         = e
-exceptionToText (ParserException e)          _       _         = "Invalid model syntax: " <> showb e
-exceptionToText (IOException e)              _       _         = showb e
-exceptionToText (TestException e)            _       _         = "Invalid test: " <> e
+import MainException
 
 main :: IO ()
 main = do

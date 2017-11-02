@@ -19,8 +19,7 @@
 --IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 --CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-module Integration (tests, IntegrationTest(..)) where
-import Distribution.TestSuite
+module Main where
 import qualified Parser
 import qualified GrounderPhase1
 import qualified GrounderPhase2
@@ -35,7 +34,7 @@ import qualified IntegrationExactProbabilities
 import qualified IntegrationPreprocessor
 import Control.Monad (forM)
 import Data.Foldable (foldl')
-import Main (Exception(..), exceptionToText)
+import MainException (Exception(..), exceptionToText)
 import qualified AST
 import Control.Monad.Trans.Class (lift)
 import Probability
@@ -47,37 +46,36 @@ import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy as LT
 import Data.Monoid ((<>))
 import TextShow
+import Test.Tasty
+import Test.Tasty.HUnit
+
+main :: IO ()
+main = defaultMain tests
+
+tests :: TestTree
+tests = testGroup "Integration Tests" $ toTestGroup <$> allTests
 
 allTests :: [(String, [IntegrationTest])]
 allTests = [IntegrationGrounding.tests, IntegrationExactProbabilities.tests, IntegrationPreprocessor.tests]
 
-tests :: IO [Test]
-tests = return $ map toTestGroup allTests
+toTestGroup :: (String, [IntegrationTest]) -> TestTree
+toTestGroup (label, tsts) = testGroup label $ toTest <$> tsts
 
-toTestGroup :: (String, [IntegrationTest]) -> Test
-toTestGroup (label, tsts) = testGroup label $ map toTests tsts
 
-toTests :: IntegrationTest -> Test
-toTests IntegrationTest{label, model, expectedResults} = Test inst
-    where
-    inst = TestInstance
-         { run  = checkResults model expectedResults
-         , name = "\"" <> label <> "\""
-         , tags = []
-         , options = []
-         , setOption = \_ _ -> Right inst
-         }
+toTest :: IntegrationTest -> TestTree
+toTest IntegrationTest{label, model, expectedResults} = testCase label $ checkResults model expectedResults
 
 checkResults :: String
              -> [(Map Text Int -> AST.RuleBodyElement, Exceptional Exception (Maybe ProbabilityBounds) -> Map Text Int -> Bool)]
-             -> IO Progress
+             -> IO ()
 checkResults src expRes = do
     result <- runExceptionalT checkResults'
-    return $ Finished $ case result of
-        Exception (e, ids2Str, ids2label) -> Error $ LT.unpack $ TB.toLazyText $ exceptionToText e ids2Str ids2label
-        Success res                       -> res
+    case result of
+        Exception (e, ids2Str, ids2label) ->
+            assertFailure $ LT.unpack $ TB.toLazyText $ exceptionToText e ids2Str ids2label
+        _ -> return ()
     where
-    checkResults' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO Result
+    checkResults' :: ExceptionalT (Exception, Map Int Text, Map Int (Int, [AST.ConstantExpr])) IO ()
     checkResults' = do
         (ast, identIds) <- returnExceptional $ mapException ((,Map.empty, Map.empty) . ParserException) $ Parser.parsePclp src
         let ids2str = IdNrMap.fromIdNrMap identIds
@@ -95,7 +93,9 @@ checkResults src expRes = do
                     (_, _, bounds) <-  IHPMC.ihpmc qRef [] stopPred (\_ _ _ _ -> Nothing)
                     return bounds
             return (query', isExp (mapException fst res) strs2id, res)
-        return $ maybe Pass Fail $ LT.unpack . TB.toLazyText <$> foldl' (\mbErr res -> combineResults mbErr res ids2str) Nothing results
+        case LT.unpack . TB.toLazyText <$> foldl' (\mbErr res -> combineResults mbErr res ids2str) Nothing results of
+            Nothing      -> return ()
+            Just failMsg -> lift $ assertFailure failMsg
 
     stopPred _ (ProbabilityBounds l u) _ = l == u
 
@@ -106,7 +106,7 @@ combineResults :: Maybe Builder
 combineResults mbErr (query, isExp, res) ids2str
     | isExp = mbErr
     | otherwise = Just $
-        maybe "" (\err -> showb err <> "; ") mbErr <>
+        maybe "" (\err -> err <> "\n") mbErr <>
         "unexpected result '" <>
         TB.fromLazyText (LT.pack $ show (mapException (\(e, ids2label) -> exceptionToText e ids2str ids2label) res)) <>
         "' for query '" <> AST.ruleBodyElementToText query ids2str <> "'"
